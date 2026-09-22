@@ -747,8 +747,9 @@ function lineBuilder(container,kind){
       });
       return out;
     },
-    reset(){rows.length=0;addRow()}
+     reset(){rows.length=0;addRow()}
   };
+}
 const opt={
   products:()=>store.products.map(p=>[p.id,p.name]),materials:()=>store.materials.map(m=>[m.id,m.name]),
   distributors:()=>store.distributors.map(d=>[d.id,d.name]),customers:()=>store.customers.map(c=>[c.id,c.name]),
