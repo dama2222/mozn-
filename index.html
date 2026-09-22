@@ -1227,9 +1227,21 @@ function mountPurchases(){
     {k:'photo',label:'صورة الفاتورة (اختياري)',type:'file'}
   ],{noSubmit:true,main:true});
   purLB=lineBuilder(byId('pu-lines'),'purchase');
-  byId('pu-save').onclick=async()=>{
-    const hf=forms.find(f=>f.id==='uh'),v=hf.vals(),lines=purLB.values().filter(l=>l.item&&l.qty>0);
-    if(!lines.length){toast('أضف صنفاً','err');return}
+   byId('pu-save').onclick=async()=>{
+    const hf=forms.find(f=>f.id==='uh'),v=hf.vals();
+    const allLines=purLB.values();
+    console.log('=== PURCHASE LINES ===',JSON.stringify(allLines,null,2));
+    const lines=allLines.filter(l=>l.item&&l.qty>0);
+    if(!lines.length){
+      // رسالة دقيقة توضح المشكلة
+      const empty=allLines.filter(l=>!l.item);
+      const zeroQty=allLines.filter(l=>l.item&&!(l.qty>0));
+      let msg='أضف صنفاً صحيحاً:';
+      if(empty.length)msg+=' اكتب "اسم الصنف" للحقل الأول.';
+      if(zeroQty.length)msg+=' أدخل كمية أكبر من صفر.';
+      toast(msg,'err');
+      return;
+    }
     if(!v.payment){toast('اختر طريقة الدفع','err');return}
     if(v.payment==='credit'&&!v.supplier_id){toast('الآجل يحتاج مورّداً','err');return}
     const header={id:uuid(),date:v.date||today(),supplier_id:v.supplier_id||null,payment:v.payment,paid_via:v.paid_via||'',photo:v.photo||null,by:user.name,ts:Date.now()};
