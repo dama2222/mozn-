@@ -1874,15 +1874,23 @@ function renderBell(){
 }
 function openBellSheet(){
   const a=alertsList();
-  const sec=(t,rows)=>rows.length?'<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px">'+t+'</h2></div>'+rows.join(''):'';
-  const html=sec('مخزون منخفض',a.lowStock.map(p=>'<div class="lrow"><div>'+escHtml(p.name)+'<small>المتاح '+fmt(stockWH(store,p.id))+'</small></div></div>'))+
-    sec('مواد خام منخفضة',a.lowMat.map(m=>'<div class="lrow"><div>'+escHtml(m.name)+'<small>المتاح '+fmt(materialStock(store,m.id))+'</small></div></div>'))+
-    sec('عملاء متأخرون',a.overdue.map(x=>'<div class="lrow"><div>'+escHtml(x.c.name)+'<small>'+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+'</small></div></div>'))+
-    sec('موزعون متأخرون',a.lateDist.map(x=>'<div class="lrow"><div>'+escHtml(x.d.name)+'<small>'+fmt(x.s.bal)+' '+cur()+'</small></div></div>'))+
-    sec('خصومات حديثة',a.discounts.map(d=>{const name=d.kind==='customer'?cn(d.ref_id):d.kind==='operator'?nm('operators',d.ref_id):dn(d.ref_id);
-      return '<div class="lrow"><div>'+escHtml(name)+'<small>خصم '+fmt(d.amount)+' '+cur()+' — '+escHtml(d.reason)+'</small></div></div>'}).join(''))+
-    sec('شكاوى وطلبات سحب مال',a.complaints.map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><button class="mini" data-donecomplaint="'+c.id+'">تمّ</button></div>'))+
-    sec('طلبات وإشعارات',a.notices.map(n=>'<div class="lrow"><div>'+escHtml(n.title)+'<small>'+escHtml(n.body||'')+'</small></div><button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>'));
+  const sec=(t,rows)=>{
+    if(!rows)return '';
+    if(!Array.isArray(rows))return '';
+    if(!rows.length)return '';
+    return '<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px">'+t+'</h2></div>'+rows.join('');
+  };
+  const html=
+    sec('مخزون منخفض',(a.lowStock||[]).map(p=>'<div class="lrow"><div>'+escHtml(p.name)+'<small>المتاح '+fmt(stockWH(store,p.id))+'</small></div></div>'))+
+    sec('مواد خام منخفضة',(a.lowMat||[]).map(m=>'<div class="lrow"><div>'+escHtml(m.name)+'<small>المتاح '+fmt(materialStock(store,m.id))+'</small></div></div>'))+
+    sec('عملاء متأخرون',(a.overdue||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.c.name)+'<small>'+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+'</small></div></div>'))+
+    sec('موزعون متأخرون',(a.lateDist||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.d.name)+'<small>'+fmt(x.s.bal)+' '+cur()+'</small></div></div>'))+
+    sec('خصومات حديثة',(a.discounts||[]).map(d=>{
+      const name=d.kind==='customer'?cn(d.ref_id):d.kind==='operator'?nm('operators',d.ref_id):dn(d.ref_id);
+      return '<div class="lrow"><div>'+escHtml(name)+'<small>خصم '+fmt(d.amount)+' '+cur()+' — '+escHtml(d.reason)+'</small></div></div>';
+    }))+
+    sec('شكاوى وطلبات سحب مال',(a.complaints||[]).map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><button class="mini" data-donecomplaint="'+c.id+'">تمّ</button></div>'))+
+    sec('طلبات وإشعارات',(a.notices||[]).map(n=>'<div class="lrow"><div>'+escHtml(n.title)+'<small>'+escHtml(n.body||'')+'</small></div><button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>'));
   openSheet('<h3>التنبيهات</h3>'+(html||'<div class="empty">لا تنبيهات</div>'));
 }
 document.addEventListener('click',function(e){
