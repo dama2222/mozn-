@@ -1424,14 +1424,6 @@ async function boot(){
 }
 window.__muzn={get store(){return store},get adapter(){return adapter},seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal};
   }
-
-  // إضافة بيانات الاتصال هنا قبل تشغيل التطبيق
-  localStorage.setItem('muzn_cloud_cfg', JSON.stringify({
-    url: 'https://njxtxdrcluyovkqsceol.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qeGZ4ZHJjbHV5b3ZrcXNlY29sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMDkyNzEsImV4cCI6MjEwNTU4NTI3MX0.L1V-bqO1om6H1g9bSdkuRWjryhu5c_hiEEM7mZp7c0E' // ضع مفتاحك الكامل هنا
-  }));
-  console.log("تم حقن بيانات الاتصال بنجاح.");
-
   boot();
 })();
 </script>
