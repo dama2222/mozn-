@@ -726,11 +726,29 @@ function lineBuilder(container,kind){
     container.querySelector('[data-add]').onclick=addRow;
   }
   addRow();
-  return{
-    values(){return rows.map(id=>{const o={};FIELDS.forEach(f=>{const e=byId('li_'+id+'_'+f.k);o[f.k]=f.type==='number'?Math.max(parseFloat(e.value)||0,0):e.value.trim()});return o})},
+   return{
+    values(){
+      // اقرأ مباشرة من DOM — لا تعتمد على IDs
+      const out=[];
+      container.querySelectorAll('.lineitem').forEach(row=>{
+        const o={};
+        FIELDS.forEach(f=>{
+          const e=row.querySelector('[data-f="'+f.k+'"]');
+          if(!e){o[f.k]=f.type==='number'?0:'';return;}
+          if(f.type==='number'){
+            const raw=String(e.value||'').replace(/[^\d.\-]/g,'');
+            const n=parseFloat(raw);
+            o[f.k]=isNaN(n)?0:Math.max(n,0);
+          }else{
+            o[f.k]=String(e.value||'').trim();
+          }
+        });
+        out.push(o);
+      });
+      return out;
+    },
     reset(){rows.length=0;addRow()}
   };
-}
 const opt={
   products:()=>store.products.map(p=>[p.id,p.name]),materials:()=>store.materials.map(m=>[m.id,m.name]),
   distributors:()=>store.distributors.map(d=>[d.id,d.name]),customers:()=>store.customers.map(c=>[c.id,c.name]),
