@@ -507,7 +507,9 @@ function operatorDue(st,opId){
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},{id:'sales',t:'المبيعات',s:'المبيعات'},{id:'production',t:'الإنتاج',s:'الإنتاج'},
   {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},{id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
-  {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},{id:'distributors',t:'الموزعون والتسليم',s:'الموزعون'},{id:'management',t:'الإدارة',s:'الإدارة',admin:true}
+  {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},{id:'distributors',t:'الموزعون والتسليم',s:'الموزعون'},
+  {id:'attendance_log',t:'سجل الحضور',s:'الحضور'},
+  {id:'management',t:'الإدارة',s:'الإدارة',admin:true}
 ];
 const isA=()=>user&&user.role==='admin';
 const canE=()=>isA()||(user&&user.can_edit);
@@ -931,6 +933,7 @@ const SKEL={
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات (يمكن أكثر من صنف)</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
+  attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
 };
 
@@ -938,6 +941,7 @@ const SKEL={
 let salesLB;
 function mountSales(){
   byId('sales-att-btn').onclick=distAttendanceSheet;
+    byId('sales-add-cust').onclick=()=>entSheet('customers',null);
   renderShiftChip();
   mountForm(byId('sales-head'),'sh',[
     {k:'date',label:'تاريخ البيع',type:'date',value:today},
@@ -1286,13 +1290,75 @@ function mountCollections(){
   }});
 }
 function renderCollections(){
+  document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-wa-cust]');
+  if(!b)return;
+  customerWhatsAppSheet(b.dataset.waCust);
+});
+function customerWhatsAppSheet(cid){
+  const c=store.customers.find(x=>x.id===cid);if(!c)return;
+  const bal=custBal(store,c);
+  const invs=store.sale_items_flat.filter(s=>s.customer_id===cid&&s.type==='credit');
+  const byHeader={};invs.forEach(it=>{(byHeader[it.header_id]=byHeader[it.header_id]||{date:it.date,items:[]}).items.push(it)});
+  const list=Object.entries(byHeader).map(([hid,h])=>({date:h.date,amount:sum(h.items,saleItemNet)})).sort((a,b)=>a.date.localeCompare(b.date));
+  const lines=['السلام عليكم '+c.name+'،','نودّ تذكيركم بموعد سداد الفواتير المستحقة:',''];
+  list.slice(-5).forEach((inv,i)=>{lines.push('• فاتورة '+inv.date+' — '+fmt(inv.amount)+' '+cur())});
+  lines.push('');
+  lines.push('المبلغ المتبقي: '+fmt(bal.remaining)+' '+cur());
+  if(bal.tax>0)lines.push('ضريبة تأخير: '+fmt(bal.tax)+' '+cur());
+  if(bal.due)lines.push('تاريخ الاستحقاق: '+bal.due);
+  lines.push('');
+  lines.push('شاكرين تعاونكم — '+store.company.name);
+  const text=lines.join('\n');
+  openSheet('<h3>رسالة للعميل '+escHtml(c.name)+'</h3>'+
+    '<p class="muted">الهاتف: '+escHtml(c.phone||'غير مسجل')+'</p>'+
+    '<textarea class="rep" rows="10" id="wa-text"></textarea>'+
+    '<div class="btnrow">'+
+      (c.phone?'<a class="btn-primary" style="text-align:center;text-decoration:none;display:block" target="_blank" href="https://wa.me/'+c.phone.replace(/[^\d]/g,'')+'?text='+encodeURIComponent(text)+'">📱 فتح واتساب</a>':'<span class="hint">أضف رقم هاتف للعميل من الإدارة</span>')+
+      '<button class="btn-ghost" id="wa-copy">نسخ</button>'+
+    '</div>');
+  byId('wa-text').value=text;
+  byId('wa-copy').onclick=()=>copyText(text);
+}
+  document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-wa-cust]');
+  if(!b)return;
+  customerWhatsAppSheet(b.dataset.waCust);
+});
+function customerWhatsAppSheet(cid){
+  const c=store.customers.find(x=>x.id===cid);if(!c)return;
+  const bal=custBal(store,c);
+  const invs=store.sale_items_flat.filter(s=>s.customer_id===cid&&s.type==='credit');
+  const byHeader={};invs.forEach(it=>{(byHeader[it.header_id]=byHeader[it.header_id]||{date:it.date,items:[]}).items.push(it)});
+  const list=Object.entries(byHeader).map(([hid,h])=>({date:h.date,amount:sum(h.items,saleItemNet)})).sort((a,b)=>a.date.localeCompare(b.date));
+  const lines=['السلام عليكم '+c.name+'،','نودّ تذكيركم بموعد سداد الفواتير المستحقة:',''];
+  list.slice(-5).forEach((inv,i)=>{lines.push('• فاتورة '+inv.date+' — '+fmt(inv.amount)+' '+cur())});
+  lines.push('');
+  lines.push('المبلغ المتبقي: '+fmt(bal.remaining)+' '+cur());
+  if(bal.tax>0)lines.push('ضريبة تأخير: '+fmt(bal.tax)+' '+cur());
+  if(bal.due)lines.push('تاريخ الاستحقاق: '+bal.due);
+  lines.push('');
+  lines.push('شاكرين تعاونكم — '+store.company.name);
+  const text=lines.join('\n');
+  openSheet('<h3>رسالة للعميل '+escHtml(c.name)+'</h3>'+
+    '<p class="muted">الهاتف: '+escHtml(c.phone||'غير مسجل')+'</p>'+
+    '<textarea class="rep" rows="10" id="wa-text"></textarea>'+
+    '<div class="btnrow">'+
+      (c.phone?'<a class="btn-primary" style="text-align:center;text-decoration:none;display:block" target="_blank" href="https://wa.me/'+c.phone.replace(/[^\d]/g,'')+'?text='+encodeURIComponent(text)+'">📱 فتح واتساب</a>':'<span class="hint">أضف رقم هاتف للعميل من الإدارة</span>')+
+      '<button class="btn-ghost" id="wa-copy">نسخ</button>'+
+    '</div>');
+  byId('wa-text').value=text;
+  byId('wa-copy').onclick=()=>copyText(text);
+}
   if(!byId('kanban'))return;
   const cs=store.customers,f=ui.f.col,bals=cs.map(c=>({c,b:custBal(store,c)}));
   pills('#col-pills',[['all','الكل ('+cs.length+')'],['overdue','متأخرة'],['week','الأسبوع'],['later','لاحقاً'],['paid','مسددة']],f,'col');
   const cols=BUCKETS.filter(b=>f==='all'||b[0]===f);
   byId('kanban').innerHTML=cols.map(b=>{const items=bals.filter(x=>x.b.bucket===b[0]);
     return '<div class="col'+(cols.length===1?' full':'')+'"><div class="col-h"><div>'+b[1]+'</div><span>'+money(sum(items,x=>x.b.remaining))+'</span></div>'+
-      items.map(x=>'<button class="kcard" data-cust="'+x.c.id+'"><b>'+escHtml(x.c.name)+'</b><small>'+escHtml(dn(x.c.distributor_id))+' · '+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+(x.b.due&&b[0]!=='paid'?' · '+x.b.due:'')+'</small></button>').join('')+'</div>';
+      items.map(x=>'<div style="margin-top:8px"><button class="kcard" data-cust="'+x.c.id+'"><b>'+escHtml(x.c.name)+'</b><small>'+escHtml(dn(x.c.distributor_id))+' · '+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+(x.b.due&&b[0]!=='paid'?' · يستحق '+x.b.due:'')+'</small></button>'+
+        (b[0]==='overdue'||b[0]==='week'?'<button class="btn-ghost sm" style="width:100%;margin-top:4px" data-wa-cust="'+x.c.id+'">📱 إرسال واتساب للعميل</button>':'')+
+        '</div>').join('')+'</div>';
   }).join('');
   const rows=bals.filter(x=>f==='all'||x.b.bucket===f);
   byId('ledger').innerHTML=table([{h:'العميل',f:x=>escHtml(x.c.name)},{h:'المنطقة',f:x=>escHtml(x.c.region||'—')},{h:'المندوب',f:x=>escHtml(dn(x.c.distributor_id))},
@@ -1339,6 +1405,62 @@ function receiptSheet(id){
   byId('rc-copy').onclick=()=>copyText(text);byId('rc-print').onclick=()=>{try{window.print()}catch(e){toast('غير متاح','err')}};
 }
 function renderDistributors(){
+  /* ---------- سجل الحضور ---------- */
+function mountAttendanceLog(){
+  // لا نماذج — فقط عرض
+}
+let _attFilter='all';
+function renderAttendanceLog(){
+  if(!byId('att-body'))return;
+  const tabs=[
+    ['all','الكل'],
+    ['production','فريق الإنتاج'],
+    ['distributors','الموزعون'],
+    ['shifts','ورديات الموظفين']
+  ];
+  const el=byId('att-pills');if(el)el.innerHTML=tabs.map(t=>'<button class="pill'+(_attFilter===t[0]?' on':'')+'" data-attf="'+t[0]+'">'+t[1]+'</button>').join('');
+  const recs=[];
+  // سجلات حضور الإنتاج
+  if(_attFilter==='all'||_attFilter==='production'){
+    (store.attendance||[]).forEach(a=>{
+      recs.push({kind:'production',date:a.date,by:a.by,ts:a.ts,present:(a.present||[]).map(id=>nm('operators',id)),absent:(a.absent||[]).map(id=>nm('operators',id)),photos:[]});
+    });
+  }
+  // سجلات حضور الموزعين
+  if(_attFilter==='all'||_attFilter==='distributors'){
+    (store.dist_attendance||[]).forEach(a=>{
+      recs.push({kind:'distributors',date:a.date,by:a.by,ts:a.ts,present:(a.present||[]).map(id=>nm('distributors',id)),absent:(a.absent||[]).map(id=>nm('distributors',id)),photos:Object.values(a.photos||{})});
+    });
+  }
+  // ورديات الموظفين
+  if(_attFilter==='all'||_attFilter==='shifts'){
+    (store.attendance_shifts||[]).forEach(s=>{
+      const dur=s.checkout_ts?Math.round((s.checkout_ts-s.checkin_ts)/60000):null;
+      recs.push({kind:'shift',date:s.date,by:s.by,ts:s.ts,user:nm('users',s.user_id)||s.by,checkin:new Date(s.checkin_ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}),checkout:s.checkout_ts?new Date(s.checkout_ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}):'—',duration:dur,photos:[s.checkin_photo,s.checkout_photo].filter(Boolean),closed:s.closed});
+    });
+  }
+  recs.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const rows=recs.slice(0,60);
+  const html=rows.length?rows.map(r=>{
+    const tagCls=r.kind==='production'?'rec':r.kind==='distributors'?'cash':'adm';
+    const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':'وردية';
+    if(r.kind==='shift'){
+      return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b>'+escHtml(r.user)+'</b> '+tag(tagCls,tagTxt)+'<div class="muted" style="font-size:12px">'+r.date+' · '+r.checkin+' → '+r.checkout+(r.duration!=null?' ('+r.duration+' دقيقة)':'')+'</div></div>'+(r.closed?'<span class="tag cash">مغلقة</span>':'<span class="tag credit">مفتوحة</span>')+'</div>'+
+        (r.photos.length?'<div class="chips" style="margin-top:8px">'+r.photos.map(u=>'<img class="att-photo" src="'+u+'" data-att-big="'+u+'">').join('')+'</div>':'')+'</div>';
+    }
+    return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b>'+r.date+'</b> '+tag(tagCls,tagTxt)+'<div class="muted" style="font-size:12px">بواسطة '+escHtml(r.by||'—')+'</div></div></div>'+
+      '<div style="margin-top:8px"><b>حاضر:</b> '+(r.present.length?r.present.map(escHtml).join('، '):'—')+'</div>'+
+      (r.absent.length?'<div class="dn"><b>غائب:</b> '+r.absent.map(escHtml).join('، ')+'</div>':'')+
+      (r.photos&&r.photos.length?'<div class="chips" style="margin-top:8px">'+r.photos.map(u=>'<img class="att-photo" src="'+u+'" data-att-big="'+u+'">').join('')+'</div>':'')+
+      '</div>';
+  }).join(''):'<div class="empty">لا سجلات بعد</div>';
+  byId('att-body').innerHTML=html;
+  $$('[data-att-big]').forEach(img=>img.onclick=()=>openSheet('<h3>صورة</h3><img class="att-photo big" src="'+img.dataset.attBig+'">'));
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-attf]');
+  if(t){_attFilter=t.dataset.attf;renderAttendanceLog();}
+});
   if(!byId('di-cards'))return;
   const canSee=(isA()||user.perms.indexOf('distributors')>=0||user.perms.indexOf('withdrawals')>=0);
   const open=canSee?store.notices.filter(n=>n.kind==='distributor'&&!n.done):[];
@@ -1487,7 +1609,7 @@ const ENT={
     {k:'material_qty',label:'كمية المادة/وحدة',type:'number',step:'0.001',value:0}]},
   materials:{title:'مادة',fields:[{k:'name',label:'الاسم'},{k:'unit',label:'الوحدة',value:'كغ'},{k:'cost',label:'التكلفة',type:'number',step:'0.001',value:0},
     {k:'opening',label:'افتتاحي',type:'number',value:0},{k:'min_stock',label:'حد التنبيه',type:'number',value:0}]},
-  customers:{title:'عميل',fields:[{k:'name',label:'الاسم'},{k:'region',label:'المنطقة'},{k:'distributor_id',label:'الموزع',type:'select',options:opt.distributors},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}]},
+  customers:{title:'عميل',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'رقم الهاتف (واتساب)',placeholder:'9665xxxxxxxx'},{k:'region',label:'المنطقة'},{k:'distributor_id',label:'الموزع',type:'select',options:opt.distributors},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}]},
   distributors:{title:'موزع',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف (واتساب)',placeholder:'9665xxxxxxxx'},{k:'period',label:'فترة التسليم',type:'radio',options:[['weekly','أسبوعي'],['monthly','شهري']],value:'weekly'}]},
   operators:{title:'مشغّل',fields:[{k:'name',label:'الاسم'}]},
   suppliers:{title:'مورّد',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف'},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:0}]},
@@ -1694,8 +1816,8 @@ function dataAction(a){
 }
 document.addEventListener('click',e=>{const t=e.target.closest('[data-data]');if(t)dataAction(t.dataset.data)});
 
-const MOUNT={sales:mountSales,production:mountProduction,withdrawals:mountWithdrawals,purchases:mountPurchases,collections:mountCollections,distributors:mountDistributors,management:mountManagement};
-const RENDER={overview:renderOverview,sales:renderSales,production:renderProduction,withdrawals:renderWithdrawals,purchases:renderPurchases,collections:renderCollections,distributors:renderDistributors,management:renderManagement};
+const MOUNT={sales:mountSales,production:mountProduction,withdrawals:mountWithdrawals,purchases:mountPurchases,collections:mountCollections,distributors:mountDistributors,attendance_log:mountAttendanceLog,management:mountManagement};
+const RENDER={overview:renderOverview,sales:renderSales,production:renderProduction,withdrawals:renderWithdrawals,purchases:renderPurchases,collections:renderCollections,distributors:renderDistributors,attendance_log:renderAttendanceLog,management:renderManagement};
 function renderAll(){index(store);Object.keys(RENDER).forEach(k=>{try{RENDER[k]()}catch(e){console.error(k,e)}});forms.forEach(f=>f.refresh());applyBrand();renderBell();autoNotify()}
 let _autoNotifyDay=null;
 async function autoNotify(){
@@ -1746,7 +1868,8 @@ function alertsList(){
     return false;
   });
   const discounts=isA()?(S.discounts||[]).filter(d=>!d.cancelled).slice(0,5):[];
-  const complaints=isA()?(S.complaints||[]).filter(c=>!c.done):[];
+   const complaints=isA()?(S.complaints||[]).filter(c=>!c.done):[];
+  // المدير يرى أيضاً إشعارات الشكاوى من notices
   return{lowStock,lowMat,overdue,lateDist,notices,discounts,complaints};
 }
 function renderBell(){
@@ -1766,7 +1889,10 @@ function openBellSheet(){
     sec('طلبات وإشعارات',a.notices.map(n=>'<div class="lrow"><div>'+escHtml(n.title)+'<small>'+escHtml(n.body||'')+'</small></div><button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>'));
   openSheet('<h3>التنبيهات</h3>'+(html||'<div class="empty">لا تنبيهات</div>'));
 }
-byId('bellBtn').addEventListener('click',function(e){e.preventDefault();e.stopPropagation();openBellSheet()});
+document.addEventListener('click',function(e){
+  const bell=e.target.closest('#bellBtn');
+  if(bell){e.preventDefault();e.stopPropagation();openBellSheet();return;}
+},true); // capture phase يعمل قبل أي handler آخر
 document.addEventListener('click',e=>{const b=e.target.closest('[data-donecomplaint]');if(!b)return;
   confirmSheet('تحديد كمكتمل؟','تم',async()=>{const id=b.dataset.donecomplaint;
     try{await adapter.updateSimple('complaints',id,{done:true});const c=(store.complaints||[]).find(x=>x.id===id);if(c)c.done=true;toast('تم');renderAll();openBellSheet()}
@@ -1812,8 +1938,15 @@ function complaintSheet(){
     if(!v.reason){toast('اذكر السبب','err');return false}
     if(v.type==='withdraw'&&v.amount<=0){toast('أدخل المبلغ','err');return false}
     const row={id:uuid(),date:today(),type:v.type,amount:v.type==='withdraw'?v.amount:0,reason:v.reason,by:user.name,ts:Date.now(),done:false};
-    try{await adapter.saveSimple('complaints',row);store.complaints=store.complaints||[];store.complaints.unshift(row);toast('تم');closeSheet();renderAll()}
-    catch(ex){console.error(ex);toast('تعذر','err')}
+    try{
+      await adapter.saveSimple('complaints',row);
+      store.complaints=store.complaints||[];
+      store.complaints.unshift(row);
+      // إشعار للمدير مباشرة
+      const notice={id:uuid(),date:today(),kind:'complaint',target_id:null,title:(v.type==='withdraw'?'طلب سحب مال':'شكوى')+' من '+user.name,body:v.reason+(v.type==='withdraw'?' — المبلغ: '+fmt(v.amount)+' '+cur():''),items:[],by:user.name,ts:Date.now(),done:false};
+      try{await adapter.saveSimple('notices',notice);store.notices.unshift(notice)}catch(e){console.warn('notice fail',e)}
+      toast('تم إرسال طلبك للمدير');closeSheet();renderAll();
+    }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
     return false;
   }});
 }
