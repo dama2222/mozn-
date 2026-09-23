@@ -1,28 +1,44 @@
 /* =====================================================================
-   MUZN Operations — Service Worker
+   MUZN Operations — Service Worker v3.2
    ===================================================================== */
-const CACHE_NAME = 'muzn-v3';
-const ASSETS = [
+const CACHE_NAME = 'muzn-v3-2';
+
+const CORE_ASSETS = [
   './',
   './index.html',
-  './manifest.json',
+  './manifest.json'
+];
+
+const OPTIONAL_ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
   './favicon-32.png',
-  './favicon-16.png'
+  './favicon-16.png',
+  './barcode.js'
 ];
 
-// Install
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(c => c.addAll(ASSETS))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(async cache => {
+      try {
+        await cache.addAll(CORE_ASSETS);
+        console.log('[SW] Core assets cached');
+      } catch (err) {
+        console.warn('[SW] Core cache failed:', err);
+      }
+      for (const asset of OPTIONAL_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch (err) {
+          console.warn('[SW] Skipped optional:', asset);
+        }
+      }
+      await self.skipWaiting();
+    })
   );
 });
 
-// Activate
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(
@@ -31,22 +47,39 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Fetch
+// ✅ استقبال رسالة تحديث من الصفحة
+self.addEventListener('message', e => {
+  if(e.data && e.data.type === 'CHECK_UPDATE'){
+    self.registration.update();
+  }
+});
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  if (e.request.url.indexOf('supabase') >= 0) return;
+  
+  // ✅ تجاهل إضافات المتصفح والبروتوكولات غير المدعومة
+  const url = e.request.url;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+  if (url.indexOf('chrome-extension') >= 0) return;
+  if (url.indexOf('moz-extension') >= 0) return;
+  if (url.indexOf('safari-extension') >= 0) return;
+  if (url.indexOf('supabase') >= 0) return;
+  if (url.indexOf('googleapis') >= 0) return;
+  if (url.indexOf('cdn.jsdelivr') >= 0) return;
+  if (url.indexOf('unpkg.com') >= 0) return;
+
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
-      if (resp.ok && resp.type === 'basic') {
+      // ✅ فقط خزّن الاستجابات الصحيحة
+      if (resp.ok && resp.type === 'basic' && resp.status === 200) {
         const clone = resp.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone)).catch(() => {});
       }
       return resp;
-    }))
+    }).catch(() => caches.match('./index.html')))
   );
 });
 
-// Push Notifications
 self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {};
   const title = data.title || 'MUZN';
@@ -62,7 +95,6 @@ self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Notification Click
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || '/';
