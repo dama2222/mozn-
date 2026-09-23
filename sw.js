@@ -1,10 +1,28 @@
+/* =====================================================================
+   MUZN Operations — Service Worker
+   ===================================================================== */
 const CACHE_NAME = 'muzn-v3';
-const ASSETS = ['./', './index.html', './manifest.json'];
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
+  './favicon-32.png',
+  './favicon-16.png'
+];
 
+// Install
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(c => c.addAll(ASSETS))
+      .then(() => self.skipWaiting())
+  );
 });
 
+// Activate
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(
@@ -13,6 +31,7 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Fetch
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (e.request.url.indexOf('supabase') >= 0) return;
@@ -27,6 +46,7 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// Push Notifications
 self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {};
   const title = data.title || 'MUZN';
@@ -34,11 +54,15 @@ self.addEventListener('push', e => {
     body: data.body || '',
     icon: './icon-192.png',
     badge: './icon-192.png',
-    data: { url: data.url || '/' }
+    vibrate: [200, 100, 200],
+    data: { url: data.url || '/' },
+    dir: 'rtl',
+    lang: 'ar'
   };
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
+// Notification Click
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || '/';
