@@ -688,8 +688,8 @@ function mountForm(el,id,fields,o){
   const fileData={};
   const dv=f=>{const v=typeof f.value==='function'?f.value():f.value;return v==null?'':v};
   const getOpts=f=>{const l=typeof f.options==='function'?f.options(api):(f.options||[]);return f.nophd?l:[['',f.ph||'اختر...']].concat(l)};
-  HTML=(f,cur)=>getOpts(f).map(x=>'<option value="'+escHtml(x[0])+'"'+(String(x[0])===String(cur)?' selected':'')+'>'+escHtml(x[1])+'</option>').join('');
-  function fieldHTML(f){
+  const optHTML=(f,cur)=>getOpts(f).map(x=>'<option value="'+escHtml(x[0])+'"'+(String(x[0])===String(cur)?' selected':'')+'>'+escHtml(x[1])+'</option>').join('');
+    function fieldHTML(f){
     const i=fid(f.k),v=dv(f),dk=' data-k="'+f.k+'"';let inp='';
     if(f.type==='file'){fileData[f.k]=v||null;
       inp='<input class="in" id="'+i+'"'+dk+' type="file" accept="image/*" capture="environment">'+
@@ -761,7 +761,7 @@ function lineBuilder(container,kind){
     return '<div class="lineitem" data-row="'+id+'"><button type="button" class="rm" data-rm="'+id+'" aria-label="حذف">×</button><div class="g2">'+
       FIELDS.map(f=>{
         const fid='li_'+id+'_'+f.k,full=f.full?' style="grid-column:1/-1"':'';
-        if(f.type==='select'){s=(f.nophd?f.options():[['','اختر...']].concat(f.options()));return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>'}
+if(f.type==='select'){const opts=(f.nophd?f.options():[['','اختر...']].concat(f.options()));return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>'}       
         return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><input class="in" id="'+fid+'" data-f="'+f.k+'" type="'+f.type+'"'+(f.type==='number'?' inputmode="decimal" min="0" step="'+(f.step||'any')+'"':'')+' value="'+escHtml(f.v)+'"></div>';
       }).join('')+'</div></div>';
   }
