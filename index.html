@@ -1764,7 +1764,7 @@ function renderShiftChip(){
 const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
   sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
-  production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
+  production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
@@ -1840,6 +1840,11 @@ function mountSales(){
     if(!v.type){toast('اختر نوع البيع','err');return}
     if(v.type==='credit'&&!v.customer_id){toast('البيع الآجل يحتاج عميلاً','err');return}
     if(v.distributor_id&&!distributorPresentToday(v.distributor_id)){toast('هذا الموزع غير حاضر اليوم بصورة','err');return}
+   if(v.distributor_id){
+  const rec = distAttendanceToday();
+  if(!rec){toast('أكّد حضور الموزعين أولاً من قسم الإنتاج','err');return}
+  if(!rec.photos || !rec.photos[v.distributor_id]){toast('صورة الموزع غير مسجلة','err');return}
+}
     for(const l of lines){
       const av=v.distributor_id?custody(store,v.distributor_id,l.product_id):stockWH(store,l.product_id);
       if(l.qty>av+1e-9){toast('المتاح من «'+pn(l.product_id)+'» هو '+fmt(av),'err');return}
@@ -1899,54 +1904,144 @@ function renderAttendanceCard(){
   const card=byId('att-card'),wrap=byId('prod-formwrap');
   if(!card||!wrap)return;
   const rec=attendanceToday();
-  if(rec&&!card.dataset.editing){
-    const names=(rec.present||[]).map(id=>nm('operators',id));
-    const absentNames=(rec.absent||[]).map(id=>nm('operators',id));
-    card.innerHTML='<h2 style="margin-bottom:6px">✅ تم تأكيد الحضور اليوم</h2>'+
+  
+  // ✅ حالة: الحضور مسجَّل مسبقاً
+  if(rec && !card.dataset.editing){
+    const present = rec.present||[];
+    const absent = rec.absent||[];
+    const photos = rec.photos||{};
+    
+    const presentHTML = present.length ? present.map(id => {
+      const o = store.operators.find(x => x.id === id);
+      const photo = photos[id];
+      return '<div class="att-row">'+
+        (photo?'<img class="att-photo" src="'+photo+'" data-att-big="'+photo+'" alt="">':'<span class="att-photo" style="display:grid;place-items:center;color:var(--muted)">—</span>')+
+        '<div class="nm"><b>'+escHtml(o?o.name:'—')+'</b><small>حاضر ✓'+(photo?' · بصورة':'')+'</small></div>'+
+        '</div>';
+    }).join('') : '<p class="muted">لا حاضرين</p>';
+    
+    card.innerHTML='<h2 style="margin-bottom:6px">✅ تم تأكيد حضور فريق الإنتاج</h2>'+
       '<p class="muted" style="margin:0 0 8px">بواسطة '+escHtml(rec.by)+' · '+new Date(rec.ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})+'</p>'+
-      '<p style="margin:0 0 4px"><b>الحاضرون:</b> '+(names.length?names.map(escHtml).join('، '):'لا أحد')+'</p>'+
-      (absentNames.length?'<p style="margin:0" class="dn"><b>الغائبون:</b> '+absentNames.map(escHtml).join('، ')+'</p>':'')+
-      (isA()?'<button class="btn-ghost sm" id="att-redo" style="margin-top:10px">تعديل الحضور (المدير)</button>':'<p class="hint" style="margin-top:10px">لتعديل الحضور، راجع المدير.</p>');
+      '<div class="sec-head" style="margin:8px 0"><h2 style="font-size:14px">الحاضرون ('+present.length+')</h2></div>'+
+      presentHTML+
+      (absent.length?'<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px" class="dn">الغائبون ('+absent.length+')</h2></div>'+
+        absent.map(id => {
+          const o = store.operators.find(x => x.id === id);
+          return '<div class="att-row"><div class="nm"><b>'+escHtml(o?o.name:'—')+'</b><small class="dn">غائب</small></div></div>';
+        }).join('') : '')+
+      (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
+        '<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
+    
+    $$('[data-att-big]').forEach(img => img.onclick = () =>
+      openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
+    );
+    
     wrap.hidden=false;
     const redo=byId('att-redo');
-    if(redo)redo.onclick=()=>{if(!isA())return toast('المدير فقط','err');card.dataset.editing='1';renderAttendanceCard()};
-  }else{
-    const ops=store.operators,prevPresent=rec?(rec.present||[]):null;
-    card.innerHTML='<h2 style="margin-bottom:4px">تأكيد حضور فريق الإنتاج</h2>'+
-      '<p class="muted" style="margin:0 0 10px">حدد الحاضرين اليوم قبل تسجيل الإنتاج</p>'+
-      (ops.length?ops.map(o=>'<label class="radio"><input type="checkbox" class="att-op" value="'+o.id+'"'+((prevPresent?prevPresent.indexOf(o.id)>=0:true)?' checked':'')+'> '+escHtml(o.name)+'</label>').join(''):'<p class="muted">لا مشغّلين</p>')+
-      '<button class="btn-primary btn-block" id="att-confirm" style="margin-top:12px">تأكيد الحضور</button>';
-    wrap.hidden=true;
-    byId('att-confirm').onclick=async()=>{
-      if(!requirePerm('production','لتأكيد الحضور'))return;
-      const btn=byId('att-confirm');btn.disabled=true;
-      const present=$$('.att-op:checked').map(x=>x.value);
-      const absent=store.operators.map(o=>o.id).filter(id=>present.indexOf(id)<0);
-      const old=attendanceToday();
-      const row={id:uuid(),date:today(),by:user.name,ts:Date.now(),present,absent};
-      try{
-        if(old)await adapter.deleteSimple('attendance',old.id);
-        await adapter.saveSimple('attendance',row);
-        store.attendance=store.attendance.filter(a=>!old||a.id!==old.id);
-        store.attendance.unshift(row);
-        delete card.dataset.editing;
-        toast('تم');
-        NotificationCenter.fire('attendance_prod',{
-          present: present.length,
-          absent: absent.length,
-          refId: row.id
-        }).catch(e=>console.warn(e));
-        for(const oid of present){
-          const o=store.operators.find(x=>x.id===oid);
-          if(o&&o.user_id){
-            sendPush(o.user_id,'✅ تم تسجيل حضورك','حضورك مسجَّل اليوم '+today(),'/#production','my_attendance',row.id)
-              .catch(e=>console.warn('push to '+o.name+' fail:',e));
-          }
-        }
-        renderAttendanceCard();
-      }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
+    if(redo) redo.onclick = () => {
+      if(!isA()) return toast('المدير فقط','err');
+      confirmSheet('فتح التعديل؟ سيتم حذف الحضور الحالي.','تعديل', async () => {
+        try{
+          await adapter.deleteSimple('attendance', rec.id);
+          store.attendance = store.attendance.filter(a => a.id !== rec.id);
+          card.dataset.editing = '1';
+          toast('سجّل من جديد');
+          renderAttendanceCard();
+        }catch(ex){toast('تعذر','err')}
+      });
     };
+    return;
   }
+  
+  // 📝 حالة: نموذج تسجيل جديد
+  const ops = store.operators;
+  const placeholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23a1a7b6%22 stroke-width=%222%22%3E%3Crect x=%223%22 y=%225%22 width=%2218%22 height=%2214%22 rx=%222%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22/%3E%3C/svg%3E';
+  
+  card.innerHTML='<h2 style="margin-bottom:4px">تأكيد حضور فريق الإنتاج</h2>'+
+    '<div class="step-hint">📸 <b>مطلوب:</b> صورة لكل مشغّل حاضر — لن يمكنك التعديل بعد التأكيد إلا بموافقة المدير.</div>'+
+    (ops.length?ops.map(o =>
+      '<div class="att-row">'+
+      '<input type="checkbox" class="att-op" value="'+o.id+'" checked aria-label="'+escHtml(o.name)+'">'+
+      '<div class="nm"><b>'+escHtml(o.name)+'</b><small>'+(o.user_id?'مرتبط بحساب':'')+'</small></div>'+
+      '<img class="att-photo" data-op-photo="'+o.id+'" src="'+placeholder+'" alt="">'+
+      '<input type="file" accept="image/*" capture="user" class="op-photo-input" data-op-input="'+o.id+'" style="display:none">'+
+      '</div>'
+    ).join(''):'<p class="muted">لا مشغّلين</p>')+
+    '<button class="btn-primary btn-block" id="att-confirm" style="margin-top:12px">تأكيد الحضور (نهائي)</button>';
+  
+  wrap.hidden=true;
+  
+  // ربط صور المشغلين
+  const photos = {};
+  $$('.op-photo-input').forEach(inp => {
+    const oid = inp.dataset.opInput;
+    const img = document.querySelector('[data-op-photo="'+oid+'"]');
+    if(img) img.onclick = () => inp.click();
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if(!f) return;
+      if(f.size > 4*1024*1024){toast('الصورة كبيرة','err');inp.value='';return}
+      const apply = url => { photos[oid] = url; if(img) img.src = url; };
+      if(adapter.mode==='cloud' && adapter.uploadPhoto){
+        const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path = 'attendance/op_'+oid+'/'+uuid()+'_'+safeName;
+        toast('جارٍ الرفع...');
+        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err');inp.value=''});
+      } else {
+        const rd = new FileReader();
+        rd.onload = () => apply(rd.result);
+        rd.readAsDataURL(f);
+      }
+    };
+  });
+  
+  // تأكيد الحضور
+  byId('att-confirm').onclick = async () => {
+    if(!requirePerm('production','لتأكيد الحضور')) return;
+    const btn = byId('att-confirm');
+    btn.disabled = true;
+    const present = $$('.att-op:checked').map(x=>x.value);
+    // التحقق من الصور
+    for(const oid of present){
+      if(!photos[oid]){
+        toast('ارفع صورة للمشغّل: '+nm('operators',oid),'err');
+        btn.disabled = false;
+        return;
+      }
+    }
+    const absent = store.operators.map(o=>o.id).filter(id => present.indexOf(id)<0);
+    const old = attendanceToday();
+    const row = {id:uuid(), date:today(), by:user.name, ts:Date.now(), present, absent, photos};
+    
+    try{
+      if(old) await adapter.deleteSimple('attendance', old.id);
+      await adapter.saveSimple('attendance', row);
+      store.attendance = store.attendance.filter(a => !old || a.id !== old.id);
+      store.attendance.unshift(row);
+      delete card.dataset.editing;
+      toast('✅ تم تأكيد الحضور نهائياً');
+      
+      NotificationCenter.fire('attendance_prod',{
+        present: present.length,
+        absent: absent.length,
+        refId: row.id
+      }).catch(e=>console.warn(e));
+      
+      for(const oid of present){
+        const o = store.operators.find(x=>x.id===oid);
+        if(o && o.user_id){
+          sendPush(o.user_id,'✅ تم تسجيل حضورك','حضورك مسجَّل اليوم '+today(),'/#production','my_attendance',row.id)
+            .catch(e=>console.warn('push to '+o.name+' fail:',e));
+        }
+      }
+      renderAttendanceCard();
+      renderBell();
+    }catch(ex){
+      console.error(ex);
+      toast('تعذر: '+ex.message,'err');
+      btn.disabled=false;
+    }
+  };
 }
 
 /* =====================================================================
@@ -1999,6 +2094,17 @@ function mountProduction(){
   byId('prod-save').onclick=async()=>{
     if(!requirePerm('production'))return;
     if(!attendanceToday()){toast('أكّد الحضور أولاً','err');return}
+    const attRec = attendanceToday();
+    if(!attRec){toast('أكّد حضور فريق الإنتاج أولاً','err');return}
+    // 🆕 التحقق من أن كل مشغّل حاضر لديه صورة
+    const presentSet = new Set(attRec.present||[]);
+    const photosSet = new Set(Object.keys(attRec.photos||{}));
+    for(const pid of presentSet){
+    if(!photosSet.has(pid)){
+    toast('صورة المشغّل '+nm('operators',pid)+' مفقودة','err');
+    return;
+       }
+     }
     const hf=forms.find(f=>f.id==='ph'),v=hf.vals(),lines=prodLB.values().filter(l=>l.product_id&&l.planned>0);
     if(!v.operator_id||!v.shift){toast('أكمل البيانات','err');return}
     if(!lines.length){toast('أضف صنفاً','err');return}
@@ -2016,6 +2122,7 @@ function mountProduction(){
 function renderProduction(){
   if(!byId('prod-body'))return;
   renderAttendanceCard();
+  renderDistAttendanceCard();  // 🆕
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -2029,12 +2136,25 @@ function renderProduction(){
     return{p,day:sum(r.filter(s=>s.date===t),s=>s.actual),mo:sum(r.filter(s=>s.date.slice(0,7)===m),s=>s.actual),all:sum(r,s=>s.actual)};
   }).filter(x=>x.all>0);
   const rows=all.filter(s=>f==='all'||s.shift===f).sort(byDate);
-  const dueRows=store.operators.map(o=>({o,due:operatorDue(store,o.id)})).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
+  const dueRows=store.operators.map(o=>{
+  const stats = getShiftStats(o.id, 'operator');
+  return {
+    o,
+    due: operatorDue(store, o.id),
+    totalDays: stats.totalDays,
+    totalHours: stats.totalHours
+  };
+}).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
   byId('prod-body').innerHTML='<h2 style="margin:0 0 10px">مجموع الإنتاج لكل منتج</h2>'+
     table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'اليوم',f:r=>fmt(r.day)},{h:'هذا الشهر',f:r=>fmt(r.mo)},{h:'الإجمالي',f:r=>'<b>'+fmt(r.all)+'</b>'}],per,'prodsum')+
     '<h2 style="margin:22px 0 10px">مستحقات فريق الإنتاج</h2>'+
-    table([{h:'المشغّل',f:r=>escHtml(r.o.name)},{h:'المستحق',f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>',cls:'nw'},
-      {h:'',f:r=>r.due>0.009?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}],dueRows,'opdue','لا مستحقات')+
+    table([
+  {h:'المشغّل', f:r=>escHtml(r.o.name)},
+  {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
+  {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
+  {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
+  {h:'', f:r=>r.due>0.009?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
+], dueRows, 'opdue', 'لا مستحقات')+
     '<h2 style="margin:22px 0 10px">سجلات الورديات</h2>'+(rows.length?rows.slice(0,(ui.lim.prod||20)).map(h=>ticketCard('shifts',h,
       SHIFT_AR[h.shift]+' · '+escHtml(nm('operators',h.operator_id)),
       h.date+(h.by?' · '+h.by:''),
@@ -2060,7 +2180,111 @@ function operatorPaySheet(opId){
       return false;
     }});
 }
-
+/* 🆕 بطاقة حضور الموزعين داخل قسم الإنتاج */
+function renderDistAttendanceCard(){
+  const card = byId('dist-att-card');
+  if(!card) return;
+  const rec = distAttendanceToday();
+  
+  if(rec && !card.dataset.editing){
+    const names = (rec.present||[]).map(id => nm('distributors', id));
+    const absentNames = (rec.absent||[]).map(id => nm('distributors', id));
+    const photos = rec.photos || {};
+    const photosHTML = Object.keys(photos).map(did =>
+      '<div class="att-row"><img class="att-photo" src="'+photos[did]+'" data-att-big="'+photos[did]+'" alt=""><div class="nm"><b>'+escHtml(nm('distributors',did))+'</b><small>حاضر ✓</small></div></div>'
+    ).join('');
+    
+    card.innerHTML = '<h2 style="margin-bottom:6px">✅ حضور الموزعين مسجَّل</h2>'+
+      '<p class="muted" style="margin:0 0 8px">بواسطة '+escHtml(rec.by)+' · '+new Date(rec.ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})+'</p>'+
+      '<p style="margin:0 0 4px"><b>الحاضرون:</b> '+(names.length?names.map(escHtml).join('، '):'لا أحد')+'</p>'+
+      (absentNames.length?'<p style="margin:0" class="dn"><b>الغائبون:</b> '+absentNames.map(escHtml).join('، ')+'</p>':'')+
+      (photosHTML?'<div class="sec-head" style="margin-top:12px"><h2 style="font-size:13px">صور الحضور</h2></div>'+photosHTML:'')+
+      (isA()?'<button class="btn-ghost sm btn-block" id="dist-att-redo" style="margin-top:10px">تعديل الحضور (المدير)</button>':'<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
+    
+    $$('[data-att-big]').forEach(img => img.onclick = () =>
+      openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
+    );
+    
+    const redo = byId('dist-att-redo');
+    if(redo) redo.onclick = () => {
+      if(!isA()) return toast('المدير فقط','err');
+      confirmSheet('فتح التعديل؟ سيتم حذف الحضور الحالي.','تعديل', async () => {
+        try{
+          await adapter.deleteSimple('dist_attendance', rec.id);
+          store.dist_attendance = store.dist_attendance.filter(a => a.id !== rec.id);
+          card.dataset.editing = '1';
+          toast('سجّل من جديد');
+          renderDistAttendanceCard();
+        }catch(ex){toast('تعذر','err')}
+      });
+    };
+    return;
+  }
+  
+  // نموذج جديد
+  const ds = store.distributors;
+  const placeholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23a1a7b6%22 stroke-width=%222%22%3E%3Crect x=%223%22 y=%225%22 width=%2218%22 height=%2214%22 rx=%222%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22/%3E%3C/svg%3E';
+  
+  card.innerHTML = '<h2 style="margin-bottom:4px">تأكيد حضور الموزعين</h2>'+
+    '<div class="step-hint">📸 <b>مطلوب:</b> صورة لكل موزع حاضر.</div>'+
+    (ds.length?ds.map(d =>
+      '<div class="att-row">'+
+      '<input type="checkbox" class="dist-att-op" value="'+d.id+'" checked>'+
+      '<div class="nm"><b>'+escHtml(d.name)+'</b><small>'+(d.phone?escHtml(d.phone):'')+'</small></div>'+
+      '<img class="att-photo" data-dist-photo="'+d.id+'" src="'+placeholder+'" alt="">'+
+      '<input type="file" accept="image/*" capture="user" class="dist-photo-input" data-dist-input="'+d.id+'" style="display:none">'+
+      '</div>'
+    ).join(''):'<p class="muted">لا موزعين</p>')+
+    '<button class="btn-primary btn-block" id="dist-att-confirm" style="margin-top:12px">تأكيد الحضور (نهائي)</button>';
+  
+  const photos = {};
+  $$('.dist-photo-input').forEach(inp => {
+    const did = inp.dataset.distInput;
+    const img = document.querySelector('[data-dist-photo="'+did+'"]');
+    if(img) img.onclick = () => inp.click();
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if(!f) return;
+      if(f.size > 4*1024*1024){toast('الصورة كبيرة','err');inp.value='';return}
+      const apply = url => { photos[did] = url; if(img) img.src = url; };
+      if(adapter.mode==='cloud' && adapter.uploadPhoto){
+        const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path = 'attendance/dist_'+did+'/'+uuid()+'_'+safeName;
+        toast('جارٍ الرفع...');
+        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err')});
+      } else {
+        const rd = new FileReader();
+        rd.onload = () => apply(rd.result);
+        rd.readAsDataURL(f);
+      }
+    };
+  });
+  
+  byId('dist-att-confirm').onclick = async () => {
+    if(!requirePerm('sales','لتأكيد حضور الموزعين')) return;
+    const btn = byId('dist-att-confirm');
+    btn.disabled = true;
+    const present = $$('.dist-att-op:checked').map(x=>x.value);
+    for(const did of present){
+      if(!photos[did]){toast('ارفع صورة: '+nm('distributors',did),'err');btn.disabled=false;return}
+    }
+    const absent = store.distributors.map(d=>d.id).filter(id => present.indexOf(id)<0);
+    const old = distAttendanceToday();
+    const row = {id:uuid(), date:today(), by:user.name, ts:Date.now(), present, absent, photos};
+    try{
+      if(old) await adapter.deleteSimple('dist_attendance', old.id);
+      await adapter.saveSimple('dist_attendance', row);
+      store.dist_attendance = store.dist_attendance.filter(a => !old || a.id !== old.id);
+      store.dist_attendance.unshift(row);
+      delete card.dataset.editing;
+      toast('✅ تم تأكيد حضور الموزعين');
+      NotificationCenter.fire('attendance_dist',{present:present.length, absent:absent.length, refId:row.id}).catch(e=>console.warn(e));
+      renderDistAttendanceCard();
+      renderSalesAttendanceWarn();
+      renderBell();
+    }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
+  };
+}
 /* =====================================================================
    حضور الموزعين + ورديات الموزعين (جديد)
    ===================================================================== */
