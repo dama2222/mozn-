@@ -3024,8 +3024,10 @@ function renderPurchaseRequests(){
       '<button class="btn-danger sm" data-pr-reject="'+r.id+'">❌ رفض</button>'+
       '</div>'
     ):'';
-    const convertedInfo=r.status==='converted'&&r.converted_purchase_id?
-      '<div class="hint" style="margin-top:8px">✅ تم تحويله إلى فاتورة شراء</div>':'';
+       const convertedInfo=r.status==='converted'&&r.converted_purchase_id?
+      '<div class="hint" style="margin-top:8px;color:var(--green)">✅ تم تحويله إلى فاتورة شراء</div>':
+      r.status==='rejected'?
+      '<div class="hint" style="margin-top:8px;color:var(--red)">❌ مرفوض'+(r.rejection_reason?' — '+escHtml(r.rejection_reason):'')+'</div>':'';
     return '<div class="card" style="margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">'+
       '<div><b>'+escHtml(r.requested_by_name||'غير معروف')+'</b>'+
@@ -3055,22 +3057,78 @@ document.addEventListener('click',async e=>{
     convertPurchaseRequestToInvoice(req);
     return;
   }
-  const rejectBtn=e.target.closest('[data-pr-reject]');
+    const rejectBtn=e.target.closest('[data-pr-reject]');
   if(rejectBtn){
     if(!requirePerm('purchases','لرفض الطلب'))return;
     const rid=rejectBtn.dataset.prReject;
-    confirmSheet('رفض هذا الطلب؟','رفض',async()=>{
+    const req=(store.purchase_requests||[]).find(r=>r.id===rid);
+    if(!req)return;
+    
+    // 🆕 نافذة الرفض مع السبب
+    openSheet('<h3>❌ رفض طلب النواقص</h3>'+
+      '<div class="card" style="margin-bottom:12px">'+
+        '<div class="kv"><span>من</span><b>'+escHtml(req.requested_by_name||'—')+'</b></div>'+
+        '<div class="kv"><span>التاريخ</span><b>'+req.date+'</b></div>'+
+        '<div class="kv"><span>عدد الأصناف</span><b>'+req.items.length+'</b></div>'+
+        (req.notes?'<div class="kv"><span>ملاحظات</span><b>'+escHtml(req.notes)+'</b></div>':'')+
+      '</div>'+
+      '<div class="hint" style="margin-bottom:10px">الأصناف: '+escHtml(req.items.slice(0,3).map(i=>i.name+' × '+fmt(i.qty)).join('، '))+(req.items.length>3?' +'+(req.items.length-3):'')+'</div>'+
+      '<div id="rej-pr-form"></div>');
+    
+    mountForm(byId('rej-pr-form'),'rejpr',[
+      {k:'reason',label:'سبب الرفض (سيُرسل للمُرسِل)',type:'textarea',placeholder:'مثال: الأصناف متوفرة حالياً في المخزون'}
+    ],{label:'❌ تأكيد الرفض',submit:async v=>{
+      if(!v.reason){toast('اذكر سبب الرفض','err');return false}
+      
+      const patch={
+        status:'rejected',
+        approved_by:user.name,
+        approved_at:Date.now(),
+        rejection_reason:v.reason
+      };
+      
       const ok=await tryCommit(
         draft=>{
           const r=(draft.purchase_requests||[]).find(x=>x.id===rid);
-          if(r){r.status='rejected';r.approved_by=user.name;r.approved_at=Date.now()}
-          draft.audit.unshift(auditRow('رفض','طلب نواقص'));
+          if(r){
+            r.status='rejected';
+            r.approved_by=user.name;
+            r.approved_at=Date.now();
+            r.rejection_reason=v.reason;
+          }
+          draft.audit.unshift(auditRow('رفض','طلب نواقص: '+v.reason));
         },
-        async()=>{await adapter.updateSimple('purchase_requests',rid,{status:'rejected',approved_by:user.name,approved_at:Date.now()})},
+        async()=>{await adapter.updateSimple('purchase_requests',rid,patch)},
         {rerender:['purchase_requests','purchases']}
       );
-      if(ok)toast('تم الرفض');
-    });
+      
+      if(ok){
+        toast('تم الرفض وإرسال الإشعار');
+        closeSheet();
+        
+        // 🔔 إرسال إشعار للمُرسِل (إن كان له حساب)
+        const requester = store.users.find(u => u.id === req.requested_by);
+        if(requester){
+          sendPush(
+            requester.id,
+            '❌ تم رفض طلب النواقص',
+            'السبب: '+v.reason,
+            '/#purchase_requests',
+            'purchase_request_rejected',
+            rid
+          ).catch(e=>console.warn('push fail',e));
+        }
+        
+        // 🔔 إشعار عام للمديرين
+        NotificationCenter.fire('purchase_request_rejected',{
+          requestedBy: req.requested_by_name,
+          summary: req.items.slice(0,3).map(i=>i.name+' × '+fmt(i.qty)).join('، ')+(req.items.length>3?' +'+(req.items.length-3):''),
+          reason: v.reason,
+          refId: rid
+        }).catch(e=>console.warn(e));
+      }
+      return false;
+    }});
   }
 });
 function convertPurchaseRequestToInvoice(req){
@@ -3779,7 +3837,7 @@ function alertsList(){
     return false;
   });
   const discounts=isA()?(S.discounts||[]).filter(d=>!d.cancelled).slice(0,5):[];
-  const complaints=isA()?(S.complaints||[]).filter(c=>!c.done):[];
+  const complaints=isA()?(S.complaints||[]).filter(c=>!c.done&&c.status!=='rejected'):[];
   return{lowStock,lowMat,overdue,lateDist,notices,discounts,complaints};
 }
 
@@ -3808,8 +3866,8 @@ function openBellSheet(){
       const name=d.kind==='customer'?cn(d.ref_id):d.kind==='operator'?nm('operators',d.ref_id):dn(d.ref_id);
       return '<div class="lrow"><div>'+escHtml(name)+'<small>خصم '+fmt(d.amount)+' '+cur()+' — '+escHtml(d.reason)+'</small></div></div>';
     }))+
-    sec('شكاوى وطلبات سحب مال',(a.complaints||[]).map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><button class="mini" data-donecomplaint="'+c.id+'">تمّ</button></div>'))+
-    sec('طلبات وإشعارات',(a.notices||[]).map(n=>'<div class="lrow"><div>'+escHtml(n.title)+'<small>'+escHtml(n.body||'')+'</small></div><button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>'));
+sec('شكاوى وطلبات سحب مال',(a.complaints||[]).map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><div style="display:flex;gap:4px"><button class="mini" data-donecomplaint="'+c.id+'">✅ تمّ</button><button class="mini dng" data-rejcomplaint="'+c.id+'">❌ رفض</button></div></div>'))+    
+sec('طلبات وإشعارات',(a.notices||[]).map(n=>'<div class="lrow"><div>'+escHtml(n.title)+'<small>'+escHtml(n.body||'')+'</small></div><button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>'));
   openSheet('<h3>التنبيهات</h3>'+(html||'<div class="empty">لا تنبيهات</div>'));
 }
 
@@ -3819,20 +3877,87 @@ document.addEventListener('click',function(e){
 },true);
 
 document.addEventListener('click',e=>{
-  const b=e.target.closest('[data-donecomplaint]');if(!b)return;
-  if(!isA())return toast('للمدير فقط','err');
-  confirmSheet('تحديد كمكتمل؟','تم',async()=>{
-    const id=b.dataset.donecomplaint;
-    try{
-      await adapter.updateSimple('complaints',id,{done:true});
-      const c=(store.complaints||[]).find(x=>x.id===id);
-      if(c)c.done=true;
-      toast('تم');
-      renderAll();
-      openBellSheet();
-    }catch(ex){console.error(ex);toast('تعذر','err')}
-  });
+  const b=e.target.closest('[data-donecomplaint]');
+  if(b){
+    if(!isA())return toast('للمدير فقط','err');
+    confirmSheet('تحديد كمكتمل؟','تم',async()=>{
+      const id=b.dataset.donecomplaint;
+      try{
+        await adapter.updateSimple('complaints',id,{done:true,status:'approved',approved_by:user.name,approved_at:Date.now()});
+        const c=(store.complaints||[]).find(x=>x.id===id);
+        if(c){c.done=true;c.status='approved';c.approved_by=user.name;c.approved_at=Date.now()}
+        toast('تم الاعتماد');
+        renderAll();
+        openBellSheet();
+      }catch(ex){console.error(ex);toast('تعذر','err')}
+    });
+    return;
+  }
+  
+  // 🆕 رفض الشكوى
+  const rj=e.target.closest('[data-rejcomplaint]');
+  if(rj){
+    if(!isA())return toast('للمدير فقط','err');
+    rejectComplaintSheet(rj.dataset.rejcomplaint);
+  }
 });
+
+// 🆕 نموذج رفض الشكوى
+function rejectComplaintSheet(id){
+  const c=(store.complaints||[]).find(x=>x.id===id);
+  if(!c)return;
+  openSheet('<h3>❌ رفض '+(c.type==='withdraw'?'طلب السحب':'الشكوى')+'</h3>'+
+    '<div class="card" style="margin-bottom:12px">'+
+      '<div class="kv"><span>من</span><b>'+escHtml(c.by||'—')+'</b></div>'+
+      '<div class="kv"><span>التفاصيل</span><b>'+escHtml(c.reason||'')+'</b></div>'+
+      (c.type==='withdraw'?'<div class="kv"><span>المبلغ</span><b>'+fmt(c.amount)+' '+cur()+'</b></div>':'')+
+    '</div>'+
+    '<div id="rej-cp-form"></div>');
+  mountForm(byId('rej-cp-form'),'rejcp',[
+    {k:'reason',label:'سبب الرفض (سيُرسل للطالب)',type:'textarea',placeholder:'مثال: المبلغ غير متاح حالياً'}
+  ],{label:'❌ تأكيد الرفض',submit:async v=>{
+    if(!v.reason){toast('اذكر سبب الرفض','err');return false}
+    try{
+      const patch={
+        done:true,
+        status:'rejected',
+        rejected_by:user.name,
+        rejected_at:Date.now(),
+        rejection_reason:v.reason
+      };
+      await adapter.updateSimple('complaints',id,patch);
+      const cc=(store.complaints||[]).find(x=>x.id===id);
+      if(cc)Object.assign(cc,patch);
+      
+      toast('تم الرفض وإرسال الإشعار');
+      closeSheet();
+      renderAll();
+      
+      // 🔔 إرسال إشعار للطالب (إن كان له حساب)
+      const targetUser = store.users.find(u => u.name === c.by);
+      if(targetUser){
+        sendPush(
+          targetUser.id,
+          '❌ تم رفض '+(c.type==='withdraw'?'طلب سحب المال':'شكواك'),
+          'السبب: '+v.reason,
+          '/#overview',
+          'complaint_rejected',
+          id
+        ).catch(e=>console.warn('push fail',e));
+      }
+      
+      // 🔔 إشعار للمديرين الآخرين
+      NotificationCenter.fire('complaint_rejected',{
+        userName: c.by,
+        type: c.type,
+        reason: v.reason,
+        refId: id
+      }).catch(e=>console.warn(e));
+      
+    }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
+    return false;
+  }});
+}
 
 /* =====================================================================
    التنقل
