@@ -1,62 +1,53 @@
-// sw.js - Version 3
-self.addEventListener('install', event => {
-  console.log('[SW] Installing...');
-  self.skipWaiting();
+const CACHE_NAME = 'muzn-v3';
+const ASSETS = ['./', './index.html', './manifest.json'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
-self.addEventListener('activate', event => {
-  console.log('[SW] Activated');
-  event.waitUntil(self.clients.claim());
-});
-
-self.addEventListener('push', event => {
-  console.log('[SW] 🔔 Push received');
-  
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch (e) {
-    data = { title: 'MUZN', body: event.data ? event.data.text() : 'لديك إشعار' };
-  }
-  
-  console.log('[SW] Push data:', data);
-
-  const options = {
-    body: data.body || 'لديك إشعار جديد',
-    icon: data.icon || 'https://via.placeholder.com/192x192/f3e02b/191a0c?text=MUZN',
-    badge: 'https://via.placeholder.com/96x96/f3e02b/191a0c?text=M',
-    vibrate: [300, 100, 300, 100, 300],
-    tag: data.tag || 'muzn-' + Date.now(),
-    renotify: true,
-    requireInteraction: true,
-    data: { url: data.url || '/' },
-    dir: 'rtl',
-    lang: 'ar'
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'MUZN Operations', options)
-      .then(() => console.log('[SW] ✅ Notification shown'))
-      .catch(err => console.error('[SW] ❌ showNotification failed:', err))
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+    )).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('notificationclick', event => {
-  console.log('[SW] Notification clicked');
-  event.notification.close();
-  const url = event.notification.data?.url || '/';
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  if (e.request.url.indexOf('supabase') >= 0) return;
+  e.respondWith(
+    caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
+      if (resp.ok && resp.type === 'basic') {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      }
+      return resp;
+    }))
+  );
+});
 
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      for (const client of clientList) {
-        if (client.url.includes(location.origin) && 'focus' in client) {
-          client.navigate(url);
-          return client.focus();
-        }
+self.addEventListener('push', e => {
+  const data = e.data ? e.data.json() : {};
+  const title = data.title || 'MUZN';
+  const options = {
+    body: data.body || '',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    data: { url: data.url || '/' }
+  };
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window' }).then(list => {
+      for (const c of list) {
+        if (c.url.indexOf(url) >= 0 && 'focus' in c) return c.focus();
       }
-      if (clients.openWindow) {
-        return clients.openWindow(url);
-      }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
