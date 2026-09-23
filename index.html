@@ -1634,7 +1634,15 @@ function renderOverview(){
     '<div class="sec-head"><h2>ربحية المنتجات</h2></div>'+
     table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'المباع',f:r=>fmt(r.q)},{h:'الإيراد',f:r=>fmt(r.rv)},{h:'التكلفة',f:r=>fmt(r.cg)},{h:'الربح',f:r=>'<b class="'+(r.pf>=0?'up':'dn')+'">'+fmt(r.pf)+'</b>'},{h:'المخزون',f:r=>fmt(r.st)}],prodRows,'ovp')+
     '<div class="sec-head"><h2>مستحقات الموزعين</h2></div>'+
-    table([{h:'الموزع',f:x=>escHtml(x.d.name)},{h:'الفترة',f:x=>x.s.per.label},{h:'التسليم',f:x=>x.s.per.e,cls:'nw'},{h:'خصومات',f:x=>x.s.discounts>0?'<span class="dn">-'+fmt(x.s.discounts)+'</span>':'—',cls:'nw'},{h:'المتبقي',f:x=>'<b class="'+(x.s.bal>0.009?'dn':'up')+'">'+fmt(x.s.bal)+'</b>',cls:'nw'}],dd,'ovd')+
+  table([{h:'الموزع',f:x=>escHtml(x.d.name)},{h:'الفترة',f:x=>x.s.per.label},{h:'التسليم',f:x=>x.s.per.e,cls:'nw'},{h:'خصومات',f:x=>x.s.discounts>0?'<span class="dn">-'+fmt(x.s.discounts)+'</span>':'—',cls:'nw'},{h:'المتبقي',f:x=>'<b class="'+(x.s.bal>0.009?'dn':'up')+'">'+fmt(x.s.bal)+'</b>',cls:'nw'}],dd,'ovd')+
+        '<div class="sec-head"><h2>💰 أرباح الموزعين</h2></div>'+
+    table([
+      {h:'الموزع',f:x=>escHtml(x.d.name)},
+      {h:'إجمالي المبيعات',f:x=>fmt(x.p.revenue)+' '+cur(),cls:'nw'},
+      {h:'تكلفة الشراء',f:x=>fmt(x.p.cost)+' '+cur(),cls:'nw'},
+      {h:'ربحه الصافي',f:x=>'<b class="up">'+fmt(x.p.profit)+' '+cur()+'</b>',cls:'nw'},
+      {h:'',f:x=>'<button class="mini" data-dprofile="'+x.d.id+'">تفاصيل</button>',cls:'nw'}
+    ],dd.map(x=>({d:x.d,p:distributorProfit(S,x.d.id)})),'ovprofit','لا موزعين')+
     '<div class="sec-head"><h2>آخر النشاطات</h2></div><div class="card">'+(feedRows.length?feedRows.map(x=>'<div class="lrow"><div>'+escHtml(x.t)+'<small>'+escHtml(x.by||'—')+'</small></div></div>').join(''):'<div class="empty">لا نشاط</div>')+'</div>';
   const a=S.users.find(u=>u.role==='admin'&&u.default_pw);
   byId('ov-warn').innerHTML=(S.company.demo?'<div class="notice">بيانات وهمية.</div>':'')+
