@@ -2185,9 +2185,9 @@ function mountWithdrawals(){
     return ok;
   }});
   
-  // 🆕 قفل النموذج في البداية
+     // 🆕 قفل النموذج في البداية
   lockWithdrawalForm();
-  
+
   function lockWithdrawalForm(){
     const wf = forms.find(f => f.id === 'wf');
     if(!wf) return;
@@ -2201,22 +2201,27 @@ function mountWithdrawals(){
     if(qtyInput){qtyInput.disabled = true;qtyInput.style.opacity = '0.5';}
     if(noteInput){noteInput.disabled = true;noteInput.style.opacity = '0.5';}
     if(saveBtn){saveBtn.disabled = true;saveBtn.style.opacity = '0.5';}
-    
-    // أضف شريط تحذيري
-    const existingHint = byId('wd-lock-hint');
-    if(!existingHint){
-      const hint = document.createElement('div');
+
+    let hint = byId('wd-lock-hint');
+    if(!hint){
+      hint = document.createElement('div');
       hint.id = 'wd-lock-hint';
-      hint.className = 'notice';
-      hint.style.cssText = 'border-color:var(--orange);background:rgba(255,176,74,.15);text-align:center;font-weight:800;margin-bottom:10px';
-      hint.innerHTML = '⚠️ امسح بطاقة الموزع أولاً لتفعيل النموذج';
-      wdForm.parentNode.insertBefore(hint, wdForm);
+      if(wdForm && wdForm.parentNode){
+        wdForm.parentNode.insertBefore(hint, wdForm);
+      }
     }
+    hint.className = 'notice';
+    hint.style.cssText = 'border-color:var(--orange);background:rgba(255,176,74,.15);text-align:center;font-weight:800;margin-bottom:10px';
+    hint.innerHTML = '⚠️ امسح بطاقة الموزع أولاً لتفعيل النموذج';
+
+    const oldScan = byId('wd-scan-btn');
+    if(oldScan) oldScan.remove();
   }
-  
+
   function unlockWithdrawalForm(){
     const wf = forms.find(f => f.id === 'wf');
     if(!wf) return;
+
     const distSelect = byId('wf__distributor_id');
     const prodSelect = byId('wf__product_id');
     const qtyInput = byId('wf__qty');
@@ -2227,16 +2232,14 @@ function mountWithdrawals(){
     if(qtyInput){qtyInput.disabled = false;qtyInput.style.opacity = '1';}
     if(noteInput){noteInput.disabled = false;noteInput.style.opacity = '1';}
     if(saveBtn){saveBtn.disabled = false;saveBtn.style.opacity = '1';}
-    
-    // حدّث الشريط
+
     const hint = byId('wd-lock-hint');
     if(hint){
       hint.className = 'notice ok';
       hint.style.cssText = 'border-color:var(--green);background:rgba(61,220,132,.15);text-align:center;font-weight:800;margin-bottom:10px';
       hint.innerHTML = '✅ تم مسح البطاقة — يمكنك الآن تسجيل السحب';
     }
-    
-    // زر مسح المنتج
+
     if(!byId('wd-scan-btn')){
       const scanBtn = document.createElement('button');
       scanBtn.type = 'button';
@@ -2271,23 +2274,7 @@ function mountWithdrawals(){
     }
   }
 }
-    if(!requirePerm('withdrawals'))return false;
-    if(!v.distributor_id||!v.product_id){toast('اختر الموزع والمنتج','err');return false}
-    if(!distributorPresentToday(v.distributor_id)){toast('الموزع غير حاضر اليوم بصورة','err');return false}
-    if(v.qty<=0){toast('أدخل الكمية','err');return false}
-    const av=stockWH(store,v.product_id);
-    if(v.qty>av+1e-9){toast('المتاح '+fmt(av),'err');return false}
-    const row={id:uuid(),date:v.date||today(),distributor_id:v.distributor_id,product_id:v.product_id,qty:v.qty,
-      price:pOf(store,v.product_id).dist_price||pOf(store,v.product_id).price,note:v.note,by:user.name,ts:Date.now(),log:[]};
-    const ok=await tryCommit(
-      draft=>{draft.withdrawals.unshift(row)},
-      async()=>{await adapter.saveSimple('withdrawals',row)},
-      {rerender:['withdrawals','overview','sales','distributors']}
-    );
-    if(ok)toast('تم');
-    return ok;
-  }});
-}
+
 function renderWithdrawals(){
   if(!byId('wd-body'))return;
   const all=store.withdrawals;
