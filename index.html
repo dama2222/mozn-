@@ -547,9 +547,14 @@ function distributorProfitInPeriod(st,did,from,to){
   return {revenue,cost,profit};
 }
 const MODS=[
-  {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},{id:'sales',t:'المبيعات',s:'المبيعات'},{id:'production',t:'الإنتاج',s:'الإنتاج'},
-  {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},{id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
-  {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},{id:'distributors',t:'الموزعون والتسليم',s:'الموزعون'},
+  {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},
+  {id:'sales',t:'المبيعات',s:'المبيعات'},
+  {id:'production',t:'الإنتاج',s:'الإنتاج'},
+  {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},
+  {id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
+  {id:'purchase_requests',t:'طلبات النواقص',s:'النواقص'},
+  {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},
+  {id:'distributors',t:'الموزعون والتسليم',s:'الموزعون'},
   {id:'attendance_log',t:'سجل الحضور',s:'الحضور'},
   {id:'management',t:'الإدارة',s:'الإدارة',admin:true}
 ];
@@ -565,7 +570,7 @@ const ENTITY=['products','materials','distributors','customers','operators','sup
 const LocalAdapter={
   mode:'local',
   async init(){let s=null;try{const r=localStorage.getItem(DBKEY);if(r)s=JSON.parse(r)}catch(e){} if(!s)s=await seedStore();
-    s.attendance=s.attendance||[];s.checkins=s.checkins||[];s.dist_attendance=s.dist_attendance||[];s.complaints=s.complaints||[];s.operator_payments=s.operator_payments||[];s.discounts=s.discounts||[];s.attendance_shifts=s.attendance_shifts||[];
+    s.attendance=s.attendance||[];s.checkins=s.checkins||[];s.dist_attendance=s.dist_attendance||[];s.complaints=s.complaints||[];s.operator_payments=s.operator_payments||[];s.discounts=s.discounts||[];s.attendance_shifts=s.attendance_shifts||[];s.purchase_requests=s.purchase_requests||[];
     if(s.company.tax_enabled==null)s.company.tax_enabled=false;
     if(s.company.tax_grace_days==null)s.company.tax_grace_days=7;
     if(s.company.tax_monthly_rate==null)s.company.tax_monthly_rate=2;
@@ -607,19 +612,17 @@ function SupabaseAdapter(url,key){
         ['company','users_public','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
         'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','discounts'].map(all));
       const group=(heads,items,fk)=>heads.map(h=>Object.assign({},h,{items:items.filter(i=>i[fk]===h.id)}));
-      const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts]=await Promise.all([safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),safeAll('complaints'),safeAll('operator_payments'),safeAll('attendance_shifts')]);
-      const s={company:company[0]||{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:false,tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2},
+      const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests]=await Promise.all([safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),safeAll('complaints'),safeAll('operator_payments'),safeAll('attendance_shifts'),safeAll('purchase_requests')]);      const s={company:company[0]||{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:false,tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2},
         users,materials,products,operators,distributors,customers,suppliers,
         shifts:group(shifts,shift_items,'shift_id'),sales:group(sales,sale_items,'sale_id'),purchases:group(purchases,purchase_items,'purchase_id'),
-        withdrawals,payments,remittances,supplier_payments,notices,audit,discounts,attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,seq:{}};
-      index(s);return s;
+        withdrawals,payments,remittances,supplier_payments,notices,audit,discounts,attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,seq:{}};      index(s);return s;
     },
     subscribe(cb){
       onRemote=cb;
       chan=sb.channel('muzn-sync');
       ['company','users','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
        'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','attendance','checkins',
-       'dist_attendance','complaints','operator_payments','discounts','attendance_shifts'].forEach(t=>{
+        'dist_attendance','complaints','operator_payments','discounts','attendance_shifts','purchase_requests'].forEach(t=>{
         chan.on('postgres_changes',{event:'*',schema:'public',table:t},()=>{clearTimeout(this._deb);this._deb=setTimeout(()=>onRemote&&onRemote(),700)});
       });
       chan.subscribe();
@@ -1029,7 +1032,8 @@ const SKEL={
   production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج (يمكن أكثر من منتج)</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات (يمكن أكثر من صنف)</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
-collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
+  purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
+  collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
@@ -1396,8 +1400,39 @@ function mountPurchases(){
     if(v.payment==='credit'&&!v.supplier_id){toast('الآجل يحتاج مورّداً','err');return}
     const header={id:uuid(),date:v.date||today(),supplier_id:v.supplier_id||null,payment:v.payment,paid_via:v.paid_via||'',photo:v.photo||null,by:user.name,ts:Date.now()};
     const items=lines.map(l=>({id:uuid(),item:l.item,product_id:null,material_id:l.material_id||null,qty:l.qty,unit_cost:l.unit_cost}));
-    const ok=await tryCommit(draft=>{draft.purchases.unshift(Object.assign({},header,{items}))},async()=>{await adapter.saveTicket('purchases','purchase_items','purchase_id',header,items)});
-    if(ok){toast('تم');hf.reset();purLB.reset()}
+        const ok=await tryCommit(draft=>{draft.purchases.unshift(Object.assign({},header,{items}))},async()=>{await adapter.saveTicket('purchases','purchase_items','purchase_id',header,items)});
+    if(ok){
+      toast('تم');
+      
+      // ✅ إذا كان هناك طلب نواقص مرتبط، حدّثه
+      const req = window.__pendingPurchaseRequest;
+      if(req){
+        try{
+          await adapter.updateSimple('purchase_requests', req.id, {
+            status: 'converted',
+            converted_purchase_id: header.id,
+            approved_by: user.name,
+            approved_at: Date.now()
+          });
+          // تحديث محلي
+          const draft2 = clone(store);
+          const r2 = (draft2.purchase_requests || []).find(x => x.id === req.id);
+          if(r2){
+            r2.status = 'converted';
+            r2.converted_purchase_id = header.id;
+            r2.approved_by = user.name;
+            r2.approved_at = Date.now();
+          }
+          store = draft2;
+          renderAll();
+          toast('✅ تم ربط الطلب بفاتورة الشراء');
+        }catch(e){console.warn('update request failed:', e);}
+        delete window.__pendingPurchaseRequest;
+      }
+      
+      hf.reset();
+      purLB.reset();
+    }
   };
 }
 function renderPurchases(){
@@ -1405,12 +1440,42 @@ function renderPurchases(){
   byId('pu-stats').innerHTML=statsStrip(store.purchases,purchTotal,fmt,a=>a.length+' فاتورة');
   const rows=[...store.purchases].sort(byDate);
   const sup=store.suppliers.map(s=>({s,bal:supplierBal(store,s)}));
-  byId('pu-body').innerHTML='<h2 style="margin:0 0 10px">سجل المشتريات</h2>'+(rows.length?rows.slice(0,(ui.lim.pu||20)).map(h=>ticketCard('purchases',h,escHtml(sn(h.supplier_id)),h.date+' · '+(h.payment==='cash'?'نقداً':'آجل')+(h.paid_via?' · '+escHtml(h.paid_via):'')+(h.by?' · '+h.by:'')+(h.photo?' · <button class="mini" data-photo="'+h.id+'" data-src="purchases">صورة</button>':''),
-      it=>escHtml(it.item)+(it.material_id?' '+tag('rec',escHtml(mn(it.material_id))):'')+' <small>'+fmt(it.qty)+' × '+fmt(it.unit_cost)+'</small>',
-      '<span>الإجمالي</span><span>'+money(purchTotal(h))+'</span>')).join(''):'<div class="empty">لا مشتريات</div>')+
-    '<div class="sec-head"><h2>الموردون</h2><button class="btn-ghost sm" data-ent-new="suppliers">+ مورّد</button></div>'+
-    table([{h:'المورّد',f:r=>escHtml(r.s.name)},{h:'الهاتف',f:r=>r.s.phone?'<bdi>'+escHtml(r.s.phone)+'</bdi>':'—'},{h:'المستحق له',f:r=>'<b class="'+(r.bal>0.009?'dn':'up')+'">'+fmt(Math.max(r.bal,0))+'</b>',cls:'nw'},
-      {h:'',f:r=>r.bal>0.009?'<button class="mini" data-suppay="'+r.s.id+'">تسديد</button>':''}],sup,'sup','أضف موردين');
+  
+  // ✅ قسم طلبات النواقص المعلّقة
+  const pendingRequests = (store.purchase_requests || []).filter(r => r.status === 'pending');
+  const requestsSection = pendingRequests.length ?
+    '<div class="sec-head"><h2>📦 طلبات نواقص معلّقة (' + pendingRequests.length + ')</h2>'
+    + '<button class="btn-ghost sm" data-go="purchase_requests">عرض الكل</button></div>'
+    + pendingRequests.slice(0, 3).map(r => {
+      const itemsText = r.items.slice(0, 3).map(i => i.name + ' × ' + fmt(i.qty)).join('، ')
+        + (r.items.length > 3 ? ' +' + (r.items.length - 3) : '');
+      return '<div class="notice" style="border-color:var(--accent);background:rgba(243,224,43,.1)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+        + '<div><b>' + escHtml(r.requested_by_name) + '</b>'
+        + '<small style="display:block;color:var(--muted);font-size:12px">' + r.date + '</small></div>'
+        + '<button class="mini" data-pr-convert="' + r.id + '">تحويل إلى فاتورة</button>'
+        + '</div>'
+        + '<div style="margin-top:6px;font-size:13px">' + escHtml(itemsText) + '</div>'
+        + '</div>';
+    }).join('')
+    + '<div style="height:10px"></div>'
+    : '';
+  
+  byId('pu-body').innerHTML = requestsSection
+    + '<h2 style="margin:0 0 10px">سجل المشتريات</h2>'
+    + (rows.length ? rows.slice(0,(ui.lim.pu||20)).map(h=>ticketCard('purchases',h,
+        escHtml(sn(h.supplier_id)),
+        h.date+' · '+(h.payment==='cash'?'نقداً':'آجل')+(h.paid_via?' · '+escHtml(h.paid_via):'')+(h.by?' · '+h.by:'')+(h.photo?' · <button class="mini" data-photo="'+h.id+'" data-src="purchases">صورة</button>':''),
+        it=>escHtml(it.item)+(it.material_id?' '+tag('rec',escHtml(mn(it.material_id))):'')+' <small>'+fmt(it.qty)+' × '+fmt(it.unit_cost)+'</small>',
+        '<span>الإجمالي</span><span>'+money(purchTotal(h))+'</span>'
+      )).join('') : '<div class="empty">لا مشتريات</div>')
+    + '<div class="sec-head"><h2>الموردون</h2><button class="btn-ghost sm" data-ent-new="suppliers">+ مورّد</button></div>'
+    + table([
+        {h:'المورّد',f:r=>escHtml(r.s.name)},
+        {h:'الهاتف',f:r=>r.s.phone?'<bdi>'+escHtml(r.s.phone)+'</bdi>':'—'},
+        {h:'المستحق له',f:r=>'<b class="'+(r.bal>0.009?'dn':'up')+'">'+fmt(Math.max(r.bal,0))+'</b>',cls:'nw'},
+        {h:'',f:r=>r.bal>0.009?'<button class="mini" data-suppay="'+r.s.id+'">تسديد</button>':''}
+      ],sup,'sup','أضف موردين');
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-suppay]');if(!b)return;supplierPaySheet(b.dataset.suppay)});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-photo]');if(!b)return;
@@ -1433,6 +1498,330 @@ function supplierPaySheet(sid){
 
 /* ---------- التحصيل ---------- */
 const BUCKETS=[['overdue','متأخرة'],['week','تستحق خلال 7 أيام'],['later','لاحقاً'],['paid','مسددة']];
+/* =====================================================================
+   طلبات النواقص (Purchase Requests)
+   ===================================================================== */
+let prLB;
+
+function mountPurchaseRequests(){
+  mountForm(byId('pr-head'),'prh',[
+    {k:'date',label:'تاريخ الطلب',type:'date',value:today},
+    {k:'notes',label:'ملاحظات عامة',type:'text'}
+  ],{noSubmit:true,main:true});
+  
+  // lineBuilder مخصص لطلبات النواقص (منتج أو مادة خام + كمية)
+  prLB = prLineBuilder(byId('pr-lines'));
+  
+  byId('pr-save').onclick = async () => {
+    const hf = forms.find(f => f.id === 'prh');
+    const v = hf.vals();
+    const lines = prLB.values().filter(l => (l.product_id || l.material_id) && l.qty > 0);
+    
+    if(!lines.length){
+      toast('أضف صنفاً واحداً على الأقل بكمية أكبر من صفر','err');
+      return;
+    }
+    
+    const items = lines.map(l => ({
+      id: uuid(),
+      type: l.product_id ? 'product' : 'material',
+      product_id: l.product_id || null,
+      material_id: l.material_id || null,
+      qty: l.qty,
+      note: l.note || '',
+      name: l.product_id ? pn(l.product_id) : mn(l.material_id)
+    }));
+    
+    const row = {
+      id: uuid(),
+      date: v.date || today(),
+      requested_by: user.id,
+      requested_by_name: user.name,
+      notes: v.notes || '',
+      items: items,
+      status: 'pending',
+      converted_purchase_id: null,
+      approved_by: null,
+      approved_at: null,
+      ts: Date.now()
+    };
+    
+    const ok = await tryCommit(
+      draft => {
+        draft.purchase_requests = draft.purchase_requests || [];
+        draft.purchase_requests.unshift(row);
+        draft.audit.unshift(auditRow('إضافة','طلب نواقص: ' + items.length + ' صنف'));
+      },
+      async () => { await adapter.saveSimple('purchase_requests', row); }
+    );
+    
+    if(ok){
+      toast('تم إرسال الطلب للمشتريات');
+      
+      // 🔔 إشعار للمديرين + مسؤول المشتريات
+      const title = '📦 طلب نواقص جديد';
+      const body = user.name + ': ' + items.map(i => i.name + ' × ' + fmt(i.qty)).slice(0, 3).join('، ')
+        + (items.length > 3 ? ' +' + (items.length - 3) : '');
+      
+      sendPushToAdmins(title, body, '/#purchases', 'purchase_request', row.id).catch(e => console.warn(e));
+      
+      // إشعار لمسؤولي المشتريات (staff لديهم perms.purchases)
+      const buyers = store.users.filter(u => 
+        u.active && 
+        u.role === 'staff' && 
+        u.perms && u.perms.indexOf('purchases') >= 0
+      );
+      for(const b of buyers){
+        sendPush(b.id, title, body, '/#purchases', 'purchase_request', row.id).catch(e => console.warn(e));
+      }
+      
+      hf.reset();
+      prLB.reset();
+    }
+  };
+}
+
+function prLineBuilder(container){
+  const rows = [];
+  const FIELDS = [
+    {k:'type', label:'النوع', type:'select', nophd:true, options:[['product','منتج جاهز'],['material','مادة خام']]},
+    {k:'product_id', label:'المنتج', type:'select', nophd:true, options:()=>[['','— اختر منتجاً —']].concat(opt.products())},
+    {k:'material_id', label:'المادة الخام', type:'select', nophd:true, options:()=>[['','— اختر مادة —']].concat(opt.materials())},
+    {k:'qty', label:'الكمية المطلوبة', type:'number', v:0, step:'0.001'},
+    {k:'note', label:'ملاحظة', type:'text', v:'', full:true}
+  ];
+  
+  function rowHTML(id){
+    return '<div class="lineitem" data-row="'+id+'"><button type="button" class="rm" data-rm="'+id+'">×</button><div class="g2">' +
+      FIELDS.map(f => {
+        const fid = 'pri_' + id + '_' + f.k;
+        const full = f.full ? ' style="grid-column:1/-1"' : '';
+        if(f.type === 'select'){
+          const opts = f.nophd ? f.options() : [['','اختر...']].concat(f.options());
+          return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><select class="in" id="'+fid+'" data-pf="'+f.k+'">'
+            + opts.map(o => '<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')
+            + '</select></div>';
+        }
+        return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><input class="in" id="'+fid+'" data-pf="'+f.k+'" type="'+f.type+'"'
+          + (f.type === 'number' ? ' inputmode="decimal" min="0" step="'+(f.step||'any')+'"' : '')
+          + ' value="'+escHtml(f.v)+'"></div>';
+      }).join('') + '</div></div>';
+  }
+  
+  function addRow(){ const id = rows.length ? Math.max.apply(null, rows) + 1 : 1; rows.push(id); render(); }
+  
+  function render(){
+    container.innerHTML = rows.map(rowHTML).join('')
+      + '<button type="button" class="addline" data-add>+ إضافة صنف آخر</button>';
+    
+    // معالجة الإخفاء/الإظهار حسب النوع
+    container.querySelectorAll('.lineitem').forEach(row => {
+      const typeSel = row.querySelector('[data-pf="type"]');
+      const prodDiv = row.querySelector('[data-pf="product_id"]').parentElement;
+      const matDiv = row.querySelector('[data-pf="material_id"]').parentElement;
+      
+      const updateVisibility = () => {
+        if(typeSel.value === 'product'){
+          prodDiv.style.display = '';
+          matDiv.style.display = 'none';
+        } else {
+          prodDiv.style.display = 'none';
+          matDiv.style.display = '';
+        }
+      };
+      typeSel.onchange = updateVisibility;
+      updateVisibility();
+    });
+    
+    container.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
+      const id = Number(b.dataset.rm);
+      const i = rows.indexOf(id);
+      if(i >= 0) rows.splice(i, 1);
+      if(!rows.length) addRow(); else render();
+    });
+    container.querySelector('[data-add]').onclick = addRow;
+  }
+  
+  addRow();
+  
+  return {
+    values(){
+      const out = [];
+      container.querySelectorAll('.lineitem').forEach(row => {
+        const o = {};
+        const type = row.querySelector('[data-pf="type"]').value;
+        o.product_id = type === 'product' ? (row.querySelector('[data-pf="product_id"]').value || null) : null;
+        o.material_id = type === 'material' ? (row.querySelector('[data-pf="material_id"]').value || null) : null;
+        const qtyEl = row.querySelector('[data-pf="qty"]');
+        o.qty = Math.max(parseFloat(qtyEl.value) || 0, 0);
+        o.note = (row.querySelector('[data-pf="note"]').value || '').trim();
+        out.push(o);
+      });
+      return out;
+    },
+    reset(){ rows.length = 0; addRow(); }
+  };
+}
+
+function renderPurchaseRequests(){
+  if(!byId('pr-body')) return;
+  
+  const all = store.purchase_requests || [];
+  const pending = all.filter(r => r.status === 'pending');
+  const approved = all.filter(r => r.status === 'approved');
+  const converted = all.filter(r => r.status === 'converted');
+  const rejected = all.filter(r => r.status === 'rejected');
+  
+  const f = ui.f.pr || 'all';
+  ui.f.pr = f;
+  
+  pills('#pr-pills', [
+    ['all', 'الكل (' + all.length + ')'],
+    ['pending', 'معلّقة (' + pending.length + ')'],
+    ['converted', 'تم تحويلها (' + converted.length + ')'],
+    ['rejected', 'مرفوضة (' + rejected.length + ')']
+  ], f, 'pr');
+  
+  const isBuyer = isA() || (user.perms && user.perms.indexOf('purchases') >= 0);
+  
+  const filtered = f === 'all' ? all : all.filter(r => r.status === f);
+  const sorted = [...filtered].sort((a,b) => (b.ts || 0) - (a.ts || 0));
+  
+  const rows = sorted.map(r => {
+    const statusTag = 
+      r.status === 'pending' ? tag('credit', 'معلّق') :
+      r.status === 'approved' ? tag('rec', 'معتمد') :
+      r.status === 'converted' ? tag('cash', 'تم الشراء') :
+      tag('disc', 'مرفوض');
+    
+    const itemsHTML = r.items.map(it => 
+      '<div class="kv" style="border-top:1px dashed var(--line);padding:4px 0">'
+      + '<span>' + escHtml(it.name || '—') + ' <small class="muted">(' + (it.type === 'product' ? 'منتج' : 'مادة خام') + ')</small></span>'
+      + '<b>' + fmt(it.qty) + '</b>'
+      + '</div>'
+    ).join('');
+    
+    const actionBtns = isBuyer && r.status === 'pending' ? (
+      '<div class="btnrow" style="margin-top:10px">'
+      + '<button class="btn-primary sm" data-pr-convert="' + r.id + '">✅ تحويل إلى فاتورة شراء</button>'
+      + '<button class="btn-danger sm" data-pr-reject="' + r.id + '">❌ رفض</button>'
+      + '</div>'
+    ) : '';
+    
+    const convertedInfo = r.status === 'converted' && r.converted_purchase_id ?
+      '<div class="hint" style="margin-top:8px">✅ تم تحويله إلى فاتورة شراء</div>' : '';
+    
+    return '<div class="card" style="margin-bottom:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">'
+      + '<div><b>' + escHtml(r.requested_by_name || 'غير معروف') + '</b>'
+      + '<div class="muted" style="font-size:12px">' + r.date + '</div></div>'
+      + statusTag
+      + '</div>'
+      + (r.notes ? '<div class="muted" style="margin-bottom:8px;font-size:13px">📝 ' + escHtml(r.notes) + '</div>' : '')
+      + itemsHTML
+      + convertedInfo
+      + actionBtns
+      + '</div>';
+  }).join('');
+  
+  byId('pr-body').innerHTML = sorted.length ? rows : '<div class="empty">لا طلبات بعد</div>';
+  
+  // ⚠️ معلومات إضافية للمدير
+  if(isBuyer && pending.length > 0){
+    byId('pr-warn').innerHTML = '<div class="notice">📦 لديك ' + pending.length + ' طلب نواقص معلّق — راجعها أدناه</div>';
+  } else {
+    byId('pr-warn').innerHTML = '';
+  }
+}
+
+// ✅ تحويل الطلب إلى فاتورة شراء
+document.addEventListener('click', async e => {
+  const convertBtn = e.target.closest('[data-pr-convert]');
+  if(convertBtn){
+    const rid = convertBtn.dataset.prConvert;
+    const req = (store.purchase_requests || []).find(r => r.id === rid);
+    if(!req) return;
+    
+    // ✅ افتح قسم المشتريات مع تعبئة مسبقة
+    convertPurchaseRequestToInvoice(req);
+    return;
+  }
+  
+  const rejectBtn = e.target.closest('[data-pr-reject]');
+  if(rejectBtn){
+    const rid = rejectBtn.dataset.prReject;
+    confirmSheet('رفض هذا الطلب؟', 'رفض', async () => {
+      const ok = await tryCommit(
+        draft => {
+          const r = (draft.purchase_requests || []).find(x => x.id === rid);
+          if(r){ r.status = 'rejected'; r.approved_by = user.name; r.approved_at = Date.now(); }
+          draft.audit.unshift(auditRow('رفض', 'طلب نواقص'));
+        },
+        async () => {
+          await adapter.updateSimple('purchase_requests', rid, { status: 'rejected', approved_by: user.name, approved_at: Date.now() });
+        }
+      );
+      if(ok) toast('تم الرفض');
+    });
+  }
+});
+
+// ✅ تحويل الطلب إلى فاتورة شراء (فتح المشتريات مع تعبئة مسبقة)
+function convertPurchaseRequestToInvoice(req){
+  // احفظ الطلب في متغير عام
+  window.__pendingPurchaseRequest = req;
+  
+  // انتقل إلى تبويب المشتريات
+  go('purchases');
+  
+  // بعد ثانية، افتح نموذج المشتريات مملوءاً
+  setTimeout(() => {
+    fillPurchaseFormFromRequest(req);
+  }, 300);
+}
+
+function fillPurchaseFormFromRequest(req){
+  // ابحث عن الـ lineBuilder في تبويب المشتريات
+  if(!purLB) return;
+  
+  // احذف كل الأسطر الحالية
+  const container = byId('pu-lines');
+  if(!container) return;
+  
+  // أنشئ أسطر جديدة بناءً على الطلب
+  container.innerHTML = '';
+  
+  // نحتاج لإعادة بناء purLB
+  // أسهل طريقة: صفّر purLB وأضف الأسطر يدوياً
+  purLB.reset();
+  
+  // أضف الصنف الأول ثم الباقي
+  req.items.forEach((it, idx) => {
+    if(idx > 0) purLB.addRow && purLB.addRow();
+    
+    setTimeout(() => {
+      const rows = container.querySelectorAll('.lineitem');
+      const row = rows[idx];
+      if(!row) return;
+      
+      const itemEl = row.querySelector('[data-f="item"]');
+      const matEl = row.querySelector('[data-f="material_id"]');
+      const qtyEl = row.querySelector('[data-f="qty"]');
+      
+      if(itemEl) itemEl.value = it.name || '';
+      if(matEl && it.material_id) matEl.value = it.material_id;
+      if(qtyEl) qtyEl.value = it.qty || 0;
+    }, idx * 50);
+  });
+  
+  // أضف ملاحظة عامة
+  setTimeout(() => {
+    toast('📦 تم تعبئة النموذج — راجع البيانات وأكمل الحفظ');
+  }, 500);
+  
+  // بعد الحفظ، حدّث حالة الطلب إلى "converted"
+  // (يتم ذلك عند نجاح حفظ فاتورة الشراء)
+}
 function mountCollections(){
   byId('col-add-prod').onclick=()=>{
     openSheet('<h3>📦 طلب إنتاج</h3><p class="muted">اختر منتجاً والكمية المطلوبة</p><div id="cp-prod-form"></div>');
@@ -2084,8 +2473,8 @@ function dataAction(a){
 }
 document.addEventListener('click',e=>{const t=e.target.closest('[data-data]');if(t)dataAction(t.dataset.data)});
 
-const MOUNT={sales:mountSales,production:mountProduction,withdrawals:mountWithdrawals,purchases:mountPurchases,collections:mountCollections,distributors:mountDistributors,attendance_log:mountAttendanceLog,management:mountManagement};
-const RENDER={overview:renderOverview,sales:renderSales,production:renderProduction,withdrawals:renderWithdrawals,purchases:renderPurchases,collections:renderCollections,distributors:renderDistributors,attendance_log:renderAttendanceLog,management:renderManagement};
+const MOUNT={sales:mountSales,production:mountProduction,withdrawals:mountWithdrawals,purchases:mountPurchases,purchase_requests:mountPurchaseRequests,collections:mountCollections,distributors:mountDistributors,attendance_log:mountAttendanceLog,management:mountManagement};
+const RENDER={overview:renderOverview,sales:renderSales,production:renderProduction,withdrawals:renderWithdrawals,purchases:renderPurchases,purchase_requests:renderPurchaseRequests,collections:renderCollections,distributors:renderDistributors,attendance_log:renderAttendanceLog,management:renderManagement};
 function renderAll(){index(store);Object.keys(RENDER).forEach(k=>{try{RENDER[k]()}catch(e){console.error(k,e)}});forms.forEach(f=>f.refresh());applyBrand();renderBell();autoNotify()}
 let _autoNotifyDay=null;
 async function autoNotify(){
@@ -2216,16 +2605,19 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-donecompla
 });
 
 /* ---------- التنقل ---------- */
-const ICONS={overview:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>',
+const ICONS={
+  overview:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>',
   sales:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M12 7v10M14.4 9.4c-.6-.8-1.4-1.1-2.4-1.1-1.3 0-2.3.7-2.3 1.7 0 2.4 4.7 1.2 4.7 3.6 0 1-1 1.7-2.4 1.7-1 0-1.9-.4-2.5-1.1"/>',
   production:'<path d="M3 21V11l6 4v-4l6 4V5h3.5v16z"/><path d="M7 18h.01M11 18h.01M15 18h.01"/>',
   withdrawals:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
   purchases:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L20.5 7H6"/>',
+  purchase_requests:'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/>',
   collections:'<rect x="2.5" y="6" width="19" height="12" rx="2.2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
   distributors:'<path d="M2 6h11v10H2zM13 9h4l3 3v4h-7z"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
   attendance_log:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01"/>',
   management:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
-  more:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'};
+  more:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'
+};
 const svg=k=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+ICONS[k]+'</svg>';
 function buildNav(){const al=allowed(),show=al.length>5?al.slice(0,4):al;let h=show.map(m=>'<button data-tab="'+m.id+'" aria-label="'+m.t+'">'+svg(m.id)+'<span>'+m.s+'</span></button>').join('');
   if(al.length>5)h+='<button data-tab="__more" aria-label="المزيد">'+svg('more')+'<span>المزيد</span></button>';byId('nav').innerHTML=h}
