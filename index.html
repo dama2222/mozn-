@@ -1742,7 +1742,26 @@ function shiftCheckOutForm(){
     }else shiftCheckOut(photo,null,note);
   };
 }
-function renderShiftChip(){
+/* 🆕 شريحة وردية منتج الإنتاج */
+function renderProdShiftChip(){
+  const el = byId('prod-shift');
+  if(!el) return;
+  const open = myShiftToday();
+  const closed = myShiftClosed();
+  
+  if(closed){
+    const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice ok shift-chip" data-prod-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
+  } else if(open){
+    const dur = Math.round((Date.now() - open.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice shift-chip" data-prod-shift-open>🟢 ورديتك مفتوحة (' + dur + ' دقيقة) — اضغط لإغلاقها</div>';
+  } else {
+    el.innerHTML = '<div class="notice shift-chip" data-prod-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
+  }
+  
+  const btn = el.querySelector('[data-prod-shift-open]');
+  if(btn) btn.onclick = shiftSheet;  // نفس دالة المبيعات
+}
   const el=byId('sales-shift');if(!el)return;
   const open=myShiftToday(),closed=myShiftClosed();
   if(closed){
@@ -1764,8 +1783,7 @@ function renderShiftChip(){
 const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
   sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
-  production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
-  withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
+  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
@@ -2049,6 +2067,12 @@ function renderAttendanceCard(){
    ===================================================================== */
 let prodLB;
 function mountProduction(){
+  // 🆕 عرض شريحة وردية المنتج
+  renderProdShiftChip();
+  
+  const prodScanBtn = document.createElement('button');
+  // ... باقي الكود
+}
   const prodScanBtn = document.createElement('button');
   prodScanBtn.type = 'button';
   prodScanBtn.className = 'btn-primary';
@@ -2121,8 +2145,11 @@ function mountProduction(){
 }
 function renderProduction(){
   if(!byId('prod-body'))return;
+  renderProdShiftChip();  // 🆕
   renderAttendanceCard();
-  renderDistAttendanceCard();  // 🆕
+  renderDistAttendanceCard();
+  // ... باقي الكود
+}  // 🆕
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -4848,6 +4875,37 @@ async function boot(){
   try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
   setTheme(th);
   registerServiceWorker();
+    // 🆕 مراقبة المزامنة السحابية كل 30 ثانية
+  if(cfg){
+    setInterval(async () => {
+      if(document.hidden) return;  // لا تزامن إذا الصفحة مخفية
+      try{
+        const newStore = await adapter.init();
+        // فحص هل هناك تغييرات فعلية
+        const oldStr = JSON.stringify({
+          s: store.sales?.length,
+          sh: store.shifts?.length,
+          w: store.withdrawals?.length,
+          dsh: store.distributor_shifts?.length,
+          da: store.dist_attendance?.length,
+          a: store.attendance?.length
+        });
+        const newStr = JSON.stringify({
+          s: newStore.sales?.length,
+          sh: newStore.shifts?.length,
+          w: newStore.withdrawals?.length,
+          dsh: newStore.distributor_shifts?.length,
+          da: newStore.dist_attendance?.length,
+          a: newStore.attendance?.length
+        });
+        if(oldStr !== newStr){
+          store = newStore;
+          renderAll();
+          console.log('[Sync] ✅ تحديث تلقائي');
+        }
+      }catch(ex){ console.warn('[Sync] فشل', ex); }
+    }, 30000);  // كل 30 ثانية
+  }
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 
   const cfg=loadCloudCfg();
