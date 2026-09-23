@@ -1742,7 +1742,9 @@ function shiftCheckOutForm(){
     }else shiftCheckOut(photo,null,note);
   };
 }
-/* 🆕 شريحة وردية منتج الإنتاج */
+/* =====================================================================
+   🆕 شريحة وردية المستخدم العام (الإنتاج + المبيعات)
+   ===================================================================== */
 function renderProdShiftChip(){
   const el = byId('prod-shift');
   if(!el) return;
@@ -1771,7 +1773,6 @@ function renderOpShiftChip(){
   const el = byId('op-shift');
   if(!el) return;
   
-  // ابحث عن المشغّل المرتبط بحساب المستخدم الحالي
   const myOperator = store.operators.find(o => o.user_id === user.id);
   if(!myOperator){
     el.innerHTML = '<div class="notice">👤 حسابك غير مرتبط بمشغّل — راجع المدير لربطه من الإدارة</div>';
@@ -1843,7 +1844,6 @@ function openOperatorShiftSheet(opId){
     return;
   }
   
-  // بدء وردية جديدة
   const currentShift = getCurrentShift();
   const shiftAr = (SHIFT_TYPES[currentShift] || {}).ar || currentShift;
   openSheet('<h3>📸 تسجيل حضور وردية ' + escHtml(o.name) + '</h3>' +
@@ -1916,20 +1916,17 @@ async function operatorShiftCheckIn(opId, photoData, coords, shiftType){
     toast('✅ تم بدء وردية ' + o.name);
     closeSheet();
     
-    // إشعار بدء الوردية
     NotificationCenter.fire('shift_start', {
       userName: o.name,
       userId: user.id,
       refId: row.id
     }).catch(e => console.warn(e));
     
-    // تنبيه البدء المبكر (قبل الساعة 5)
     if(isEarlyShiftStart(now)){
       const th = (store.company && store.company.shift_early_threshold) || 5;
       sendPushToAdmins('⏰ بدء وردية مبكر', o.name + ' بدأ ورديته قبل الساعة ' + th + ' صباحاً', '/#attendance_log', 'early_shift_start', row.id).catch(e=>console.warn(e));
     }
     
-    // تنبيه التأخير (بعد الساعة 10)
     if(isLateShiftStart(now)){
       const th = (store.company && store.company.shift_late_threshold) || 10;
       sendPushToAdmins('⚠️ تأخير في بدء الوردية', o.name + ' بدأ ورديته بعد الساعة ' + th + ' صباحاً', '/#attendance_log', 'late_shift_start', row.id).catch(e=>console.warn(e));
@@ -2024,37 +2021,7 @@ function operatorShiftCheckOutForm(opId){
     }
   };
 }
-/* شريحة وردية المبيعات */
-function renderShiftChip(){
-  const el = byId('sales-shift');
-  if(!el) return;
-  const open = myShiftToday(), closed = myShiftClosed();
-  if(closed){
-    const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
-    el.innerHTML = '<div class="notice ok shift-chip" data-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
-  } else if(open){
-    const dur = Math.round((Date.now() - open.checkin_ts) / 60000);
-    el.innerHTML = '<div class="notice shift-chip" data-shift-open>🟢 ورديتك مفتوحة (' + dur + ' دقيقة) — اضغط لإغلاقها</div>';
-  } else {
-    el.innerHTML = '<div class="notice shift-chip" data-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
-  }
-  const btn = el.querySelector('[data-shift-open]');
-  if(btn) btn.onclick = shiftSheet;
-}
-  const el=byId('sales-shift');if(!el)return;
-  const open=myShiftToday(),closed=myShiftClosed();
-  if(closed){
-    const dur=Math.round((closed.checkout_ts-closed.checkin_ts)/60000);
-    el.innerHTML='<div class="notice ok shift-chip" data-shift-open>✅ ورديتك انتهت اليوم ('+dur+' دقيقة) — اضغط للتفاصيل</div>';
-  }else if(open){
-    const dur=Math.round((Date.now()-open.checkin_ts)/60000);
-    el.innerHTML='<div class="notice shift-chip" data-shift-open>🟢 ورديتك مفتوحة ('+dur+' دقيقة) — اضغط لإغلاقها</div>';
-  }else{
-    el.innerHTML='<div class="notice shift-chip" data-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
-  }
-  const btn=el.querySelector('[data-shift-open]');
-  if(btn)btn.onclick=shiftSheet;
-}
+
 
 /* =====================================================================
    هياكل الشاشات
@@ -2228,7 +2195,8 @@ function renderAttendanceCard(){
         }).join('') : '')+
       (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
         '<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
-    
+    wrap.hidden = false;
+    return;
     $$('[data-att-big]').forEach(img => img.onclick = () =>
       openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
     );
