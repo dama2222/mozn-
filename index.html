@@ -2475,7 +2475,22 @@ async function boot(){
   let sid=null;try{sid=JSON.parse(localStorage.getItem(SESSKEY)||'null')}catch(e){}
   const u=sid&&store.users.find(x=>x.id===sid.id&&x.active);
   if(u){user=omit(u,['salt','hash']);startApp()}else showLogin();
-  window.__muzn={get store(){return store},get adapter(){return adapter},seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal};
+    window.__muzn={
+    get store(){return store},
+    get adapter(){return adapter},
+    seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal,
+    sendPush,sendPushToUsers,sendPushToAdmins,sendPushToOperators,
+    subscribeToPush,unsubscribeFromPush,registerServiceWorker,urlBase64ToUint8Array,
+    complaintSheet,collectionRequestSheet,mountDiscounts,distAttendanceSheet,
+    shiftCheckIn,shiftCheckOut,autoNotify,alertsList,
+    get ENT(){return ENT},
+    get SKEL(){return SKEL},
+    get VAPID_PUBLIC_KEY(){return VAPID_PUBLIC_KEY},
+    get EDGE_FUNCTION_URL(){return EDGE_FUNCTION_URL},
+    get user(){return user},
+    get store(){return store},
+    get adapter(){return adapter}
+  };
 }
 boot();
 })();
