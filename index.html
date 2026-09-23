@@ -1479,6 +1479,28 @@ function renderDistributors(){
     {h:'',f:r=>'<button class="mini" data-rc="'+r.id+'">عرض</button>'+(canD()?'<button class="mini dng" data-remdel="'+r.id+'">حذف</button>':''),cls:'nw'}];
   byId('di-body').innerHTML='<h2 style="margin:22px 0 10px">إيصالات الاستلام</h2>'+table(cols,[...store.remittances].sort(byDate),'rem');
 }
+  function distributorProfitSheet(did){
+  const d=store.distributors.find(x=>x.id===did);if(!d)return;
+  const profit=distributorProfit(store,did);
+  const html='<h3>📊 تفاصيل ربح '+escHtml(d.name)+'</h3>'+
+    '<div class="kgrid">'+
+      '<div class="kpi wide"><div class="lb">إجمالي الربح</div><div class="val up">'+fmt(profit.profit)+' '+cur()+'</div><div class="sub mut">من '+profit.items.length+' منتج</div></div>'+
+      '<div class="kpi"><div class="lb">إجمالي المبيعات</div><div class="val">'+fmt(profit.revenue)+'</div></div>'+
+      '<div class="kpi"><div class="lb">تكلفة الشراء</div><div class="val">'+fmt(profit.cost)+'</div></div>'+
+    '</div>'+
+    '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:14px">الربح حسب المنتج</h2></div>'+
+    (profit.items.length?
+      '<div class="tw"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th></tr></thead><tbody>'+
+      profit.items.map(x=>'<tr><td>'+escHtml(x.p.name)+'</td><td>'+fmt(x.qty)+'</td><td>'+fmt(x.revenue)+'</td><td>'+fmt(x.cost)+'</td><td><b class="up">'+fmt(x.profit)+'</b></td></tr>').join('')+
+      '</tbody></table></div>'
+      :'<div class="empty">لا مبيعات بعد</div>');
+  openSheet(html);
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-dprofile]');
+  if(!b)return;
+  distributorProfitSheet(b.dataset.dprofile);
+});
 document.addEventListener('click',e=>{
   const rc=e.target.closest('[data-rc]');if(rc){receiptSheet(rc.dataset.rc);return}
   const rd=e.target.closest('[data-remdel]');if(rd){if(!canD())return toast('ليس لديك صلاحية','err');
