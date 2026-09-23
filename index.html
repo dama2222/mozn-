@@ -243,6 +243,10 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 <script>
 (function(){
 'use strict';
+  /* ==================== Push Notifications Config ==================== */
+const VAPID_PUBLIC_KEY = 'BB70IvXsu1xDepLIPf3eXDCkVtYdUD5APnV33QQoRDth_WQDPfZgQN81tFAGOvvfG8gy0MgILa1rzoK82K2g2ts';
+const EDGE_FUNCTION_URL = 'https://njxfxdrcluyovkqsecol.supabase.co/functions/v1/send-push';
+/* =================================================================== */
 const DBKEY='muzn_local_v3', SESSKEY='muzn_sess_v3', THEME_KEY='muzn_theme', CFGKEY='muzn_cloud_cfg';
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s)), byId=id=>document.getElementById(id);
 const pad=n=>String(n).padStart(2,'0');
@@ -2005,32 +2009,32 @@ function go(tab){const al=allowed();if(!al.some(m=>m.id===tab))tab=al[0]?al[0].i
   window.scrollTo(0,0);
 }
 function moreSheet(){const al=allowed().slice(4);openSheet('<h3>الأقسام</h3>'+al.map(m=>'<button class="opt" data-go="'+m.id+'">'+m.t+'</button>').join(''))}
-function userSheet(){openSheet('<h3>'+escHtml(user.name)+'</h3><p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>'+
-  '<button class="opt" id="us-pw">تغيير كلمة المرور</button><button class="opt" id="us-theme">تبديل المظهر</button>'+
-  (isA()?'':'<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>')+
-  '<button class="opt" id="us-out" style="color:var(--red)">تسجيل الخروج</button>');
-  byId('us-pw').onclick=pwSheet;byId('us-theme').onclick=()=>{toggleTheme();closeSheet()};byId('us-out').onclick=()=>{closeSheet();logout()};
-  const uc=byId('us-complain');if(uc)uc.onclick=complaintSheet;}
-function complaintSheet(){
-  openSheet('<h3>شكوى / طلب سحب مال</h3><div id="cp-form"></div>');
-  mountForm(byId('cp-form'),'cp',[
-    {k:'type',label:'النوع',type:'radio',options:[['complaint','شكوى'],['withdraw','طلب سحب مال']],value:'complaint'},
-    {k:'amount',label:'المبلغ (للسحب)',type:'number',value:0,step:'0.001'},
-    {k:'reason',label:'التفاصيل',type:'textarea'}
-  ],{label:'إرسال للمدير',submit:async v=>{
-    if(!v.reason){toast('اذكر السبب','err');return false}
-    if(v.type==='withdraw'&&v.amount<=0){toast('أدخل المبلغ','err');return false}
-    const row={id:uuid(),date:today(),type:v.type,amount:v.type==='withdraw'?v.amount:0,reason:v.reason,by:user.name,ts:Date.now(),done:false};
-    try{
-      await adapter.saveSimple('complaints',row);
-      store.complaints=store.complaints||[];
-      store.complaints.unshift(row);
-      const notice={id:uuid(),date:today(),kind:'complaint',target_id:null,title:(v.type==='withdraw'?'طلب سحب مال':'شكوى')+' من '+user.name,body:v.reason+(v.type==='withdraw'?' — المبلغ: '+fmt(v.amount)+' '+cur():''),items:[],by:user.name,ts:Date.now(),done:false};
-      try{await adapter.saveSimple('notices',notice);store.notices.unshift(notice)}catch(e){console.warn('notice fail',e)}
-      toast('تم إرسال طلبك للمدير');closeSheet();renderAll();
-    }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
-    return false;
-  }});
+function userSheet(){
+  const pushEnabled=localStorage.getItem('muzn_push_enabled')==='1';
+  openSheet('<h3>'+escHtml(user.name)+'</h3><p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>'+
+    '<button class="opt" id="us-push">'+(pushEnabled?'🔔 إيقاف الإشعارات':'🔕 تفعيل الإشعارات')+'</button>'+
+    '<button class="opt" id="us-pw">تغيير كلمة المرور</button>'+
+    '<button class="opt" id="us-theme">تبديل المظهر</button>'+
+    (isA()?'':'<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>')+
+    '<button class="opt" id="us-out" style="color:var(--red)">تسجيل الخروج</button>');
+  byId('us-pw').onclick=pwSheet;
+  byId('us-theme').onclick=()=>{toggleTheme();closeSheet()};
+  byId('us-out').onclick=()=>{closeSheet();logout()};
+  byId('us-push').onclick=async()=>{
+    if(pushEnabled){
+      await unsubscribeFromPush();
+      closeSheet();
+      setTimeout(userSheet,300);
+    }else{
+      const ok=await subscribeToPush();
+      if(ok){
+        toast('✅ تم تفعيل الإشعارات');
+        closeSheet();
+        setTimeout(userSheet,300);
+      }
+    }
+  };
+  const uc=byId('us-complain');if(uc)uc.onclick=complaintSheet;
 }
 function pwSheet(){openSheet('<h3>تغيير كلمة المرور</h3><div id="pw-form"></div>');
   mountForm(byId('pw-form'),'pw',[{k:'cur',label:'الحالية',type:'password'},{k:'n1',label:'الجديدة',type:'password'},{k:'n2',label:'التأكيد',type:'password'}],
@@ -2131,10 +2135,137 @@ document.addEventListener('click',e=>{
   if(t.dataset.ent){entSheet(t.dataset.ent,t.dataset.id);return}
   if(t.dataset.entNew){entSheet(t.dataset.entNew,null);return}
 });
+/* =====================================================================
+   إشعارات Push
+   ===================================================================== */
+function urlBase64ToUint8Array(base64String){
+  const padding='='.repeat((4-base64String.length%4)%4);
+  const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw=atob(base64);
+  const arr=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
+  return arr;
+}
 
+async function registerServiceWorker(){
+  if(!('serviceWorker' in navigator))return null;
+  try{
+    const reg=await navigator.serviceWorker.register('sw.js',{scope:'./'});
+    console.log('[PWA] SW registered:',reg.scope);
+    return reg;
+  }catch(e){
+    console.error('[PWA] SW register failed:',e);
+    return null;
+  }
+}
+
+async function subscribeToPush(){
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)){
+    toast('متصفحك لا يدعم الإشعارات','err');
+    return false;
+  }
+  if(Notification.permission!=='granted'){
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted'){
+      toast('تم رفض إذن الإشعارات','err');
+      return false;
+    }
+  }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){
+      sub=await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const json=sub.toJSON();
+    const row={
+      id:uuid(),
+      user_id:user.id,
+      endpoint:json.endpoint,
+      keys:json.keys,
+      platform:'web',
+      created_at:Date.now(),
+      last_used:Date.now()
+    };
+    try{
+      await adapter.saveSimple('push_subscriptions',row);
+    }catch(ex){
+      console.log('already subscribed or error:',ex.message);
+    }
+    try{localStorage.setItem('muzn_push_enabled','1')}catch(e){}
+    return true;
+  }catch(e){
+    console.error('subscribeToPush error:',e);
+    toast('تعذر تفعيل الإشعارات: '+e.message,'err');
+    return false;
+  }
+}
+
+async function unsubscribeFromPush(){
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub){
+      const endpoint=sub.endpoint;
+      await sub.unsubscribe();
+      try{
+        const all=await adapter.sb.from('push_subscriptions').select('id').eq('endpoint',endpoint);
+        if(all.data)for(const r of all.data){
+          await adapter.sb.from('push_subscriptions').delete().eq('id',r.id);
+        }
+      }catch(e){console.warn('delete sub failed',e);}
+    }
+    try{localStorage.removeItem('muzn_push_enabled')}catch(e){}
+    toast('تم إيقاف الإشعارات');
+    return true;
+  }catch(e){
+    console.error(e);
+    return false;
+  }
+}
+
+async function sendPush(userId,title,body,url,kind,refId){
+  if(adapter.mode!=='cloud')return;
+  if(!EDGE_FUNCTION_URL||EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT')>=0)return;
+  try{
+    await fetch(EDGE_FUNCTION_URL,{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer '+adapter.key
+      },
+      body:JSON.stringify({
+        user_id:userId,
+        title:title,
+        body:body||'',
+        url:url||'/',
+        kind:kind||'general',
+        ref_id:refId||null
+      })
+    });
+  }catch(e){
+    console.warn('sendPush failed:',e);
+  }
+}
+
+async function sendPushToAdmins(title,body,url,kind,refId){
+  if(!store)return;
+  const admins=store.users.filter(u=>u.role==='admin'&&u.active);
+  for(const a of admins){
+    await sendPush(a.id,title,body,url,kind,refId);
+  }
+}
+
+async function sendPushToUser(userId,title,body,url,kind,refId){
+  await sendPush(userId,title,body,url,kind,refId);
+}
 async function boot(){
   let th='dark';try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
   setTheme(th);
+    registerServiceWorker();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   const cfg=loadCloudCfg();
   adapter=cfg?SupabaseAdapter(cfg.url,cfg.key):LocalAdapter;
