@@ -798,7 +798,7 @@ function lineBuilder(container,kind){
 const opt={
   products:()=>store.products.map(p=>[p.id,p.name]),materials:()=>store.materials.map(m=>[m.id,m.name]),
   distributors:()=>store.distributors.map(d=>[d.id,d.name]),customers:()=>store.customers.map(c=>[c.id,c.name]),
-  operators:()=>store.operators.map(o=>[o.id,o.name]),suppliers:()=>store.suppliers.map(s=>[s.id,s.name])
+  ()=>store.operators.map(o=>[o.id,o.name]),suppliers:()=>store.suppliers.map(s=>[s.id,s.name])
 };
 
 function table(cols,rows,key,empty){
@@ -880,7 +880,10 @@ async function shiftCheckIn(photoData,coords){
   try{
     await adapter.saveSimple('attendance_shifts',row);
     store.attendance_shifts.unshift(row);
-    toast('تم بدء الوردية ✓');closeSheet();renderAll();
+    toast('تم بدء الوردية ✓');
+closeSheet();
+sendPushToAdmins('🟢 بدء وردية',user.name+' بدأ ورديته الآن','/#attendance_log','shift_start',row.id).catch(e=>console.warn(e));
+renderAll();
   }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
 }
 async function shiftCheckOut(photoData,coords,note){
@@ -888,8 +891,12 @@ async function shiftCheckOut(photoData,coords,note){
   const patch={checkout_ts:Date.now(),checkout_photo:photoData||null,checkout_lat:coords?coords.lat:null,checkout_lng:coords?coords.lng:null,note:note||'',closed:true};
   try{
     await adapter.updateSimple('attendance_shifts',s.id,patch);
-    Object.assign(s,patch);
-    toast('تم إغلاق الوردية ✓');closeSheet();renderAll();
+   Object.assign(s,patch);
+toast('تم إغلاق الوردية ✓');
+closeSheet();
+sendPushToAdmins('🔴 إغلاق وردية',user.name+' أنهى ورديته'+(note?' — '+note:''),'/#attendance_log','shift_end',s.id).catch(e=>console.warn(e));
+renderAll();
+
   }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
 }
 function shiftSheet(){
@@ -1090,9 +1097,17 @@ function renderAttendanceCard(){
         if(old)await adapter.deleteSimple('attendance',old.id);
         await adapter.saveSimple('attendance',row);
         store.attendance=store.attendance.filter(a=>!old||a.id!==old.id);
-        store.attendance.unshift(row);
-        delete card.dataset.editing;
-        toast('تم');renderAttendanceCard();
+       store.attendance.unshift(row);
+delete card.dataset.editing;
+toast('تم');
+sendPushToAdmins(
+  '👷 حضور فريق الإنتاج',
+  present.length+' حاضر'+(absent.length?' · '+absent.length+' غائب':''),
+  '/#production',
+  'attendance_prod',
+  row.id
+).catch(e=>console.warn(e));
+renderAttendanceCard();
       }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
     };
   }
@@ -1233,7 +1248,16 @@ function distAttendanceSheet(){
     try{
       await adapter.saveSimple('dist_attendance',row);
       store.dist_attendance.unshift(row);
-      toast('تم التسجيل نهائياً');closeSheet();renderAll();
+toast('تم التسجيل نهائياً');
+closeSheet();
+sendPushToAdmins(
+  '📸 حضور الموزعين مسجَّل',
+  present.length+' موزع حاضر'+(absent.length?' · '+absent.length+' غائب':''),
+  '/#attendance_log',
+  'attendance',
+  row.id
+).catch(e=>console.warn(e));
+renderAll();
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
   };
 }
@@ -1360,17 +1384,14 @@ function mountCollections(){
       if(v.qty<=0){toast('أدخل الكمية','err');return false}
       const row={id:uuid(),date:today(),kind:'production',target_id:null,title:(v.urgent?'🔴 عاجل — ':'')+'طلب من التحصيل',body:v.note,items:[{product_id:v.product_id,qty:v.qty}],by:user.name,ts:Date.now(),done:false};
       const ok=await tryCommit(draft=>{draft.notices.unshift(row)},async()=>{await adapter.saveSimple('notices',row)});
-      if(ok){
-        toast('تم إرسال الطلب');
-        closeSheet();
-        sendPushToAdmins(
-          (v.urgent?'🔴 عاجل — ':'')+'📦 طلب إنتاج',
-          pn(v.product_id)+' × '+fmt(v.qty)+(v.note?' — '+v.note:''),
-          '/#production',
-          'production_request',
-          row.id
-        ).catch(e=>console.warn(e));
-      }
+     if(ok){
+  toast('تم إرسال الطلب');
+  closeSheet();
+  const title=(v.urgent?'🔴 عاجل — ':'')+'📦 طلب إنتاج';
+  const body=pn(v.product_id)+' × '+fmt(v.qty)+(v.note?' — '+v.note:'');
+  sendPushToAdmins(title,body,'/#production','production_request',row.id).catch(e=>console.warn(e));
+  sendPushToOperators(title,body,'/#production','production_request',row.id).catch(e=>console.warn(e));
+}
       return false;
     }});
   };
@@ -1762,7 +1783,10 @@ const ENT={
   {k:'user_id',label:'🔗 ربط بحساب مستخدم (لاستقبال الإشعارات)',type:'select',nophd:true,options:()=>[['','بدون ربط']].concat((store.users||[]).filter(u=>u.active).map(u=>[u.id,u.name+' (@'+u.username+')']))},
   {k:'period',label:'فترة التسليم',type:'radio',options:[['weekly','أسبوعي'],['monthly','شهري']],value:'weekly'}
 ]},
-  operators:{title:'مشغّل',fields:[{k:'name',label:'الاسم'}]},
+  operators:{title:'مشغّل',fields:[
+  {k:'name',label:'الاسم'},
+  {k:'user_id',label:'🔗 ربط بحساب مستخدم (لاستقبال الإشعارات)',type:'select',nophd:true,options:()=>[['','بدون ربط']].concat((store.users||[]).filter(u=>u.active).map(u=>[u.id,u.name+' (@'+u.username+')']))}
+]},
   suppliers:{title:'مورّد',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف'},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:0}]},
   users:{title:'مستخدم',fields:[{k:'name',label:'الاسم'},{k:'username',label:'اسم المستخدم',placeholder:'بالإنجليزية'},
     {k:'password',label:'كلمة المرور',type:'password',hint:'اتركها فارغة للإبقاء'},
@@ -1771,7 +1795,7 @@ const ENT={
     {k:'can_edit',label:'تخفيض الكميات',type:'toggle'},{k:'can_delete',label:'حذف',type:'toggle'},{k:'active',label:'مفعّل',type:'toggle',value:true}]}
 };
 const REFS={products:['shift_items','sale_items','withdrawals','purchase_items'],materials:['products','purchase_items'],
-  customers:['sale_items','payments'],distributors:['sale_items','withdrawals','remittances','payments'],operators:['shift_items'],suppliers:['purchase_items'],users:[]};
+  customers:['sale_items','payments'],distributors:['sale_items','withdrawals','remittances','payments'],['shift_items'],suppliers:['purchase_items'],users:[]};
 function entUsedCount(ent,id){
   const t=REFS[ent]||[];let n=0;
   if(t.indexOf('shift_items')>=0)n+=store.shift_items_flat.filter(x=>x.product_id===id||x.operator_id===id).length;
@@ -1836,7 +1860,16 @@ function productionRequestSheet(){
     if(!lines.length){toast('أضف صنفاً','err');return}
     const row={id:uuid(),date:today(),kind:'production',target_id:null,title:v.title||'أصناف مطلوبة',body:v.note,items:lines.map(l=>({product_id:l.product_id,qty:l.qty})),by:user.name,ts:Date.now(),done:false};
     const ok=await tryCommit(draft=>{draft.notices.unshift(row)},async()=>{await adapter.saveSimple('notices',row)});
-    if(ok){toast('تم');closeSheet()}
+  if(ok){
+  toast('تم');
+  closeSheet();
+  const title=(v.urgent?'🔴 عاجل — ':'')+'📦 طلب إنتاج من '+d.name;
+  const body=pn(v.product_id)+' × '+fmt(v.qty)+(v.note?' — '+v.note:'');
+  // 🔔 للمديرين
+  sendPushToAdmins(title,body,'/#production','production_request',row.id).catch(e=>console.warn(e));
+  // 🔔 للمشغّلين
+  sendPushToOperators(title,body,'/#production','production_request',row.id).catch(e=>console.warn(e));
+}
   };
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-donenotice]');if(!b)return;
@@ -1866,7 +1899,7 @@ function mountManagement(){
 function mountDiscounts(){
   const el=byId('mg-disc');if(!el)return;
   if(!isA()){el.innerHTML='<p class="muted">الخصومات للمدير فقط.</p>';return}
-  el.innerHTML='<p class="muted">سيُرسل إشعار تلقائي للمخصوم منه فقط.</p><div id="disc-form"></div><div id="disc-list"></div>';
+  el.innerHTML='<p class="muted">سيُرسل إشعار Push تلقائي للمدير وللطرف المخصوم منه.</p><div id="disc-form"></div><div id="disc-list"></div>';
   mountForm(byId('disc-form'),'dc',[
     {k:'kind',label:'نوع الطرف',type:'select',nophd:true,options:[['distributor','موزع'],['customer','عميل'],['operator','مشغّل']],value:'distributor'},
     {k:'ref_id',label:'الطرف',type:'select',options:()=>{
@@ -1882,17 +1915,69 @@ function mountDiscounts(){
     if(v.amount<=0){toast('أدخل مبلغاً','err');return false}
     if(!v.reason){toast('اذكر السبب','err');return false}
     const row={id:uuid(),date:today(),kind:v.kind,ref_id:v.ref_id,amount:v.amount,reason:v.reason,by:user.name,ts:Date.now(),cancelled:false};
-    const ok=await tryCommit(draft=>{
-      draft.discounts=draft.discounts||[];draft.discounts.unshift(row);
+    const targetName=v.kind==='customer'?cn(v.ref_id):v.kind==='operator'?nm('operators',v.ref_id):dn(v.ref_id);
+    
+    const ok=await tryCommit(
+      draft=>{
+        draft.discounts=draft.discounts||[];
+        draft.discounts.unshift(row);
+        draft.audit.unshift(auditRow('إضافة','خصم: '+fmt(v.amount)+' على '+targetName));
+      },
+      async()=>{await adapter.saveSimple('discounts',row)}
+    );
+    
+    if(ok){
+      toast('تم تسجيل الخصم');
+      const title='💰 خصم جديد';
+      const body=targetName+' — '+fmt(v.amount)+' '+cur()+' — '+v.reason;
+      
+      // 🔔 إشعار للمديرين (Push + في الجرس)
+      sendPushToAdmins(title,body,'/#management','discount',row.id).catch(e=>console.warn('push to admins fail',e));
+      
+      // 🔔 إشعار للطرف المخصوم منه (إن كان مربوطاً بحساب)
+      let targetUserId=null;
+      if(v.kind==='operator'){
+        const op=store.operators.find(x=>x.id===v.ref_id);
+        if(op&&op.user_id)targetUserId=op.user_id;
+      }else if(v.kind==='distributor'){
+        const dist=store.distributors.find(x=>x.id===v.ref_id);
+        if(dist&&dist.user_id)targetUserId=dist.user_id;
+      }else if(v.kind==='customer'){
+        const cust=store.customers.find(x=>x.id===v.ref_id);
+        if(cust&&cust.user_id)targetUserId=cust.user_id;
+      }
+      if(targetUserId){
+        sendPush(targetUserId,'💰 خصم عليك',body,'/#management','discount',row.id).catch(e=>console.warn('push to target fail',e));
+      }
+    }
+    return ok;
+  }});
+  renderDiscountsList();
+}
+    if(ok){
+      toast('تم وإرسال الإشعار');
+      // 🔔 إشعار للمديرين
       const targetName=v.kind==='customer'?cn(v.ref_id):v.kind==='operator'?nm('operators',v.ref_id):dn(v.ref_id);
-      const notice={id:uuid(),date:today(),kind:'discount',target_id:v.ref_id,title:'خصم على '+targetName,body:'المبلغ: '+fmt(v.amount)+' '+cur()+'\nالسبب: '+v.reason+'\nبواسطة: '+user.name,items:[],by:user.name,ts:Date.now(),done:false};
-      draft.notices.unshift(notice);
-    },async draft=>{
-      await adapter.saveSimple('discounts',row);
-      const notice=draft.notices[0];
-      try{await adapter.saveSimple('notices',notice)}catch(ex){console.error(ex)}
-    });
-    if(ok)toast('تم وإرسال الإشعار');return ok;
+      const title='💰 خصم جديد';
+      const body=targetName+' — '+fmt(v.amount)+' '+cur()+' — '+v.reason;
+      sendPushToAdmins(title,body,'/#management','discount',row.id).catch(e=>console.warn('push fail',e));
+      // 🔔 إشعار للمخصوم منه (إن كان مربوطاً بحساب)
+      let targetUserId=null;
+      if(v.kind==='operator'){
+        const op=store.operators.find(x=>x.id===v.ref_id);
+        if(op&&op.user_id)targetUserId=op.user_id;
+      }else if(v.kind==='distributor'){
+        const dist=store.distributors.find(x=>x.id===v.ref_id);
+        if(dist&&dist.user_id)targetUserId=dist.user_id;
+      }else if(v.kind==='customer'){
+        const cust=store.customers.find(x=>x.id===v.ref_id);
+        if(cust&&cust.user_id)targetUserId=cust.user_id;
+      }
+      if(targetUserId){
+        sendPush(targetUserId,'💰 خصم عليك',body,'/#management','discount',row.id).catch(e=>console.warn('push fail',e));
+      }
+    }
+    return ok;
   }});
   renderDiscountsList();
 }
@@ -2041,15 +2126,23 @@ function alertsList(){
   const overdue=S.customers.map(c=>({c,b:custBal(S,c)})).filter(x=>x.b.bucket==='overdue');
   const lateDist=S.distributors.map(d=>({d,s:dSummary(S,d)})).filter(x=>x.s.per.left<0&&x.s.bal>0.009);
   const notices=(S.notices||[]).filter(n=>{
-    if(n.done)return false;
-    if(n.kind==='complaint')return false; // تُعرض في complaints فقط للمدير
+  if(n.done)return false;
+  if(n.kind==='complaint')return false;
+  // ✅ إذا كان موجّهاً لمستخدم محدد → أظهره فقط له
+  if(n.target_id){
+    if(n.target_id===user.id)return true;
+    // المدير يرى كل شيء موجّه
     if(isA())return true;
-    if(n.kind==='production')return user.perms.indexOf('production')>=0;
-    if(n.kind==='distributor')return user.perms.indexOf('distributors')>=0||user.perms.indexOf('withdrawals')>=0;
-    if(n.kind==='collection')return user.perms.indexOf('distributors')>=0||user.perms.indexOf('collections')>=0;
-    if(n.kind==='discount')return n.target_id===user.id||n.by===user.name;
     return false;
-  });
+  }
+  // إشعارات عامة (بدون target_id) → الفلترة حسب الصلاحيات
+  if(isA())return true;
+  if(n.kind==='production')return user.perms.indexOf('production')>=0;
+  if(n.kind==='distributor')return user.perms.indexOf('distributors')>=0||user.perms.indexOf('withdrawals')>=0;
+  if(n.kind==='collection')return user.perms.indexOf('distributors')>=0||user.perms.indexOf('collections')>=0;
+  if(n.kind==='discount')return n.target_id===user.id||n.by===user.name;
+  return false;
+});
   const discounts=isA()?(S.discounts||[]).filter(d=>!d.cancelled).slice(0,5):[];
   const complaints=isA()?(S.complaints||[]).filter(c=>!c.done):[];
   return{lowStock,lowMat,overdue,lateDist,notices,discounts,complaints};
@@ -2330,6 +2423,76 @@ async function unsubscribeFromPush(){
 }
 
 async function sendPush(userId,title,body,url,kind,refId){
+  if(adapter.mode!=='cloud')return;
+  
+  // 1. أرسل Push Notification (يظهر على الهاتف)
+  if(EDGE_FUNCTION_URL&&EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT')<0){
+    try{
+      await fetch(EDGE_FUNCTION_URL,{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'Authorization':'Bearer '+adapter.key
+        },
+        body:JSON.stringify({
+          user_id:userId,
+          title:title,
+          body:body||'',
+          url:url||'/',
+          kind:kind||'general',
+          ref_id:refId||null
+        })
+      });
+    }catch(e){
+      console.warn('push send failed:',e);
+    }
+  }
+  
+  // 2. احفظ notice في الجدول (يظهر في الجرس)
+  try{
+    const notice={
+      id:uuid(),
+      date:today(),
+      kind:kind||'general',
+      target_id:userId,
+      title:title,
+      body:body||'',
+      items:[],
+      by:'النظام',
+      ts:Date.now(),
+      done:false
+    };
+    await adapter.saveSimple('notices',notice);
+    if(store&&store.notices){
+      store.notices.unshift(notice);
+      if(typeof renderBell==='function')renderBell();
+    }
+  }catch(ex){
+    console.warn('save notice failed:',ex);
+  }
+}
+
+// إرسال لمجموعة مستخدمين (مثلاً: كل المديرين)
+async function sendPushToUsers(userIds,title,body,url,kind,refId){
+  if(!userIds||!userIds.length)return;
+  for(const uid of userIds){
+    await sendPush(uid,title,body,url,kind,refId);
+  }
+}
+
+// إرسال لكل المديرين
+async function sendPushToAdmins(title,body,url,kind,refId){
+  if(!store)return;
+  const admins=store.users.filter(u=>u.role==='admin'&&u.active);
+  await sendPushToUsers(admins.map(a=>a.id),title,body,url,kind,refId);
+}
+
+// إرسال لكل مشغّلي الإنتاج المربوطين بحسابات
+async function sendPushToOperators(title,body,url,kind,refId){
+  if(!store)return;
+  const ops=store.operators.filter(o=>o.user_id);
+  await sendPushToUsers(ops.map(o=>o.user_id),title,body,url,kind,refId);
+}
   if(adapter.mode!=='cloud')return;
   if(!EDGE_FUNCTION_URL||EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT')>=0)return;
   try{
