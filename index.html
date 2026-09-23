@@ -1761,9 +1761,34 @@ function renderProdShiftChip(){
     el.innerHTML = '<div class="notice shift-chip" data-prod-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
   }
   
-  const btn = el.querySelector('[data-prod-shift-open]');
+    const btn = el.querySelector('[data-prod-shift-open]');
   if(btn) btn.onclick = shiftSheet;
 }
+
+/* شريحة وردية المبيعات */
+function renderShiftChip(){
+  const el = byId('sales-shift');
+  if(!el) return;
+  const open = myShiftToday();
+  const closed = myShiftClosed();
+  
+  if(closed){
+    const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice ok shift-chip" data-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
+  } else if(open){
+    const dur = Math.round((Date.now() - open.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice shift-chip" data-shift-open>🟢 ورديتك مفتوحة (' + dur + ' دقيقة) — اضغط لإغلاقها</div>';
+  } else {
+    el.innerHTML = '<div class="notice shift-chip" data-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
+  }
+  
+  const btn = el.querySelector('[data-shift-open]');
+  if(btn) btn.onclick = shiftSheet;
+}
+
+/* =====================================================================
+   🆕 نظام ورديات المشغّل (فريق الإنتاج)
+   ===================================================================== */
 /* =====================================================================
    🆕 نظام ورديات المشغّل (فريق الإنتاج)
    ===================================================================== */
