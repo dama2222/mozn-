@@ -2174,6 +2174,37 @@ function go(tab){const al=allowed();if(!al.some(m=>m.id===tab))tab=al[0]?al[0].i
   window.scrollTo(0,0);
 }
 function moreSheet(){const al=allowed().slice(4);openSheet('<h3>الأقسام</h3>'+al.map(m=>'<button class="opt" data-go="'+m.id+'">'+m.t+'</button>').join(''))}
+  function complaintSheet(){
+  openSheet('<h3>شكوى / طلب سحب مال</h3><div id="cp-form"></div>');
+  mountForm(byId('cp-form'),'cp',[
+    {k:'type',label:'النوع',type:'radio',options:[['complaint','شكوى'],['withdraw','طلب سحب مال']],value:'complaint'},
+    {k:'amount',label:'المبلغ (للسحب)',type:'number',value:0,step:'0.001'},
+    {k:'reason',label:'التفاصيل',type:'textarea'}
+  ],{label:'إرسال للمدير',submit:async v=>{
+    if(!v.reason){toast('اذكر السبب','err');return false}
+    if(v.type==='withdraw'&&v.amount<=0){toast('أدخل المبلغ','err');return false}
+    const row={id:uuid(),date:today(),type:v.type,amount:v.type==='withdraw'?v.amount:0,reason:v.reason,by:user.name,ts:Date.now(),done:false};
+    try{
+      await adapter.saveSimple('complaints',row);
+      store.complaints=store.complaints||[];
+      store.complaints.unshift(row);
+      const notice={id:uuid(),date:today(),kind:'complaint',target_id:null,title:(v.type==='withdraw'?'طلب سحب مال':'شكوى')+' من '+user.name,body:v.reason+(v.type==='withdraw'?' — المبلغ: '+fmt(v.amount)+' '+cur():''),items:[],by:user.name,ts:Date.now(),done:false};
+      try{await adapter.saveSimple('notices',notice);store.notices.unshift(notice)}catch(e){console.warn('notice fail',e)}
+      // 🔔 إشعار Push لكل المديرين
+      sendPushToAdmins(
+        (v.type==='withdraw'?'💰 طلب سحب مال':'📢 شكوى جديدة'),
+        user.name+': '+v.reason+(v.type==='withdraw'?' — '+fmt(v.amount)+' '+cur():''),
+        '/#overview',
+        'complaint',
+        row.id
+      ).catch(e=>console.warn('push fail',e));
+      toast('تم إرسال طلبك للمدير');
+      closeSheet();
+      renderAll();
+    }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
+    return false;
+  }});
+}
 function userSheet(){
   const pushEnabled=localStorage.getItem('muzn_push_enabled')==='1';
   openSheet('<h3>'+escHtml(user.name)+'</h3><p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>'+
