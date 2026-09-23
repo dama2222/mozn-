@@ -2124,27 +2124,28 @@ function distAttendanceSheet(){
    المسحوبات
    ===================================================================== */
 function mountWithdrawals(){
-  // 🆕 زر المسح
-  const wdScanBtn = document.createElement('button');
-  wdScanBtn.type = 'button';
-  wdScanBtn.className = 'btn-primary';
-  wdScanBtn.style.cssText = 'width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px';
-  wdScanBtn.innerHTML = '<span style="font-size:18px">📷</span> مسح منتج للمسحوبة';
-  wdScanBtn.onclick = () => {
+  // 🆕 زر مسح بطاقة الموزع (إلزامي أولاً)
+  const distScanBtn = document.createElement('button');
+  distScanBtn.type = 'button';
+  distScanBtn.className = 'btn-primary';
+  distScanBtn.style.cssText = 'width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:800';
+  distScanBtn.id = 'wd-dist-scan-btn';
+  distScanBtn.innerHTML = '<span style="font-size:18px">📷</span> مسح بطاقة الموزع';
+  distScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح منتج للمسحوبة',
-      mode: 'product',
+      title: 'مسح بطاقة الموزع (إلزامي)',
+      mode: 'distributor',
       screen: 'withdrawals',
-      onFound: (product, code) => {
+      onFound: (dist, code) => {
         const wf = forms.find(f => f.id === 'wf');
         if(wf){
-          wf.set('product_id', product.id);
-          toast('✅ ' + product.name);
-          setTimeout(() => {
-            const qty = byId('wf__qty');
-            if(qty){ qty.focus(); qty.select(); }
-          }, 100);
+          wf.set('distributor_id', dist.id);
+          wf.refresh();
+          const s = dSummary(store, dist);
+          toast('✅ ' + dist.name + ' — المتبقي: ' + fmt(s.bal));
+          // تفعيل باقي الحقول
+          unlockWithdrawalForm();
         }
       },
       store, toast, escHtml, adapter, user, uuid,
@@ -2153,16 +2154,123 @@ function mountWithdrawals(){
   };
   const wdForm = byId('wd-form');
   if(wdForm && wdForm.parentNode){
-    wdForm.parentNode.insertBefore(wdScanBtn, wdForm);
+    wdForm.parentNode.insertBefore(distScanBtn, wdForm);
   }
 
   mountForm(byId('wd-form'),'wf',[
     {k:'date',label:'تاريخ السحب',type:'date',value:today},
-    {k:'distributor_id',label:'الموزع / المسوق',type:'select',options:opt.distributors},
+    {k:'distributor_id',label:'الموزع (مقفل حتى المسح)',type:'select',options:opt.distributors,readonly:true},
     {k:'product_id',label:'المنتج',type:'select',options:opt.products},
     {k:'qty',label:'الكمية المسحوبة',type:'number',value:0},
     {k:'note',label:'ملاحظة',type:'text'}
   ],{main:true,label:'تسجيل السحب',submit:async v=>{
+    if(!requirePerm('withdrawals'))return false;
+    if(!v.distributor_id||!v.product_id){toast('اختر الموزع والمنتج','err');return false}
+    if(!distributorPresentToday(v.distributor_id)){toast('الموزع غير حاضر اليوم بصورة','err');return false}
+    if(v.qty<=0){toast('أدخل الكمية','err');return false}
+    const av=stockWH(store,v.product_id);
+    if(v.qty>av+1e-9){toast('المتاح '+fmt(av),'err');return false}
+    const row={id:uuid(),date:v.date||today(),distributor_id:v.distributor_id,product_id:v.product_id,qty:v.qty,
+      price:pOf(store,v.product_id).dist_price||pOf(store,v.product_id).price,note:v.note,by:user.name,ts:Date.now(),log:[]};
+    const ok=await tryCommit(
+      draft=>{draft.withdrawals.unshift(row)},
+      async()=>{await adapter.saveSimple('withdrawals',row)},
+      {rerender:['withdrawals','overview','sales','distributors']}
+    );
+    if(ok){
+      toast('تم');
+      // إعادة قفل النموذج بعد الحفظ
+      lockWithdrawalForm();
+    }
+    return ok;
+  }});
+  
+  // 🆕 قفل النموذج في البداية
+  lockWithdrawalForm();
+  
+  function lockWithdrawalForm(){
+    const wf = forms.find(f => f.id === 'wf');
+    if(!wf) return;
+    const distSelect = byId('wf__distributor_id');
+    const prodSelect = byId('wf__product_id');
+    const qtyInput = byId('wf__qty');
+    const noteInput = byId('wf__note');
+    const saveBtn = document.querySelector('#wd-form [data-submit]');
+    if(distSelect){distSelect.disabled = true;distSelect.style.opacity = '0.5';}
+    if(prodSelect){prodSelect.disabled = true;prodSelect.style.opacity = '0.5';}
+    if(qtyInput){qtyInput.disabled = true;qtyInput.style.opacity = '0.5';}
+    if(noteInput){noteInput.disabled = true;noteInput.style.opacity = '0.5';}
+    if(saveBtn){saveBtn.disabled = true;saveBtn.style.opacity = '0.5';}
+    
+    // أضف شريط تحذيري
+    const existingHint = byId('wd-lock-hint');
+    if(!existingHint){
+      const hint = document.createElement('div');
+      hint.id = 'wd-lock-hint';
+      hint.className = 'notice';
+      hint.style.cssText = 'border-color:var(--orange);background:rgba(255,176,74,.15);text-align:center;font-weight:800;margin-bottom:10px';
+      hint.innerHTML = '⚠️ امسح بطاقة الموزع أولاً لتفعيل النموذج';
+      wdForm.parentNode.insertBefore(hint, wdForm);
+    }
+  }
+  
+  function unlockWithdrawalForm(){
+    const wf = forms.find(f => f.id === 'wf');
+    if(!wf) return;
+    const distSelect = byId('wf__distributor_id');
+    const prodSelect = byId('wf__product_id');
+    const qtyInput = byId('wf__qty');
+    const noteInput = byId('wf__note');
+    const saveBtn = document.querySelector('#wd-form [data-submit]');
+    if(distSelect){distSelect.disabled = false;distSelect.style.opacity = '1';}
+    if(prodSelect){prodSelect.disabled = false;prodSelect.style.opacity = '1';}
+    if(qtyInput){qtyInput.disabled = false;qtyInput.style.opacity = '1';}
+    if(noteInput){noteInput.disabled = false;noteInput.style.opacity = '1';}
+    if(saveBtn){saveBtn.disabled = false;saveBtn.style.opacity = '1';}
+    
+    // حدّث الشريط
+    const hint = byId('wd-lock-hint');
+    if(hint){
+      hint.className = 'notice ok';
+      hint.style.cssText = 'border-color:var(--green);background:rgba(61,220,132,.15);text-align:center;font-weight:800;margin-bottom:10px';
+      hint.innerHTML = '✅ تم مسح البطاقة — يمكنك الآن تسجيل السحب';
+    }
+    
+    // زر مسح المنتج
+    if(!byId('wd-scan-btn')){
+      const scanBtn = document.createElement('button');
+      scanBtn.type = 'button';
+      scanBtn.id = 'wd-scan-btn';
+      scanBtn.className = 'btn-ghost';
+      scanBtn.style.cssText = 'width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px';
+      scanBtn.innerHTML = '<span style="font-size:18px">📷</span> مسح منتج للمسحوبة';
+      scanBtn.onclick = () => {
+        if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
+        window.openScanner({
+          title: 'مسح منتج للمسحوبة',
+          mode: 'product',
+          screen: 'withdrawals',
+          onFound: (product, code) => {
+            if(wf){
+              wf.set('product_id', product.id);
+              wf.refresh();
+              toast('✅ ' + product.name);
+              setTimeout(() => {
+                const qty = byId('wf__qty');
+                if(qty){ qty.focus(); qty.select(); }
+              }, 100);
+            }
+          },
+          store, toast, escHtml, adapter, user, uuid,
+          closeSheet, openSheet
+        });
+      };
+      if(wdForm && wdForm.parentNode){
+        wdForm.parentNode.insertBefore(scanBtn, wdForm);
+      }
+    }
+  }
+}
     if(!requirePerm('withdrawals'))return false;
     if(!v.distributor_id||!v.product_id){toast('اختر الموزع والمنتج','err');return false}
     if(!distributorPresentToday(v.distributor_id)){toast('الموزع غير حاضر اليوم بصورة','err');return false}
@@ -2285,7 +2393,7 @@ function renderPurchases(){
   const rows=[...store.purchases].sort(byDate);
   const sup=store.suppliers.map(s=>({s,bal:supplierBal(store,s)}));
   const pendingRequests=(store.purchase_requests||[]).filter(r=>r.status==='pending');
-  const requestsSection=pendingRequests.length?
+   const requestsSection=pendingRequests.length?
     '<div class="sec-head"><h2>📦 طلبات نواقص معلّقة ('+pendingRequests.length+')</h2>'+
     '<button class="btn-ghost sm" data-go="purchase_requests">عرض الكل</button></div>'+
     pendingRequests.slice(0,3).map(r=>{
@@ -2293,7 +2401,10 @@ function renderPurchases(){
       return '<div class="notice" style="border-color:var(--accent);background:rgba(243,224,43,.1)">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
         '<div><b>'+escHtml(r.requested_by_name)+'</b><small style="display:block;color:var(--muted);font-size:12px">'+r.date+'</small></div>'+
-        '<button class="mini" data-pr-convert="'+r.id+'">تحويل إلى فاتورة</button>'+
+        '<div style="display:flex;gap:4px">'+
+          '<button class="mini" data-pr-convert="'+r.id+'">✅ تحويل</button>'+
+          '<button class="mini dng" data-pr-reject="'+r.id+'">❌ رفض</button>'+
+        '</div>'+
         '</div><div style="margin-top:6px;font-size:13px">'+escHtml(itemsText)+'</div></div>';
     }).join('')+'<div style="height:10px"></div>':'';
   byId('pu-body').innerHTML=requestsSection+
