@@ -1760,7 +1760,286 @@ function renderProdShiftChip(){
   }
   
   const btn = el.querySelector('[data-prod-shift-open]');
-  if(btn) btn.onclick = shiftSheet;  // نفس دالة المبيعات
+  if(btn) btn.onclick = shiftSheet;
+}
+/* =====================================================================
+   🆕 نظام ورديات المشغّل (فريق الإنتاج)
+   ===================================================================== */
+
+/* شريحة وردية المشغّل */
+function renderOpShiftChip(){
+  const el = byId('op-shift');
+  if(!el) return;
+  
+  // ابحث عن المشغّل المرتبط بحساب المستخدم الحالي
+  const myOperator = store.operators.find(o => o.user_id === user.id);
+  if(!myOperator){
+    el.innerHTML = '<div class="notice">👤 حسابك غير مرتبط بمشغّل — راجع المدير لربطه من الإدارة</div>';
+    return;
+  }
+  
+  const openShift = getTodayShift(myOperator.id, 'operator');
+  const closedShift = getTodayShiftClosed(myOperator.id, 'operator');
+  const stats = getShiftStats(myOperator.id, 'operator');
+  
+  if(closedShift){
+    const dur = calcShiftDurationMinutes(closedShift.checkin_ts, closedShift.checkout_ts);
+    const hours = r2(dur / 60);
+    el.innerHTML = '<div class="notice ok shift-chip" data-op-shift-open>✅ ورديتك انتهت اليوم (' + hours + ' ساعة) — اضغط للتفاصيل</div>';
+  } else if(openShift){
+    const dur = calcShiftDurationMinutes(openShift.checkin_ts, Date.now());
+    const hours = r2(dur / 60);
+    el.innerHTML = '<div class="notice shift-chip" data-op-shift-open>🟢 ورديتك مفتوحة (' + hours + ' ساعة · ' + stats.totalDays + ' يوم عمل) — اضغط لإغلاقها</div>';
+  } else {
+    el.innerHTML = '<div class="notice shift-chip" data-op-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
+  }
+  
+  const btn = el.querySelector('[data-op-shift-open]');
+  if(btn) btn.onclick = () => openOperatorShiftSheet(myOperator.id);
+}
+
+/* نافذة إدارة وردية المشغّل */
+function openOperatorShiftSheet(opId){
+  const o = store.operators.find(x => x.id === opId);
+  if(!o) return;
+  const openShift = getTodayShift(opId, 'operator');
+  const closedShift = getTodayShiftClosed(opId, 'operator');
+  const stats = getShiftStats(opId, 'operator');
+  
+  if(closedShift){
+    const minutes = calcShiftDurationMinutes(closedShift.checkin_ts, closedShift.checkout_ts);
+    const hours = calcShiftDurationHours(closedShift.checkin_ts, closedShift.checkout_ts);
+    openSheet('<h3>✅ وردية ' + escHtml(o.name) + ' انتهت اليوم</h3>' +
+      '<div class="kv"><span>الوردية</span><b>' + (SHIFT_AR[closedShift.shift] || closedShift.shift) + '</b></div>' +
+      '<div class="kv"><span>بدأت</span><b>' + new Date(closedShift.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + '</b></div>' +
+      '<div class="kv"><span>انتهت</span><b>' + new Date(closedShift.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + '</b></div>' +
+      '<div class="kv big"><span>المدة</span><b>' + hours + ' ساعة (' + minutes + ' دقيقة)</b></div>' +
+      '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:14px">📊 إحصائيات العمل</h2></div>' +
+      '<div class="stats">' +
+        '<div class="stat"><span>أيام العمل</span><b>' + stats.totalDays + '</b></div>' +
+        '<div class="stat"><span>إجمالي الساعات</span><b>' + stats.totalHours + '</b></div>' +
+        '<div class="stat"><span>متوسط يومي</span><b>' + stats.avgHours + ' س</b></div>' +
+      '</div>' +
+      (closedShift.checkin_photo ? '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:13px">صورة الحضور</h2></div><img class="att-photo big" src="' + closedShift.checkin_photo + '" alt="">' : '') +
+      (closedShift.checkout_photo ? '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:13px">صورة الخروج</h2></div><img class="att-photo big" src="' + closedShift.checkout_photo + '" alt="">' : ''));
+    return;
+  }
+  
+  if(openShift){
+    const minutes = calcShiftDurationMinutes(openShift.checkin_ts, Date.now());
+    const hours = r2(minutes / 60);
+    openSheet('<h3>🟢 وردية ' + escHtml(o.name) + ' مفتوحة</h3>' +
+      '<div class="kv"><span>الوردية</span><b>' + (SHIFT_AR[openShift.shift] || openShift.shift) + '</b></div>' +
+      '<div class="kv"><span>بدأت</span><b>' + new Date(openShift.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + '</b></div>' +
+      '<div class="kv big"><span>المدة الحالية</span><b>' + hours + ' ساعة (' + minutes + ' دقيقة)</b></div>' +
+      '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:14px">📊 إحصائيات العمل</h2></div>' +
+      '<div class="stats">' +
+        '<div class="stat"><span>أيام العمل</span><b>' + stats.totalDays + '</b></div>' +
+        '<div class="stat"><span>إجمالي الساعات</span><b>' + stats.totalHours + '</b></div>' +
+        '<div class="stat"><span>متوسط يومي</span><b>' + stats.avgHours + ' س</b></div>' +
+      '</div>' +
+      '<button class="btn-primary btn-block" id="op-shift-out-btn" style="margin-top:16px">📸 تسجيل خروج الوردية</button>');
+    byId('op-shift-out-btn').onclick = () => operatorShiftCheckOutForm(opId);
+    return;
+  }
+  
+  // بدء وردية جديدة
+  const currentShift = getCurrentShift();
+  const shiftAr = (SHIFT_TYPES[currentShift] || {}).ar || currentShift;
+  openSheet('<h3>📸 تسجيل حضور وردية ' + escHtml(o.name) + '</h3>' +
+    '<div class="step-hint">🕐 <b>الوردية الحالية:</b> ' + shiftAr + '<br>ارفع صورة سيلفي لبدء ورديتك اليوم.</div>' +
+    '<input class="in" type="file" accept="image/*" capture="user" id="op-shift-in-photo" aria-label="صورة الحضور">' +
+    '<div id="op-shift-in-prev" style="margin-top:10px"></div>' +
+    '<button class="btn-primary btn-block" id="op-shift-in-btn" disabled>بدء الوردية</button>');
+  
+  let photo = null;
+  const inp = byId('op-shift-in-photo');
+  const btn = byId('op-shift-in-btn');
+  const prev = byId('op-shift-in-prev');
+  
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    if(f.size > 4 * 1024 * 1024) return toast('الصورة كبيرة', 'err');
+    const apply = url => {
+      photo = url;
+      prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">';
+      btn.disabled = false;
+    };
+    if(adapter.mode === 'cloud' && adapter.uploadPhoto){
+      toast('جارٍ الرفع...');
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = 'shifts/op_in_' + opId + '/' + uuid() + '_' + safeName;
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+    } else {
+      const rd = new FileReader();
+      rd.onload = () => apply(rd.result);
+      rd.readAsDataURL(f);
+    }
+  };
+  
+  btn.onclick = () => {
+    btn.disabled = true;
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        pos => operatorShiftCheckIn(opId, photo, { lat: pos.coords.latitude, lng: pos.coords.longitude }, currentShift),
+        () => operatorShiftCheckIn(opId, photo, null, currentShift),
+        { timeout: 5000 }
+      );
+    } else {
+      operatorShiftCheckIn(opId, photo, null, currentShift);
+    }
+  };
+}
+
+/* تسجيل حضور وردية مشغّل */
+async function operatorShiftCheckIn(opId, photoData, coords, shiftType){
+  if(!requirePerm('production')) return;
+  const o = store.operators.find(x => x.id === opId);
+  if(!o) return;
+  const now = Date.now();
+  const row = {
+    id: uuid(), date: today(), operator_id: opId,
+    shift: shiftType || getCurrentShift(),
+    checkin_ts: now,
+    checkin_photo: photoData || null,
+    checkin_lat: coords ? coords.lat : null,
+    checkin_lng: coords ? coords.lng : null,
+    checkout_ts: null, checkout_photo: null, checkout_lat: null, checkout_lng: null,
+    closed: false, note: '',
+    by: user.name, ts: now
+  };
+  try{
+    await adapter.saveSimple('operator_shifts', row);
+    if(!store.operator_shifts) store.operator_shifts = [];
+    store.operator_shifts.unshift(row);
+    toast('✅ تم بدء وردية ' + o.name);
+    closeSheet();
+    
+    // إشعار بدء الوردية
+    NotificationCenter.fire('shift_start', {
+      userName: o.name,
+      userId: user.id,
+      refId: row.id
+    }).catch(e => console.warn(e));
+    
+    // تنبيه البدء المبكر (قبل الساعة 5)
+    if(isEarlyShiftStart(now)){
+      const th = (store.company && store.company.shift_early_threshold) || 5;
+      sendPushToAdmins('⏰ بدء وردية مبكر', o.name + ' بدأ ورديته قبل الساعة ' + th + ' صباحاً', '/#attendance_log', 'early_shift_start', row.id).catch(e=>console.warn(e));
+    }
+    
+    // تنبيه التأخير (بعد الساعة 10)
+    if(isLateShiftStart(now)){
+      const th = (store.company && store.company.shift_late_threshold) || 10;
+      sendPushToAdmins('⚠️ تأخير في بدء الوردية', o.name + ' بدأ ورديته بعد الساعة ' + th + ' صباحاً', '/#attendance_log', 'late_shift_start', row.id).catch(e=>console.warn(e));
+    }
+    
+    renderAll();
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر: ' + ex.message, 'err');
+  }
+}
+
+/* تسجيل خروج وردية مشغّل */
+async function operatorShiftCheckOut(opId, photoData, coords, note){
+  const s = getTodayShift(opId, 'operator');
+  if(!s) return toast('لا وردية مفتوحة', 'err');
+  const o = store.operators.find(x => x.id === opId);
+  const now = Date.now();
+  const patch = {
+    checkout_ts: now,
+    checkout_photo: photoData || null,
+    checkout_lat: coords ? coords.lat : null,
+    checkout_lng: coords ? coords.lng : null,
+    note: note || '', closed: true
+  };
+  try{
+    await adapter.updateSimple('operator_shifts', s.id, patch);
+    Object.assign(s, patch);
+    const minutes = calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts);
+    const hours = r2(minutes / 60);
+    toast('✅ تم إغلاق وردية ' + (o ? o.name : '') + ' — ' + hours + ' ساعة');
+    closeSheet();
+    
+    NotificationCenter.fire('shift_end', {
+      userName: o ? o.name : '',
+      note: note,
+      userId: user.id,
+      refId: s.id
+    }).catch(e => console.warn(e));
+    
+    renderAll();
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر: ' + ex.message, 'err');
+  }
+}
+
+/* نموذج تسجيل خروج وردية مشغّل */
+function operatorShiftCheckOutForm(opId){
+  openSheet('<h3>📸 تسجيل خروج وردية المشغّل</h3>' +
+    '<p class="muted">ارفع صورة سيلفي لإغلاق الوردية.</p>' +
+    '<input class="in" type="file" accept="image/*" capture="user" id="op-shift-out-photo" aria-label="صورة الخروج">' +
+    '<div id="op-shift-out-prev" style="margin-top:10px"></div>' +
+    '<label class="fl">ملاحظة (اختياري)</label>' +
+    '<input class="in" id="op-shift-out-note" placeholder="ملاحظاتك...">' +
+    '<button class="btn-primary btn-block" id="op-shift-out-go" disabled>إغلاق الوردية</button>');
+  let photo = null;
+  const inp = byId('op-shift-out-photo');
+  const btn = byId('op-shift-out-go');
+  const prev = byId('op-shift-out-prev');
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    if(f.size > 4 * 1024 * 1024) return toast('الصورة كبيرة', 'err');
+    const apply = url => {
+      photo = url;
+      prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">';
+      btn.disabled = false;
+    };
+    if(adapter.mode === 'cloud' && adapter.uploadPhoto){
+      toast('جارٍ الرفع...');
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = 'shifts/op_out_' + opId + '/' + uuid() + '_' + safeName;
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+    } else {
+      const rd = new FileReader();
+      rd.onload = () => apply(rd.result);
+      rd.readAsDataURL(f);
+    }
+  };
+  btn.onclick = () => {
+    btn.disabled = true;
+    const note = byId('op-shift-out-note').value.trim();
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        pos => operatorShiftCheckOut(opId, photo, { lat: pos.coords.latitude, lng: pos.coords.longitude }, note),
+        () => operatorShiftCheckOut(opId, photo, null, note),
+        { timeout: 5000 }
+      );
+    } else {
+      operatorShiftCheckOut(opId, photo, null, note);
+    }
+  };
+}
+/* شريحة وردية المبيعات */
+function renderShiftChip(){
+  const el = byId('sales-shift');
+  if(!el) return;
+  const open = myShiftToday(), closed = myShiftClosed();
+  if(closed){
+    const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice ok shift-chip" data-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
+  } else if(open){
+    const dur = Math.round((Date.now() - open.checkin_ts) / 60000);
+    el.innerHTML = '<div class="notice shift-chip" data-shift-open>🟢 ورديتك مفتوحة (' + dur + ' دقيقة) — اضغط لإغلاقها</div>';
+  } else {
+    el.innerHTML = '<div class="notice shift-chip" data-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
+  }
+  const btn = el.querySelector('[data-shift-open]');
+  if(btn) btn.onclick = shiftSheet;
 }
   const el=byId('sales-shift');if(!el)return;
   const open=myShiftToday(),closed=myShiftClosed();
@@ -1783,7 +2062,7 @@ function renderProdShiftChip(){
 const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
   sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
-  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
+  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
@@ -2067,12 +2346,10 @@ function renderAttendanceCard(){
    ===================================================================== */
 let prodLB;
 function mountProduction(){
-  // 🆕 عرض شريحة وردية المنتج
+  // 🆕 عرض شرائح الورديات
   renderProdShiftChip();
+  renderOpShiftChip();  // 🆕
   
-  const prodScanBtn = document.createElement('button');
-  // ... باقي الكود
-}
   const prodScanBtn = document.createElement('button');
   prodScanBtn.type = 'button';
   prodScanBtn.className = 'btn-primary';
@@ -2119,16 +2396,14 @@ function mountProduction(){
     if(!requirePerm('production'))return;
     if(!attendanceToday()){toast('أكّد الحضور أولاً','err');return}
     const attRec = attendanceToday();
-    if(!attRec){toast('أكّد حضور فريق الإنتاج أولاً','err');return}
-    // 🆕 التحقق من أن كل مشغّل حاضر لديه صورة
     const presentSet = new Set(attRec.present||[]);
     const photosSet = new Set(Object.keys(attRec.photos||{}));
     for(const pid of presentSet){
-    if(!photosSet.has(pid)){
-    toast('صورة المشغّل '+nm('operators',pid)+' مفقودة','err');
-    return;
-       }
-     }
+      if(!photosSet.has(pid)){
+        toast('صورة المشغّل '+nm('operators',pid)+' مفقودة','err');
+        return;
+      }
+    }
     const hf=forms.find(f=>f.id==='ph'),v=hf.vals(),lines=prodLB.values().filter(l=>l.product_id&&l.planned>0);
     if(!v.operator_id||!v.shift){toast('أكمل البيانات','err');return}
     if(!lines.length){toast('أضف صنفاً','err');return}
@@ -2143,13 +2418,14 @@ function mountProduction(){
     if(ok){toast('تم');hf.reset();prodLB.reset();byId('prod-notes').value=''}
   };
 }
+
 function renderProduction(){
   if(!byId('prod-body'))return;
-  renderProdShiftChip();  // 🆕
+  renderProdShiftChip();
+  renderOpShiftChip();  // 🆕
   renderAttendanceCard();
   renderDistAttendanceCard();
-  // ... باقي الكود
-}  // 🆕
+  
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -2164,24 +2440,20 @@ function renderProduction(){
   }).filter(x=>x.all>0);
   const rows=all.filter(s=>f==='all'||s.shift===f).sort(byDate);
   const dueRows=store.operators.map(o=>{
-  const stats = getShiftStats(o.id, 'operator');
-  return {
-    o,
-    due: operatorDue(store, o.id),
-    totalDays: stats.totalDays,
-    totalHours: stats.totalHours
-  };
-}).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
+    const stats = getShiftStats(o.id, 'operator');
+    return {o,due:operatorDue(store,o.id),totalDays:stats.totalDays,totalHours:stats.totalHours};
+  }).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
+  
   byId('prod-body').innerHTML='<h2 style="margin:0 0 10px">مجموع الإنتاج لكل منتج</h2>'+
     table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'اليوم',f:r=>fmt(r.day)},{h:'هذا الشهر',f:r=>fmt(r.mo)},{h:'الإجمالي',f:r=>'<b>'+fmt(r.all)+'</b>'}],per,'prodsum')+
     '<h2 style="margin:22px 0 10px">مستحقات فريق الإنتاج</h2>'+
     table([
-  {h:'المشغّل', f:r=>escHtml(r.o.name)},
-  {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
-  {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
-  {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
-  {h:'', f:r=>r.due>0.009?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
-], dueRows, 'opdue', 'لا مستحقات')+
+      {h:'المشغّل', f:r=>escHtml(r.o.name)},
+      {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
+      {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
+      {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
+      {h:'', f:r=>r.due>0.009?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
+    ], dueRows, 'opdue', 'لا مستحقات')+
     '<h2 style="margin:22px 0 10px">سجلات الورديات</h2>'+(rows.length?rows.slice(0,(ui.lim.prod||20)).map(h=>ticketCard('shifts',h,
       SHIFT_AR[h.shift]+' · '+escHtml(nm('operators',h.operator_id)),
       h.date+(h.by?' · '+h.by:''),
@@ -4875,37 +5147,6 @@ async function boot(){
   try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
   setTheme(th);
   registerServiceWorker();
-    // 🆕 مراقبة المزامنة السحابية كل 30 ثانية
-  if(cfg){
-    setInterval(async () => {
-      if(document.hidden) return;  // لا تزامن إذا الصفحة مخفية
-      try{
-        const newStore = await adapter.init();
-        // فحص هل هناك تغييرات فعلية
-        const oldStr = JSON.stringify({
-          s: store.sales?.length,
-          sh: store.shifts?.length,
-          w: store.withdrawals?.length,
-          dsh: store.distributor_shifts?.length,
-          da: store.dist_attendance?.length,
-          a: store.attendance?.length
-        });
-        const newStr = JSON.stringify({
-          s: newStore.sales?.length,
-          sh: newStore.shifts?.length,
-          w: newStore.withdrawals?.length,
-          dsh: newStore.distributor_shifts?.length,
-          da: newStore.dist_attendance?.length,
-          a: newStore.attendance?.length
-        });
-        if(oldStr !== newStr){
-          store = newStore;
-          renderAll();
-          console.log('[Sync] ✅ تحديث تلقائي');
-        }
-      }catch(ex){ console.warn('[Sync] فشل', ex); }
-    }, 30000);  // كل 30 ثانية
-  }
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 
   const cfg=loadCloudCfg();
@@ -4925,6 +5166,31 @@ async function boot(){
       renderAll();
     }catch(ex){console.error(ex)}
   });
+  
+  // 🆕 مراقبة المزامنة السحابية كل 30 ثانية
+  if(cfg){
+    setInterval(async () => {
+      if(document.hidden) return;
+      try{
+        const newStore = await adapter.init();
+        const oldStr = JSON.stringify({
+          s: store.sales?.length, sh: store.shifts?.length,
+          w: store.withdrawals?.length, dsh: store.distributor_shifts?.length,
+          da: store.dist_attendance?.length, a: store.attendance?.length
+        });
+        const newStr = JSON.stringify({
+          s: newStore.sales?.length, sh: newStore.shifts?.length,
+          w: newStore.withdrawals?.length, dsh: newStore.distributor_shifts?.length,
+          da: newStore.dist_attendance?.length, a: newStore.attendance?.length
+        });
+        if(oldStr !== newStr){
+          store = newStore;
+          renderAll();
+          console.log('[Sync] ✅ تحديث تلقائي');
+        }
+      }catch(ex){ console.warn('[Sync] فشل', ex); }
+    }, 30000);
+  }
 
   let sid=null;
   try{sid=JSON.parse(localStorage.getItem(SESSKEY)||'null')}catch(e){}
@@ -4937,24 +5203,27 @@ async function boot(){
   }
 
   window.__muzn={
-    get store(){return store},
-    get adapter(){return adapter},
-    get user(){return user},
-    seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal,
-    sendPush,sendPushToUsers,sendPushToAdmins,sendPushToOperators,
-    subscribeToPush,unsubscribeFromPush,registerServiceWorker,urlBase64ToUint8Array,
-    NotificationCenter,
-    get ENT(){return ENT},
-    get SKEL(){return SKEL},
-    get VAPID_PUBLIC_KEY(){return VAPID_PUBLIC_KEY},
-    get EDGE_FUNCTION_URL(){return EDGE_FUNCTION_URL},
-    requirePerm,requireEdit,requireDelete,
-    // دوال الورديات الجديدة
-    getShiftTypeByHour,getCurrentShift,calcShiftDurationMinutes,calcShiftDurationHours,
-    isEarlyShiftStart,isLateShiftStart,getShiftStats,getTodayShift,getTodayShiftClosed,
-    openDistributorShiftSheet,distShiftCheckIn,distShiftCheckOut,distShiftCheckOutForm,
-    renderDistShiftsList
-  };
+  get store(){return store},
+  get adapter(){return adapter},
+  get user(){return user},
+  seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal,
+  sendPush,sendPushToUsers,sendPushToAdmins,sendPushToOperators,
+  subscribeToPush,unsubscribeFromPush,registerServiceWorker,urlBase64ToUint8Array,
+  NotificationCenter,
+  get ENT(){return ENT},
+  get SKEL(){return SKEL},
+  get VAPID_PUBLIC_KEY(){return VAPID_PUBLIC_KEY},
+  get EDGE_FUNCTION_URL(){return EDGE_FUNCTION_URL},
+  requirePerm,requireEdit,requireDelete,
+  // دوال الورديات للموزعين
+  getShiftTypeByHour,getCurrentShift,calcShiftDurationMinutes,calcShiftDurationHours,
+  isEarlyShiftStart,isLateShiftStart,getShiftStats,getTodayShift,getTodayShiftClosed,
+  openDistributorShiftSheet,distShiftCheckIn,distShiftCheckOut,distShiftCheckOutForm,
+  renderDistShiftsList,
+  // 🆕 دوال ورديات المشغّل
+  renderOpShiftChip,openOperatorShiftSheet,operatorShiftCheckIn,
+  operatorShiftCheckOut,operatorShiftCheckOutForm
+};
 }
 boot();
 
