@@ -880,10 +880,23 @@ async function shiftCheckIn(photoData,coords){
   try{
     await adapter.saveSimple('attendance_shifts',row);
     store.attendance_shifts.unshift(row);
-    toast('تم بدء الوردية ✓');
-closeSheet();
-sendPushToAdmins('🟢 بدء وردية',user.name+' بدأ ورديته الآن','/#attendance_log','shift_start',row.id).catch(e=>console.warn(e));
-renderAll();
+      toast('تم بدء الوردية ✓');
+    closeSheet();
+    
+    // إشعار للمديرين
+    sendPushToAdmins('🟢 بدء وردية', user.name+' بدأ ورديته الآن', '/#attendance_log', 'shift_start', row.id).catch(e=>console.warn(e));
+    
+    // إشعار ترحيبي للمستخدم نفسه
+    sendPush(
+      user.id,
+      '🟢 ورديتك بدأت',
+      'بدأت ورديتك في ' + new Date().toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}) + ' — نتمنى لك يوم عمل موفق',
+      '/#sales',
+      'my_shift_start',
+      row.id
+    ).catch(e=>console.warn(e));
+    
+    renderAll();
   }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
 }
 async function shiftCheckOut(photoData,coords,note){
@@ -892,10 +905,23 @@ async function shiftCheckOut(photoData,coords,note){
   try{
     await adapter.updateSimple('attendance_shifts',s.id,patch);
    Object.assign(s,patch);
-toast('تم إغلاق الوردية ✓');
-closeSheet();
-sendPushToAdmins('🔴 إغلاق وردية',user.name+' أنهى ورديته'+(note?' — '+note:''),'/#attendance_log','shift_end',s.id).catch(e=>console.warn(e));
-renderAll();
+    toast('تم إغلاق الوردية ✓');
+    closeSheet();
+    
+    // إشعار للمديرين
+    sendPushToAdmins('🔴 إغلاق وردية', user.name+' أنهى ورديته'+(note?' — '+note:''), '/#attendance_log', 'shift_end', s.id).catch(e=>console.warn(e));
+    
+    // شكر للمستخدم
+    sendPush(
+      user.id,
+      '🔴 ورديتك انتهت',
+      'شكراً لك على جهودك اليوم — نتمنى لك راحة سعيدة',
+      '/#sales',
+      'my_shift_end',
+      s.id
+    ).catch(e=>console.warn(e));
+    
+    renderAll();
 
   }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
 }
@@ -1099,15 +1125,33 @@ function renderAttendanceCard(){
         store.attendance=store.attendance.filter(a=>!old||a.id!==old.id);
        store.attendance.unshift(row);
 delete card.dataset.editing;
-toast('تم');
-sendPushToAdmins(
-  '👷 حضور فريق الإنتاج',
-  present.length+' حاضر'+(absent.length?' · '+absent.length+' غائب':''),
-  '/#production',
-  'attendance_prod',
-  row.id
-).catch(e=>console.warn(e));
-renderAttendanceCard();
+        toast('تم');
+        
+        // إشعار للمديرين
+        sendPushToAdmins(
+          '👷 حضور فريق الإنتاج',
+          present.length+' حاضر'+(absent.length?' · '+absent.length+' غائب':''),
+          '/#production',
+          'attendance_prod',
+          row.id
+        ).catch(e=>console.warn(e));
+        
+        // 🔔 إشعار لكل مشغّل حاضر
+        for(const oid of present){
+          const o = store.operators.find(x=>x.id===oid);
+          if(o && o.user_id){
+            sendPush(
+              o.user_id,
+              '✅ تم تسجيل حضورك',
+              'حضورك مسجَّل اليوم ' + today(),
+              '/#production',
+              'my_attendance',
+              row.id
+            ).catch(e=>console.warn('push to ' + o.name + ' fail:', e));
+          }
+        }
+        
+        renderAttendanceCard();
       }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
     };
   }
@@ -1248,16 +1292,34 @@ function distAttendanceSheet(){
     try{
       await adapter.saveSimple('dist_attendance',row);
       store.dist_attendance.unshift(row);
-toast('تم التسجيل نهائياً');
-closeSheet();
-sendPushToAdmins(
-  '📸 حضور الموزعين مسجَّل',
-  present.length+' موزع حاضر'+(absent.length?' · '+absent.length+' غائب':''),
-  '/#attendance_log',
-  'attendance',
-  row.id
-).catch(e=>console.warn(e));
-renderAll();
+      toast('تم التسجيل نهائياً');
+      closeSheet();
+      
+      // إشعار للمديرين
+      sendPushToAdmins(
+        '📸 حضور الموزعين مسجَّل',
+        present.length+' موزع حاضر'+(absent.length?' · '+absent.length+' غائب':''),
+        '/#attendance_log',
+        'attendance',
+        row.id
+      ).catch(e=>console.warn(e));
+      
+      // 🔔 إشعار لكل موزع حاضر (فقط من كان مربوطاً بحساب)
+      for(const did of present){
+        const d = store.distributors.find(x=>x.id===did);
+        if(d && d.user_id){
+          sendPush(
+            d.user_id,
+            '✅ تم تسجيل حضورك',
+            'حضورك مسجَّل اليوم ' + today() + ' — نتمنى لك يوم عمل موفق',
+            '/#sales',
+            'my_attendance',
+            row.id
+          ).catch(e=>console.warn('push to ' + d.name + ' fail:', e));
+        }
+      }
+      
+      renderAll();
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
   };
 }
@@ -2174,7 +2236,7 @@ function go(tab){const al=allowed();if(!al.some(m=>m.id===tab))tab=al[0]?al[0].i
   window.scrollTo(0,0);
 }
 function moreSheet(){const al=allowed().slice(4);openSheet('<h3>الأقسام</h3>'+al.map(m=>'<button class="opt" data-go="'+m.id+'">'+m.t+'</button>').join(''))}
-  function complaintSheet(){
+function complaintSheet(){
   openSheet('<h3>شكوى / طلب سحب مال</h3><div id="cp-form"></div>');
   mountForm(byId('cp-form'),'cp',[
     {k:'type',label:'النوع',type:'radio',options:[['complaint','شكوى'],['withdraw','طلب سحب مال']],value:'complaint'},
@@ -2185,12 +2247,11 @@ function moreSheet(){const al=allowed().slice(4);openSheet('<h3>الأقسام</
     if(v.type==='withdraw'&&v.amount<=0){toast('أدخل المبلغ','err');return false}
     const row={id:uuid(),date:today(),type:v.type,amount:v.type==='withdraw'?v.amount:0,reason:v.reason,by:user.name,ts:Date.now(),done:false};
     try{
-      // 1. حفظ الشكوى
       await adapter.saveSimple('complaints',row);
       store.complaints=store.complaints||[];
       store.complaints.unshift(row);
       
-      // 2. حفظ إشعار داخلي (يظهر في الجرس)
+      // إشعار داخلي
       const notice={
         id:uuid(),
         date:today(),
@@ -2205,10 +2266,9 @@ function moreSheet(){const al=allowed().slice(4);openSheet('<h3>الأقسام</
       };
       try{await adapter.saveSimple('notices',notice);store.notices.unshift(notice)}catch(e){console.warn('notice fail',e)}
       
-      // 3. 🔔 إرسال Push Notification للمديرين
+      // 🔔 Push للمديرين
       const title = v.type==='withdraw' ? '💰 طلب سحب مال' : '📢 شكوى جديدة';
       const body = user.name + ': ' + v.reason + (v.type==='withdraw' ? ' — ' + fmt(v.amount) + ' ' + cur() : '');
-      
       sendPushToAdmins(title, body, '/#overview', 'complaint', row.id)
         .then(() => console.log('✅ Push sent to admins'))
         .catch(e => console.warn('push fail:', e));
