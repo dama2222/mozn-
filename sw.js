@@ -1,4 +1,4 @@
-// sw.js - Version 2
+// sw.js - Version 3
 self.addEventListener('install', event => {
   console.log('[SW] Installing...');
   self.skipWaiting();
@@ -23,8 +23,8 @@ self.addEventListener('push', event => {
 
   const options = {
     body: data.body || 'لديك إشعار جديد',
-    icon: data.icon || 'https://dama2222.github.io/mozn-/icon-192.png',
-    badge: 'https://dama2222.github.io/mozn-/icon-192.png',
+    icon: data.icon || 'https://via.placeholder.com/192x192/f3e02b/191a0c?text=MUZN',
+    badge: 'https://via.placeholder.com/96x96/f3e02b/191a0c?text=M',
     vibrate: [300, 100, 300, 100, 300],
     tag: data.tag || 'muzn-' + Date.now(),
     renotify: true,
