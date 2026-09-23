@@ -485,7 +485,8 @@ function dSummary(st,d){
   const rec=f=>sum(st.remittances.filter(r=>r.distributor_id===d.id&&f(r.date)),r=>r.amount);
   const held=sum(st.products,p=>Math.max(custody(st,d.id,p.id),0)*(p.dist_price||p.price));
   const discTotal=totalDiscountsFor(st,'distributor',d.id);
-  return{per,expP:r2(exp(inP)),recP:r2(rec(inP)),expAll:r2(exp(all)),recAll:r2(rec(all)),bal:r2(exp(all)-rec(all)-discTotal),discounts:discTotal,held:r2(held)};
+  // ⚠️ الخصم = عقوبة تُضاف على الدين (وليس تخفيض)
+  return{per,expP:r2(exp(inP)),recP:r2(rec(inP)),expAll:r2(exp(all)),recAll:r2(rec(all)),bal:r2(exp(all)-rec(all)+discTotal),discounts:discTotal,held:r2(held)};
 }
 function supplierBal(st,s){
   const owe=sum(st.purchase_items_flat.filter(x=>x.supplier_id===s.id&&x.payment==='credit'),purchItemTotal);
@@ -500,7 +501,46 @@ function operatorDue(st,opId){
   const disc=totalDiscountsFor(st,'operator',opId);
   return r2(operatorEarned(st,opId)-paid-disc);
 }
-
+/* ---------- ربح الموزع ---------- */
+function distributorProfit(st,did){
+  const items=st.sale_items_flat.filter(s=>s.distributor_id===did);
+  let revenue=0,cost=0,profit=0;
+  const byProduct={};
+  items.forEach(it=>{
+    const p=pOf(st,it.product_id)||{};
+    const wholesale=p.dist_price||p.price||0;
+    const retail=it.price||0;
+    const qty=it.qty||0;
+    const disc=it.discount||0;
+    const rev=r2(qty*retail-disc);
+    const cst=r2(qty*wholesale);
+    const pf=r2(rev-cst);
+    revenue=r2(revenue+rev);
+    cost=r2(cost+cst);
+    profit=r2(profit+pf);
+    const k=it.product_id;
+    if(!byProduct[k])byProduct[k]={p,qty:0,revenue:0,cost:0,profit:0};
+    byProduct[k].qty+=qty;
+    byProduct[k].revenue=r2(byProduct[k].revenue+rev);
+    byProduct[k].cost=r2(byProduct[k].cost+cst);
+    byProduct[k].profit=r2(byProduct[k].profit+pf);
+  });
+  return {revenue,cost,profit,items:Object.values(byProduct)};
+}
+function distributorProfitInPeriod(st,did,from,to){
+  const items=st.sale_items_flat.filter(s=>s.distributor_id===did&&s.date>=from&&s.date<=to);
+  let revenue=0,cost=0,profit=0;
+  items.forEach(it=>{
+    const p=pOf(st,it.product_id)||{};
+    const wholesale=p.dist_price||p.price||0;
+    const rev=r2(it.qty*(it.price||0)-(it.discount||0));
+    const cst=r2(it.qty*wholesale);
+    revenue=r2(revenue+rev);
+    cost=r2(cost+cst);
+    profit=r2(profit+rev-cst);
+  });
+  return {revenue,cost,profit};
+}
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},{id:'sales',t:'المبيعات',s:'المبيعات'},{id:'production',t:'الإنتاج',s:'الإنتاج'},
   {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},{id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
@@ -1415,15 +1455,24 @@ function renderDistributors(){
   const ds=store.distributors.map(d=>({d,s:dSummary(store,d)}));
   const owed=sum(ds,x=>Math.max(x.s.bal,0)),held=sum(ds,x=>x.s.held);
   byId('di-stats').innerHTML='<div class="stats"><div class="stat"><span>مستحق على الموزعين</span><b>'+fmt(owed)+'</b><small>'+cur()+'</small></div><div class="stat"><span>بضاعة بعهدتهم</span><b>'+fmt(held)+'</b><small>'+cur()+'</small></div><div class="stat"><span>عدد الموزعين</span><b>'+ds.length+'</b><small>&nbsp;</small></div></div>';
-  byId('di-cards').innerHTML=ds.length?ds.map(x=>{const{d,s}=x,late=s.per.left<0&&s.bal>0.009;
+    byId('di-cards').innerHTML=ds.length?ds.map(x=>{const{d,s}=x,late=s.per.left<0&&s.bal>0.009;
+    const profit=distributorProfit(store,d.id);
+    const periodProfit=distributorProfitInPeriod(store,d.id,s.per.s,s.per.e);
     return '<div class="dcard"><div class="hd"><b>'+escHtml(d.name)+'</b>'+tag(late?'credit':(d.period==='monthly'?'rec':'cash'),(late?'متأخر · ':'')+s.per.label)+'</div>'+
       '<div class="kv"><span>المفترض تسليمه</span><b>'+fmt(s.expP)+' '+cur()+'</b></div>'+
       '<div class="kv"><span>المستلم منه</span><b>'+fmt(s.recP)+' '+cur()+'</b></div>'+
-      (s.discounts>0?'<div class="kv"><span>خصومات</span><b class="dn">-'+fmt(s.discounts)+' '+cur()+'</b></div>':'')+
+      (s.discounts>0?'<div class="kv"><span>خصومات (تُضاف للدين)</span><b class="dn">+'+fmt(s.discounts)+' '+cur()+'</b></div>':'')+
       '<div class="kv"><span>موعد التسليم</span><b>'+s.per.e+(s.per.left===0?' (اليوم)':s.per.left>0?' (بعد '+s.per.left+' يوم)':'')+'</b></div>'+
       '<div class="kv"><span>بضاعة بعهدته</span><b>'+fmt(s.held)+' '+cur()+'</b></div>'+
-      '<div class="kv big"><span>'+(s.bal<0?'دائن له':'المتبقي عليه')+'</span><b class="'+(s.bal>0.009?'dn':'up')+'">'+fmt(Math.abs(s.bal))+' '+cur()+'</b></div>'+
-      '<div class="btnrow"><button class="btn-ghost sm" data-reqprod="'+d.id+'">📦 طلب إنتاج</button>'+(isA()?'<button class="btn-ghost sm" data-reqcol="'+d.id+'">طلب تحصيل</button>':'')+'</div></div>';
+      // === قسم الربح ===
+      '<div style="background:rgba(61,220,132,.10);border:1px solid var(--green);border-radius:6px;padding:8px;margin:8px 0">'+
+        '<div class="kv"><span>إجمالي المبيعات</span><b>'+fmt(profit.revenue)+' '+cur()+'</b></div>'+
+        '<div class="kv"><span>تكلفة الشراء منك</span><b>'+fmt(profit.cost)+' '+cur()+'</b></div>'+
+        '<div class="kv big" style="border-color:var(--green)"><span>💰 إجمالي ربحه</span><b class="up">'+fmt(profit.profit)+' '+cur()+'</b></div>'+
+        '<div class="kv"><span>ربح هذه الفترة</span><b class="up">'+fmt(periodProfit.profit)+' '+cur()+'</b></div>'+
+      '</div>'+
+      '<div class="kv big"><span>'+(s.bal<0?'دائن له':'المطلوب منه (دين)')+'</span><b class="'+(s.bal>0.009?'dn':'up')+'">'+fmt(Math.abs(s.bal))+' '+cur()+'</b></div>'+
+      '<div class="btnrow"><button class="btn-ghost sm" data-reqprod="'+d.id+'">📦 طلب إنتاج</button><button class="btn-ghost sm" data-dprofile="'+d.id+'">📊 تفاصيل الربح</button>'+(isA()?'<button class="btn-ghost sm" data-reqcol="'+d.id+'">طلب تحصيل</button>':'')+'</div></div>';
   }).join(''):'<div class="empty">أضف موزعين</div>';
   const cols=[{h:'الرقم',f:r=>escHtml(r.no),cls:'nw'},{h:'التاريخ',f:r=>r.date,cls:'nw'},{h:'الموزع',f:r=>escHtml(dn(r.distributor_id))},
     {h:'المبلغ',f:r=>money(r.amount),cls:'nw'},{h:'الطريقة',f:r=>r.method==='cash'?'نقداً':'تحويل'},
