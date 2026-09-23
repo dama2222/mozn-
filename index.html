@@ -688,7 +688,7 @@ function mountForm(el,id,fields,o){
   const fileData={};
   const dv=f=>{const v=typeof f.value==='function'?f.value():f.value;return v==null?'':v};
   const getOpts=f=>{const l=typeof f.options==='function'?f.options(api):(f.options||[]);return f.nophd?l:[['',f.ph||'اختر...']].concat(l)};
-  const optHTML=(f,cur)=>getOpts(f).map(x=>'<option value="'+escHtml(x[0])+'"'+(String(x[0])===String(cur)?' selected':'')+'>'+escHtml(x[1])+'</option>').join('');
+  HTML=(f,cur)=>getOpts(f).map(x=>'<option value="'+escHtml(x[0])+'"'+(String(x[0])===String(cur)?' selected':'')+'>'+escHtml(x[1])+'</option>').join('');
   function fieldHTML(f){
     const i=fid(f.k),v=dv(f),dk=' data-k="'+f.k+'"';let inp='';
     if(f.type==='file'){fileData[f.k]=v||null;
@@ -761,7 +761,7 @@ function lineBuilder(container,kind){
     return '<div class="lineitem" data-row="'+id+'"><button type="button" class="rm" data-rm="'+id+'" aria-label="حذف">×</button><div class="g2">'+
       FIELDS.map(f=>{
         const fid='li_'+id+'_'+f.k,full=f.full?' style="grid-column:1/-1"':'';
-        if(f.type==='select'){const opts=(f.nophd?f.options():[['','اختر...']].concat(f.options()));return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>'}
+        if(f.type==='select'){s=(f.nophd?f.options():[['','اختر...']].concat(f.options()));return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>'}
         return '<div'+full+'><label class="fl" style="margin-top:4px">'+f.label+'</label><input class="in" id="'+fid+'" data-f="'+f.k+'" type="'+f.type+'"'+(f.type==='number'?' inputmode="decimal" min="0" step="'+(f.step||'any')+'"':'')+' value="'+escHtml(f.v)+'"></div>';
       }).join('')+'</div></div>';
   }
@@ -798,7 +798,7 @@ function lineBuilder(container,kind){
 const opt={
   products:()=>store.products.map(p=>[p.id,p.name]),materials:()=>store.materials.map(m=>[m.id,m.name]),
   distributors:()=>store.distributors.map(d=>[d.id,d.name]),customers:()=>store.customers.map(c=>[c.id,c.name]),
-  ()=>store.operators.map(o=>[o.id,o.name]),suppliers:()=>store.suppliers.map(s=>[s.id,s.name])
+  operators:()=>store.operators.map(o=>[o.id,o.name]),suppliers:()=>store.suppliers.map(s=>[s.id,s.name])
 };
 
 function table(cols,rows,key,empty){
@@ -1003,8 +1003,7 @@ const SKEL={
   production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج (يمكن أكثر من منتج)</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات (يمكن أكثر من صنف)</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
-  collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div>><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
-  distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
+collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div>...  distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
 };
@@ -1793,9 +1792,8 @@ const ENT={
     {k:'role',label:'الدور',type:'radio',options:[['staff','موظف'],['admin','مدير']],value:'staff'},
     {k:'perms',label:'الأقسام المسموحة',type:'checks',options:MODS.filter(m=>!m.admin).map(m=>[m.id,m.t]),value:[]},
     {k:'can_edit',label:'تخفيض الكميات',type:'toggle'},{k:'can_delete',label:'حذف',type:'toggle'},{k:'active',label:'مفعّل',type:'toggle',value:true}]}
-};
-const REFS={products:['shift_items','sale_items','withdrawals','purchase_items'],materials:['products','purchase_items'],
-  customers:['sale_items','payments'],distributors:['sale_items','withdrawals','remittances','payments'],['shift_items'],suppliers:['purchase_items'],users:[]};
+};const REFS={products:['shift_items','sale_items','withdrawals','purchase_items'],materials:['products','purchase_items'],
+  customers:['sale_items','payments'],distributors:['sale_items','withdrawals','remittances','payments'],operators:['shift_items'],suppliers:['purchase_items'],users:[]};
 function entUsedCount(ent,id){
   const t=REFS[ent]||[];let n=0;
   if(t.indexOf('shift_items')>=0)n+=store.shift_items_flat.filter(x=>x.product_id===id||x.operator_id===id).length;
@@ -1931,10 +1929,8 @@ function mountDiscounts(){
       const title='💰 خصم جديد';
       const body=targetName+' — '+fmt(v.amount)+' '+cur()+' — '+v.reason;
       
-      // 🔔 إشعار للمديرين (Push + في الجرس)
-      sendPushToAdmins(title,body,'/#management','discount',row.id).catch(e=>console.warn('push to admins fail',e));
+      sendPushToAdmins(title,body,'/#management','discount',row.id).catch(e=>console.warn(e));
       
-      // 🔔 إشعار للطرف المخصوم منه (إن كان مربوطاً بحساب)
       let targetUserId=null;
       if(v.kind==='operator'){
         const op=store.operators.find(x=>x.id===v.ref_id);
@@ -1947,34 +1943,7 @@ function mountDiscounts(){
         if(cust&&cust.user_id)targetUserId=cust.user_id;
       }
       if(targetUserId){
-        sendPush(targetUserId,'💰 خصم عليك',body,'/#management','discount',row.id).catch(e=>console.warn('push to target fail',e));
-      }
-    }
-    return ok;
-  }});
-  renderDiscountsList();
-}
-    if(ok){
-      toast('تم وإرسال الإشعار');
-      // 🔔 إشعار للمديرين
-      const targetName=v.kind==='customer'?cn(v.ref_id):v.kind==='operator'?nm('operators',v.ref_id):dn(v.ref_id);
-      const title='💰 خصم جديد';
-      const body=targetName+' — '+fmt(v.amount)+' '+cur()+' — '+v.reason;
-      sendPushToAdmins(title,body,'/#management','discount',row.id).catch(e=>console.warn('push fail',e));
-      // 🔔 إشعار للمخصوم منه (إن كان مربوطاً بحساب)
-      let targetUserId=null;
-      if(v.kind==='operator'){
-        const op=store.operators.find(x=>x.id===v.ref_id);
-        if(op&&op.user_id)targetUserId=op.user_id;
-      }else if(v.kind==='distributor'){
-        const dist=store.distributors.find(x=>x.id===v.ref_id);
-        if(dist&&dist.user_id)targetUserId=dist.user_id;
-      }else if(v.kind==='customer'){
-        const cust=store.customers.find(x=>x.id===v.ref_id);
-        if(cust&&cust.user_id)targetUserId=cust.user_id;
-      }
-      if(targetUserId){
-        sendPush(targetUserId,'💰 خصم عليك',body,'/#management','discount',row.id).catch(e=>console.warn('push fail',e));
+        sendPush(targetUserId,'💰 خصم عليك',body,'/#management','discount',row.id).catch(e=>console.warn(e));
       }
     }
     return ok;
@@ -2492,40 +2461,6 @@ async function sendPushToOperators(title,body,url,kind,refId){
   if(!store)return;
   const ops=store.operators.filter(o=>o.user_id);
   await sendPushToUsers(ops.map(o=>o.user_id),title,body,url,kind,refId);
-}
-  if(adapter.mode!=='cloud')return;
-  if(!EDGE_FUNCTION_URL||EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT')>=0)return;
-  try{
-    await fetch(EDGE_FUNCTION_URL,{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'Authorization':'Bearer '+adapter.key
-      },
-      body:JSON.stringify({
-        user_id:userId,
-        title:title,
-        body:body||'',
-        url:url||'/',
-        kind:kind||'general',
-        ref_id:refId||null
-      })
-    });
-  }catch(e){
-    console.warn('sendPush failed:',e);
-  }
-}
-
-async function sendPushToAdmins(title,body,url,kind,refId){
-  if(!store)return;
-  const admins=store.users.filter(u=>u.role==='admin'&&u.active);
-  for(const a of admins){
-    await sendPush(a.id,title,body,url,kind,refId);
-  }
-}
-
-async function sendPushToUser(userId,title,body,url,kind,refId){
-  await sendPush(userId,title,body,url,kind,refId);
 }
 async function boot(){
   let th='dark';try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
