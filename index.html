@@ -3974,7 +3974,7 @@ function mountAttendanceLog(){}
 let _attFilter='all';
 function renderAttendanceLog(){
   if(!byId('att-body'))return;
-  const tabs=[['all','الكل'],['production','فريق الإنتاج'],['distributors','الموزعون'],['dist_shifts','ورديات الموزعين'],['shifts','ورديات الموظفين']];
+  const tabs=[['all','الكل'],['production','فريق الإنتاج'],['distributors','الموزعون'],['dist_shifts','ورديات الموزعين'],['op_shifts','ورديات المشغّلين'],['shifts','ورديات الموظفين']];
   const el=byId('att-pills');
   if(el){
     el.innerHTML=tabs.map(t=>'<button class="pill'+(_attFilter===t[0]?' on':'')+'" data-attf="'+t[0]+'">'+t[1]+'</button>').join('');
@@ -4011,6 +4011,22 @@ function renderAttendanceLog(){
       });
     });
   }
+    if(_attFilter==='all'||_attFilter==='op_shifts'){
+    (store.operator_shifts || []).forEach(s => {
+      const o = store.operators.find(x => x.id === s.operator_id);
+      const dur = s.checkout_ts ? calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts) : null;
+      recs.push({
+        kind: 'op_shift', date: s.date, by: s.by, ts: s.ts || s.checkin_ts || 0,
+        user: o ? o.name : '—',
+        shift: s.shift,
+        checkin: s.checkin_ts ? new Date(s.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
+        checkout: s.checkout_ts ? new Date(s.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
+        duration: dur,
+        photos: [s.checkin_photo, s.checkout_photo].filter(Boolean),
+        closed: s.closed
+      });
+    });
+  }
   if(_attFilter==='all'||_attFilter==='shifts'){
     (store.attendance_shifts||[]).forEach(s=>{
       const dur=s.checkout_ts?Math.round((s.checkout_ts-s.checkin_ts)/60000):null;
@@ -4026,7 +4042,9 @@ function renderAttendanceLog(){
   recs.sort((a,b)=>(b.ts||0)-(a.ts||0));
   const rows=recs.slice(0,60);
   const html=rows.length?rows.map(r=>{
-    const tagCls=r.kind==='production'?'rec':r.kind==='distributors'||r.kind==='dist_shift'?'cash':'adm';
+    const tagCls=r.kind==='production'?'rec':(r.kind==='distributors'||r.kind==='dist_shift'||r.kind==='op_shift')?'cash':'adm';
+const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':r.kind==='dist_shift'?'وردية موزع':r.kind==='op_shift'?'وردية مشغّل':'وردية موظف';
+if(r.kind==='shift'||r.kind==='dist_shift'||r.kind==='op_shift'){
     const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':r.kind==='dist_shift'?'وردية موزع':'وردية موظف';
     if(r.kind==='shift'||r.kind==='dist_shift'){
       const durationText = r.duration != null ? r.duration + ' دقيقة (' + r2(r.duration / 60) + ' ساعة)' : '';
