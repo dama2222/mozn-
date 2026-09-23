@@ -196,7 +196,7 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 .toast.err{background:var(--red);color:#fff}
 .loginwrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px 18px}
 .logincard{width:100%;max-width:400px;background:var(--shell);border:1px solid var(--line);border-radius:14px;padding:24px 20px}
-.logo.big{width:56px;height:56px;border-radius:14px;margin:0 auto 10px}
+.logo.big{width:80px;height:80px;border-radius:20px;margin:0 auto 14px;display:grid;place-items:center}
 .logincard h1{text-align:center;margin:0}
 .logincard p{text-align:center;margin:0 0 6px}
 .err{color:var(--red);font-weight:700;font-size:13px;min-height:20px;margin-top:8px}
@@ -226,7 +226,7 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 </head>
 <body><div id="login" class="loginwrap" hidden>
   <div class="logincard">
-    <span class="logo big" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-6h8v6"/></svg></span>
+<span class="logo big" aria-hidden="true"><span style="font-weight:900;font-size:18px;letter-spacing:-0.5px;color:var(--accent-ink);font-family:'Cairo',sans-serif">MUZN</span></span>   
     <h1 id="lgName">MUZN Operations</h1>
     <p class="muted" id="lgSub">سجّل الدخول للمتابعة</p>
     <label class="fl" for="lg_user">اسم المستخدم</label>
@@ -243,8 +243,8 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 <div class="app" id="app" hidden>
   <header class="top">
     <div class="brand">
-      <span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-6h8v6"/></svg></span>
-      <span id="brandName">MUZN Operations</span>
+<span class="logo"><span style="font-weight:900;font-size:11px;letter-spacing:-0.3px;color:var(--accent-ink);font-family:'Cairo',sans-serif">MUZN</span></span>     
+    <span id="brandName">MUZN Operations</span>
     </div>
     <div class="left">
       <span class="cloudchip" id="cloudChip" hidden aria-live="polite"></span>
