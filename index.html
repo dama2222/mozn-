@@ -996,7 +996,7 @@ const SKEL={
   production:'<h1>الإنتاج</h1><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج (يمكن أكثر من منتج)</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات (يمكن أكثر من صنف)</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
-  collections:'<h1>التحصيل والذمم</h1><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
+  collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div>><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
@@ -1348,6 +1348,32 @@ function supplierPaySheet(sid){
 /* ---------- التحصيل ---------- */
 const BUCKETS=[['overdue','متأخرة'],['week','تستحق خلال 7 أيام'],['later','لاحقاً'],['paid','مسددة']];
 function mountCollections(){
+  byId('col-add-prod').onclick=()=>{
+    openSheet('<h3>📦 طلب إنتاج</h3><p class="muted">اختر منتجاً والكمية المطلوبة</p><div id="cp-prod-form"></div>');
+    mountForm(byId('cp-prod-form'),'cpp',[
+      {k:'product_id',label:'المنتج',type:'select',nophd:true,options:()=>store.products.map(p=>[p.id,p.name])},
+      {k:'qty',label:'الكمية المطلوبة',type:'number',value:0},
+      {k:'urgent',label:'عاجل؟',type:'toggle',value:false},
+      {k:'note',label:'ملاحظة',type:'text'}
+    ],{label:'إرسال الطلب',submit:async v=>{
+      if(!v.product_id){toast('اختر منتجاً','err');return false}
+      if(v.qty<=0){toast('أدخل الكمية','err');return false}
+      const row={id:uuid(),date:today(),kind:'production',target_id:null,title:(v.urgent?'🔴 عاجل — ':'')+'طلب من التحصيل',body:v.note,items:[{product_id:v.product_id,qty:v.qty}],by:user.name,ts:Date.now(),done:false};
+      const ok=await tryCommit(draft=>{draft.notices.unshift(row)},async()=>{await adapter.saveSimple('notices',row)});
+      if(ok){
+        toast('تم إرسال الطلب');
+        closeSheet();
+        sendPushToAdmins(
+          (v.urgent?'🔴 عاجل — ':'')+'📦 طلب إنتاج',
+          pn(v.product_id)+' × '+fmt(v.qty)+(v.note?' — '+v.note:''),
+          '/#production',
+          'production_request',
+          row.id
+        ).catch(e=>console.warn(e));
+      }
+      return false;
+    }});
+  };
   mountForm(byId('col-form'),'qf',[
     {k:'customer_id',label:'العميل',type:'select',options:()=>store.customers.map(c=>({c,b:custBal(store,c)})).filter(x=>x.b.remaining>0).map(x=>[x.c.id,x.c.name+' — '+fmt(x.b.remaining)+' '+cur()])},
     {k:'amount',label:'المبلغ المستلم',type:'number',step:'0.001'},
@@ -1369,6 +1395,26 @@ function mountCollections(){
 function renderCollections(){
   if(!byId('kanban'))return;
   const cs=store.customers,f=ui.f.col,bals=cs.map(c=>({c,b:custBal(store,c)}));
+   // 💰 أرباح الموزعين
+  const colProfit=byId('col-profit');
+  if(colProfit){
+    const ddProfit=store.distributors.map(d=>({d,p:distributorProfit(store,d.id)}));
+    const totalProfit=r2(sum(ddProfit,x=>x.p.profit));
+    colProfit.innerHTML='<div class="card" style="border-color:var(--green);background:rgba(61,220,132,.08);margin-bottom:12px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+        '<h2 style="font-size:15px">💰 أرباح الموزعين</h2>'+
+        '<b class="up" style="font-size:18px">'+fmt(totalProfit)+' '+cur()+'</b>'+
+      '</div>'+
+      (ddProfit.filter(x=>x.p.profit>0.009).length?
+        ddProfit.filter(x=>x.p.profit>0.009).map(x=>
+          '<div class="kv" style="border-top:1px dashed var(--line);padding:6px 0">'+
+            '<span>'+escHtml(x.d.name)+'</span>'+
+            '<b class="up">'+fmt(x.p.profit)+' '+cur()+'</b>'+
+          '</div>'
+        ).join('')
+        :'<p class="muted" style="margin:0;text-align:center;padding:10px">لا توجد أرباح بعد</p>')+
+    '</div>';
+  }
   pills('#col-pills',[['all','الكل ('+cs.length+')'],['overdue','متأخرة'],['week','الأسبوع'],['later','لاحقاً'],['paid','مسددة']],f,'col');
   const cols=BUCKETS.filter(b=>f==='all'||b[0]===f);
   byId('kanban').innerHTML=cols.map(b=>{const items=bals.filter(x=>x.b.bucket===b[0]);
@@ -1529,9 +1575,29 @@ function collectionRequestSheet(did){
     lines.push('شكراً — '+store.company.name);
     const text=lines.join('\n');
     const row={id:uuid(),date:today(),kind:'collection',target_id:did,title:'طلب تحصيل — '+d.name,body:text,items:overdue.map(x=>({customer_id:x.c.id,amount:x.b.remaining})),by:user.name,ts:Date.now(),done:false};
-    const ok=await tryCommit(draft=>{draft.notices.unshift(row)},async()=>{await adapter.saveSimple('notices',row)});
-    if(ok){
-      const phone=(d.phone||'').replace(/[^\d]/g,'');
+   const ok=await tryCommit(draft=>{draft.notices.unshift(row)},async()=>{await adapter.saveSimple('notices',row)});
+if(ok){
+  // 🔔 إشعار للموزع (إن كان مربوطاً بحساب)
+  if(d.user_id){
+    sendPush(
+      d.user_id,
+      '📋 طلب تحصيل من الشركة',
+      'المطلوب: '+fmt(v.amount)+' '+cur()+' — '+per,
+      '/#collections',
+      'collection_req',
+      row.id
+    ).catch(e=>console.warn('push to dist fail',e));
+  }
+  // 🔔 إشعار للمديرين
+  sendPushToAdmins(
+    '📋 طلب تحصيل — '+d.name,
+    'المطلوب: '+fmt(v.amount)+' '+cur()+' — '+per,
+    '/#distributors',
+    'collection',
+    row.id
+  ).catch(e=>console.warn('push fail',e));
+  
+  const phone=(d.phone||'').replace(/[^\d]/g,'');
       openSheet('<h3>رسالة إلى '+escHtml(d.name)+'</h3><textarea class="rep" rows="7" id="rq-text" readonly></textarea><div class="btnrow">'+
         (phone?'<a class="btn-primary" style="text-align:center;text-decoration:none;display:block" target="_blank" href="https://wa.me/'+phone+'?text='+encodeURIComponent(text)+'">واتساب</a>':'<span class="hint">أضف رقم الموزع</span>')+
         '<button class="btn-ghost" id="rq-copy">نسخ</button></div>');
@@ -1690,7 +1756,12 @@ const ENT={
   materials:{title:'مادة',fields:[{k:'name',label:'الاسم'},{k:'unit',label:'الوحدة',value:'كغ'},{k:'cost',label:'التكلفة',type:'number',step:'0.001',value:0},
     {k:'opening',label:'افتتاحي',type:'number',value:0},{k:'min_stock',label:'حد التنبيه',type:'number',value:0}]},
   customers:{title:'عميل',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف (واتساب)',placeholder:'9665xxxxxxxx'},{k:'region',label:'المنطقة'},{k:'distributor_id',label:'الموزع',type:'select',options:opt.distributors},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}]},
-  distributors:{title:'موزع',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف (واتساب)',placeholder:'9665xxxxxxxx'},{k:'period',label:'فترة التسليم',type:'radio',options:[['weekly','أسبوعي'],['monthly','شهري']],value:'weekly'}]},
+  distributors:{title:'موزع',fields:[
+  {k:'name',label:'الاسم'},
+  {k:'phone',label:'الهاتف (واتساب)',placeholder:'9665xxxxxxxx'},
+  {k:'user_id',label:'🔗 ربط بحساب مستخدم (لاستقبال الإشعارات)',type:'select',nophd:true,options:()=>[['','بدون ربط']].concat((store.users||[]).filter(u=>u.active).map(u=>[u.id,u.name+' (@'+u.username+')']))},
+  {k:'period',label:'فترة التسليم',type:'radio',options:[['weekly','أسبوعي'],['monthly','شهري']],value:'weekly'}
+]},
   operators:{title:'مشغّل',fields:[{k:'name',label:'الاسم'}]},
   suppliers:{title:'مورّد',fields:[{k:'name',label:'الاسم'},{k:'phone',label:'الهاتف'},{k:'terms',label:'مدة السداد (أيام)',type:'number',value:0}]},
   users:{title:'مستخدم',fields:[{k:'name',label:'الاسم'},{k:'username',label:'اسم المستخدم',placeholder:'بالإنجليزية'},
@@ -1925,6 +1996,37 @@ async function autoNotify(){
         const row={id:uuid(),date:t,kind:'distributor',target_id:did,title:'فاتورة عميل متأخرة — '+d.name,body:custByDist[did].join('، '),items:[],by:'تنبيه تلقائي',ts:Date.now(),done:false};
         store.notices.unshift(row);try{await adapter.saveSimple('notices',row)}catch(ex){console.error(ex)}
       }
+    }
+       // 🔔 إشعارات تلقائية يومية
+    const pushDayKey='auto_push_'+t;
+    if(localStorage.getItem(pushDayKey)!==t){
+      // عملاء متأخرون → لكل موزع + للمدير
+      for(const d of store.distributors){
+        const custs=store.customers.filter(c=>c.distributor_id===d.id).map(c=>({c,b:custBal(store,c)})).filter(x=>x.b.bucket==='overdue');
+        if(custs.length===0)continue;
+        const total=r2(sum(custs,x=>x.b.remaining));
+        const totalTax=r2(sum(custs,x=>x.b.tax||0));
+        const msg=custs.length+' عميل — '+fmt(total)+' '+cur()+(totalTax>0?' + ضريبة '+fmt(totalTax):'');
+        if(d.user_id){
+          sendPush(d.user_id,'⚠️ عملاء متأخرون عن السداد',msg,'/#collections','overdue_cust_dist',d.id).catch(e=>console.warn(e));
+        }
+        sendPushToAdmins('⚠️ عملاء متأخرون — '+d.name,msg,'/#collections','overdue_cust',d.id).catch(e=>console.warn(e));
+      }
+      // موزعون متأخرون عن التسليم → للمدير
+      const lateDist=store.distributors.map(d=>({d,s:dSummary(store,d)})).filter(x=>x.s.per.left<0&&x.s.bal>0.009);
+      if(lateDist.length>0){
+        sendPushToAdmins('⚠️ موزعون متأخرون',lateDist.map(x=>x.d.name+' ('+fmt(x.s.bal)+')').join('، '),'/#distributors','late_dist').catch(e=>console.warn(e));
+      }
+      // مخزون منخفض → للمدير
+      const lowStock=store.products.filter(p=>p.min_stock&&stockWH(store,p.id)<p.min_stock);
+      const lowMat=store.materials.filter(m=>m.min_stock&&materialStock(store,m.id)<m.min_stock);
+      if(lowStock.length+lowMat.length>0){
+        const lines=[];
+        if(lowStock.length)lines.push('منتجات: '+lowStock.slice(0,3).map(p=>p.name).join('، '));
+        if(lowMat.length)lines.push('مواد: '+lowMat.slice(0,3).map(m=>m.name).join('، '));
+        sendPushToAdmins('📦 مخزون منخفض',lines.join(' · '),'/#withdrawals','low_stock').catch(e=>console.warn(e));
+      }
+      try{localStorage.setItem(pushDayKey,t)}catch(e){}
     }
     renderBell();
   }catch(ex){console.error(ex)}
