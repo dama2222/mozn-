@@ -1,4 +1,4 @@
-// sw.js
+// sw.js - Version 2
 self.addEventListener('install', event => {
   console.log('[SW] Installing...');
   self.skipWaiting();
@@ -10,39 +10,41 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('push', event => {
-  console.log('[SW] Push received');
+  console.log('[SW] 🔔 Push received');
+  
   let data = {};
   try {
     data = event.data ? event.data.json() : {};
   } catch (e) {
     data = { title: 'MUZN', body: event.data ? event.data.text() : 'لديك إشعار' };
   }
+  
+  console.log('[SW] Push data:', data);
 
   const options = {
     body: data.body || 'لديك إشعار جديد',
-    icon: data.icon || '/icon-192.png',
-    badge: data.badge || '/icon-192.png',
-    vibrate: [200, 100, 200],
-    tag: data.tag || 'muzn-notification',
+    icon: data.icon || 'https://dama2222.github.io/mozn-/icon-192.png',
+    badge: 'https://dama2222.github.io/mozn-/icon-192.png',
+    vibrate: [300, 100, 300, 100, 300],
+    tag: data.tag || 'muzn-' + Date.now(),
+    renotify: true,
+    requireInteraction: true,
     data: { url: data.url || '/' },
-    actions: [
-      { action: 'open', title: 'فتح' },
-      { action: 'close', title: 'إغلاق' }
-    ],
     dir: 'rtl',
     lang: 'ar'
   };
 
   event.waitUntil(
     self.registration.showNotification(data.title || 'MUZN Operations', options)
+      .then(() => console.log('[SW] ✅ Notification shown'))
+      .catch(err => console.error('[SW] ❌ showNotification failed:', err))
   );
 });
 
 self.addEventListener('notificationclick', event => {
+  console.log('[SW] Notification clicked');
   event.notification.close();
   const url = event.notification.data?.url || '/';
-
-  if (event.action === 'close') return;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
