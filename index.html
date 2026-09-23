@@ -2193,10 +2193,8 @@ function renderAttendanceCard(){
           const o = store.operators.find(x => x.id === id);
           return '<div class="att-row"><div class="nm"><b>'+escHtml(o?o.name:'—')+'</b><small class="dn">غائب</small></div></div>';
         }).join('') : '')+
-      (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
+                (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
         '<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
-    wrap.hidden = false;
-    return;
     $$('[data-att-big]').forEach(img => img.onclick = () =>
       openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
     );
@@ -4011,10 +4009,8 @@ function renderAttendanceLog(){
   const rows=recs.slice(0,60);
   const html=rows.length?rows.map(r=>{
     const tagCls=r.kind==='production'?'rec':(r.kind==='distributors'||r.kind==='dist_shift'||r.kind==='op_shift')?'cash':'adm';
-const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':r.kind==='dist_shift'?'وردية موزع':r.kind==='op_shift'?'وردية مشغّل':'وردية موظف';
-if(r.kind==='shift'||r.kind==='dist_shift'||r.kind==='op_shift'){
-    const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':r.kind==='dist_shift'?'وردية موزع':'وردية موظف';
-    if(r.kind==='shift'||r.kind==='dist_shift'){
+    const tagTxt=r.kind==='production'?'إنتاج':r.kind==='distributors'?'موزعين':r.kind==='dist_shift'?'وردية موزع':r.kind==='op_shift'?'وردية مشغّل':'وردية موظف';
+    if(r.kind==='shift'||r.kind==='dist_shift'||r.kind==='op_shift'){
       const durationText = r.duration != null ? r.duration + ' دقيقة (' + r2(r.duration / 60) + ' ساعة)' : '';
       return '<div class="card" style="margin-bottom:10px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
@@ -4031,7 +4027,6 @@ if(r.kind==='shift'||r.kind==='dist_shift'||r.kind==='op_shift'){
       (r.photos&&r.photos.length?'<div class="chips" style="margin-top:8px">'+r.photos.map(u=>'<img class="att-photo" src="'+u+'" data-att-big="'+u+'" alt="">').join('')+'</div>':'')+
       '</div>';
   }).join(''):'<div class="empty">لا سجلات بعد</div>';
-  byId('att-body').innerHTML=html;
   $$('[data-att-big]').forEach(img=>img.onclick=()=>openSheet('<h3>صورة</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">'));
 }
 document.addEventListener('click',e=>{
