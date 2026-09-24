@@ -854,7 +854,7 @@ const LocalAdapter={
     s.attendance_shifts=s.attendance_shifts||[];s.purchase_requests=s.purchase_requests||[];
     s.push_subscriptions=s.push_subscriptions||[];s.scan_log=s.scan_log||[];
     s.distributor_shifts=s.distributor_shifts||[];
-    s.operator_shifts=s.operator_shifts||[];
+    s.operator_shifts=s.operator_shifts||[]; 
     s.withdrawal_confirmations=s.withdrawal_confirmations||[];
     if(s.company.tax_enabled==null)s.company.tax_enabled=false;
     if(s.company.tax_grace_days==null)s.company.tax_grace_days=7;
@@ -957,12 +957,12 @@ function SupabaseAdapter(url,key){
         ['company','users_public','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
         'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','discounts'].map(all));
       const group=(heads,items,fk)=>heads.map(h=>Object.assign({},h,{items:items.filter(i=>i[fk]===h.id)}));
-      const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts]=await Promise.all([
+          const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations]=await Promise.all([
         safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),
         safeAll('complaints'),safeAll('operator_payments'),safeAll('attendance_shifts'),
         safeAll('purchase_requests'),safeAll('push_subscriptions'),safeAll('scan_log'),
         safeAll('distributor_shifts'),safeAll('operator_shifts'),
-        safeAll('withdrawal_confirmations')
+        safeAll('withdrawal_confirmations')  // 🆕
       ]);
       const s={
         company:company[0]||{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:false,tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2,shift_early_threshold:5,shift_late_threshold:10},
