@@ -156,4 +156,3 @@ self.addEventListener('notificationclick', e => {
     })
   );
 });
-Update SW to v3.4 with auto-update
