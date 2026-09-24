@@ -96,6 +96,8 @@ h3{margin:0 0 10px;font-size:17px}
 .badge.red{background:var(--red);color:#fff}
 .alert p{margin:0;font-weight:600;font-size:13.5px}
 .notice{border:1px solid var(--orange);background:rgba(255,176,74,.12);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-weight:600;font-size:13px}
+.notice.ok{border-color:var(--green);background:rgba(61,220,132,.12)}
+.notice.info{border-color:var(--blue);background:rgba(108,184,255,.12)}
 .fl{display:block;font-weight:700;font-size:13px;margin:13px 0 6px}
 .in{width:100%;background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:10px 12px;font-size:16px;min-height:46px}
 .in::placeholder{color:var(--muted);opacity:.85}
@@ -183,6 +185,7 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 .rcpt .kv span{color:#555}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(98px + env(safe-area-inset-bottom,0px));background:var(--text);color:var(--shell);padding:10px 16px;border-radius:10px;font-weight:700;font-size:13.5px;z-index:60;max-width:min(92%,430px);text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .toast.err{background:var(--red);color:#fff}
+.toast.ok{background:var(--green);color:#04240f}
 .loginwrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px 18px}
 .logincard{width:100%;max-width:400px;background:var(--shell);border:1px solid var(--line);border-radius:14px;padding:24px 20px}
 .logo.big{width:80px;height:80px;border-radius:20px;margin:0 auto 14px;display:grid;place-items:center}
@@ -204,12 +207,15 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 .att-row .nm small{color:var(--muted);font-size:11.5px}
 .notice.disc{border-color:var(--red);background:rgba(255,111,97,.12)}
 .notice.tax{border-color:var(--orange);background:rgba(255,176,74,.14)}
-.notice.ok{border-color:var(--green);background:rgba(61,220,132,.12)}
 .disc-row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px dashed var(--line);font-size:13px}
 .disc-row:first-child{border-top:0}
 .step-hint{background:rgba(108,184,255,.12);border:1px solid var(--blue);border-radius:8px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
 .step-hint b{color:var(--blue)}
 .shift-chip{cursor:pointer;user-select:none}
+.sync-indicator{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;background:var(--card);border:1px solid var(--line);border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--muted);z-index:25;opacity:0;transition:opacity .3s;pointer-events:none}
+.sync-indicator.on{opacity:1}
+.sync-indicator.ok{color:var(--green);border-color:var(--green)}
+.sync-indicator.err{color:var(--red);border-color:var(--red)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
@@ -250,16 +256,22 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 <nav class="nav" id="navWrap" aria-label="التنقل الرئيسي" hidden><div class="pillnav" id="nav"></div></nav>
 <div class="sheet hidden" id="sheet" role="dialog" aria-modal="true"><div class="sheet-bg" id="sheetBg"></div><div class="sheet-card" id="sheetCard"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="sync-indicator" id="syncIndicator"></div>
 
 <script>
 (function(){
 'use strict';
 
 /* =====================================================================
-   إعدادات Push
+   إعدادات Push والمزامنة
    ===================================================================== */
 const VAPID_PUBLIC_KEY = 'BB70IvXsu1xDepLIPf3eXDCkVtYdUD5APnV33QQoRDth_WQDPfZgQN81tFAGOvvfG8gy0MgILa1rzoK82K2g2ts';
 const EDGE_FUNCTION_URL = 'https://njxfxdrcluyovkqsecol.supabase.co/functions/v1/send-push';
+const PUSH_QUEUE_KEY = 'muzn_push_queue_v1';
+const PUSH_MAX_RETRIES = 5;
+const SYNC_INTERVAL_MS = 5000;
+const UPDATE_CHECK_MS = 15000;
+const BROADCAST_CHANNEL = 'muzn_sync_broadcast';
 
 /* =====================================================================
    ثوابت
@@ -282,7 +294,7 @@ const DAYS=[['6','السبت'],['0','الأحد'],['1','الاثنين'],['2','�
 const CH_AR={bank:'تحويل بنكي',cash:'نقداً للمندوب',pos:'نقاط البيع'};
 
 /* =====================================================================
-   🆕 نظام الورديات — ثوابت ودوال
+   نظام الورديات — ثوابت ودوال
    ===================================================================== */
 const SHIFT_TYPES = {
   Morning: { ar: 'صباحي', start: 6, end: 14 },
@@ -650,9 +662,21 @@ function custody(st,did,pid){
   return sum(st.withdrawals.filter(w=>w.distributor_id===did&&w.product_id===pid),w=>w.qty)
     - sum(st.sale_items_flat.filter(s=>s.distributor_id===did&&s.product_id===pid),s=>s.qty);
 }
-function inv(st){
-  for(const p of st.products){const q=stockWH(st,p.id);if(q<-1e-6)return 'هذه العملية تجعل مخزون «'+p.name+'» سالباً ('+fmt(q)+')'}
-  for(const m of st.materials){const q=materialStock(st,m.id);if(q<-1e-6)return 'هذه العملية تجعل مخزون المادة الخام «'+m.name+'» سالباً ('+fmt(q)+')'}
+function inv(st,oldSt){
+  for(const p of st.products){
+    const q=stockWH(st,p.id);
+    if(q<-1e-6){
+      if(oldSt){const qOld=stockWH(oldSt,p.id);if(qOld>=-1e-6)return 'هذه العملية تجعل مخزون «'+p.name+'» سالباً ('+fmt(q)+')'}
+      else return 'هذه العملية تجعل مخزون «'+p.name+'» سالباً ('+fmt(q)+')';
+    }
+  }
+  for(const m of st.materials){
+    const q=materialStock(st,m.id);
+    if(q<-1e-6){
+      if(oldSt){const qOld=materialStock(oldSt,m.id);if(qOld>=-1e-6)return 'هذه العملية تجعل مخزون المادة الخام «'+m.name+'» سالباً ('+fmt(q)+')'}
+      else return 'هذه العملية تجعل مخزون المادة الخام «'+m.name+'» سالباً ('+fmt(q)+')';
+    }
+  }
   const seen=new Set();
   const pairs=st.withdrawals.map(w=>[w.distributor_id,w.product_id]).concat(
     st.sale_items_flat.filter(s=>s.distributor_id).map(s=>[s.distributor_id,s.product_id])
@@ -661,8 +685,14 @@ function inv(st){
     const k=pr.join('|');if(seen.has(k))continue;seen.add(k);
     const q=custody(st,pr[0],pr[1]);
     if(q<-1e-6){
-      const d=st.distributors.find(x=>x.id===pr[0]),p=pOf(st,pr[1]);
-      return 'هذه العملية تجعل عهدة «'+(d?d.name:'')+'» من «'+(p?p.name:'')+'» سالبة ('+fmt(q)+')';
+      if(oldSt){const qOld=custody(oldSt,pr[0],pr[1]);if(qOld>=-1e-6){
+        const d=st.distributors.find(x=>x.id===pr[0]),p=pOf(st,pr[1]);
+        return 'هذه العملية تجعل عهدة «'+(d?d.name:'')+'» من «'+(p?p.name:'')+'» سالبة ('+fmt(q)+')';
+      }}
+      else{
+        const d=st.distributors.find(x=>x.id===pr[0]),p=pOf(st,pr[1]);
+        return 'هذه العملية تجعل عهدة «'+(d?d.name:'')+'» من «'+(p?p.name:'')+'» سالبة ('+fmt(q)+')';
+      }
     }
   }
   return null;
@@ -839,6 +869,7 @@ const LocalAdapter={
     return s;
   },
   subscribe(){},
+  unsubscribe(){},
   async login(u,p){
     const usr=store.users.find(x=>x.username===u.toLowerCase().trim()&&x.active);
     if(!usr)return null;
@@ -908,7 +939,8 @@ const LocalAdapter={
   async uploadPhoto(){throw new Error('الرفع متاح في الوضع السحابي فقط')},
   _p(){try{localStorage.setItem(DBKEY,JSON.stringify(store))}catch(e){toast('تعذر الحفظ','err')}}
 };
-  /* =====================================================================
+
+/* =====================================================================
    SupabaseAdapter
    ===================================================================== */
 function SupabaseAdapter(url,key){
@@ -945,48 +977,44 @@ function SupabaseAdapter(url,key){
       return s;
     },
     subscribe(cb){
-  onRemote = cb;
-  chan = sb.channel('muzn-sync');
-  
-  const tables = [
-    'company', 'users', 'materials', 'products', 'operators',
-    'distributors', 'customers', 'suppliers', 'shifts', 'shift_items',
-    'withdrawals', 'sales', 'sale_items', 'purchases', 'purchase_items',
-    'payments', 'remittances', 'supplier_payments', 'notices', 'audit',
-    'attendance', 'checkins', 'dist_attendance', 'complaints',
-    'operator_payments', 'discounts', 'attendance_shifts',
-    'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts'
-  ];
-  
-  let syncTimer = null;
-  
-  tables.forEach(t => {
-    chan.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: t },
-      (payload) => {
-        console.log('[Realtime] 🔔 Change:', t, payload.eventType);
-        if (syncTimer) clearTimeout(syncTimer);
-        syncTimer = setTimeout(() => {
-          if (onRemote) onRemote();
-        }, 200);
-      }
-    );
-  });
-  
-  chan.subscribe((status, err) => {
-    console.log('[Realtime] Status:', status);
-    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-      console.warn('[Realtime] ❌ Error — reconnecting in 5s');
-      setTimeout(() => {
-        try { chan.unsubscribe(); } catch(e) {}
-        if (window.__muzn && window.__muzn.adapter) {
-          window.__muzn.adapter.subscribe(cb);
+      onRemote = cb;
+      if(chan){ try{chan.unsubscribe()}catch(e){} }
+      chan = sb.channel('muzn-sync');
+      const tables = [
+        'company', 'users', 'materials', 'products', 'operators',
+        'distributors', 'customers', 'suppliers', 'shifts', 'shift_items',
+        'withdrawals', 'sales', 'sale_items', 'purchases', 'purchase_items',
+        'payments', 'remittances', 'supplier_payments', 'notices', 'audit',
+        'attendance', 'checkins', 'dist_attendance', 'complaints',
+        'operator_payments', 'discounts', 'attendance_shifts',
+        'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts'
+      ];
+      let syncTimer = null;
+      tables.forEach(t => {
+        chan.on('postgres_changes',{ event: '*', schema: 'public', table: t },(payload) => {
+          console.log('[Realtime] 🔔 Change:', t, payload.eventType);
+          if (syncTimer) clearTimeout(syncTimer);
+          syncTimer = setTimeout(() => { if (onRemote) onRemote(); }, 300);
+        });
+      });
+      chan.subscribe((status, err) => {
+        console.log('[Realtime] Status:', status);
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[Realtime] ❌ Error — reconnecting in 5s');
+          setTimeout(() => {
+            if(!user) return;
+            try { chan.unsubscribe(); } catch(e) {}
+            if (window.__muzn && window.__muzn.adapter) {
+              window.__muzn.adapter.subscribe(cb);
+            }
+          }, 5000);
         }
-      }, 5000);
-    }
-  });
-}
+      });
+    },
+    unsubscribe(){
+      try{ if(chan){ chan.unsubscribe(); chan=null; } }catch(e){}
+      onRemote=null;
+    },
     async login(u,p){
       const{data,error}=await sb.rpc('app_login',{p_username:u,p_password:p});
       if(error)throw error;
@@ -1066,17 +1094,23 @@ async function tryCommit(build, persist, options){
   const salesSnapshot = draft.sales;
   const shiftsSnapshot = draft.shifts;
   const purchasesSnapshot = draft.purchases;
+  const withdrawalsSnapshot = draft.withdrawals;
   const err = build(draft);
   if(typeof err === 'string'){ toast(err,'err'); return false }
   if(draft.sales !== salesSnapshot) IndexManager.markDirty('sale');
   if(draft.shifts !== shiftsSnapshot) IndexManager.markDirty('shift');
   if(draft.purchases !== purchasesSnapshot) IndexManager.markDirty('purchase');
   IndexManager.rebuildIfNeeded(draft);
-  const err2 = inv(draft);
-  if(err2){ toast(err2,'err'); return false }
+  const stockAffected = draft.sales!==salesSnapshot || draft.shifts!==shiftsSnapshot ||
+    draft.purchases!==purchasesSnapshot || draft.withdrawals!==withdrawalsSnapshot;
+  if(stockAffected){
+    const err2 = inv(draft, store);
+    if(err2){ toast(err2,'err'); return false }
+  }
   try{ await persist(draft); }
   catch(ex){ console.error(ex); toast('تعذر الحفظ — تحقق من الاتصال','err'); return false; }
   store = draft;
+  broadcastChange();
   if(options.rerender && Array.isArray(options.rerender)){
     options.rerender.forEach(k => {
       if(RENDER[k]){ try{ RENDER[k](); }catch(e){ console.error('render', k, e); } }
@@ -1106,7 +1140,7 @@ let toastT;
 function toast(msg,kind){
   const t=byId('toast');
   t.textContent=msg;
-  t.className='toast'+(kind==='err'?' err':'');
+  t.className='toast'+(kind==='err'?' err':kind==='ok'?' ok':'');
   t.hidden=false;
   t.setAttribute('role', kind==='err'?'alert':'status');
   t.setAttribute('aria-live', kind==='err'?'assertive':'polite');
@@ -1145,6 +1179,118 @@ function copyText(text){
   };
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done,fb);else fb();
 }
+
+/* =====================================================================
+   🆕 Push Queue — إعادة إرسال الإشعارات الفاشلة
+   ===================================================================== */
+const PushQueue = {
+  _key: PUSH_QUEUE_KEY,
+  _maxRetries: PUSH_MAX_RETRIES,
+  _timer: null,
+  _processing: false,
+  
+  load(){
+    try{
+      const raw = localStorage.getItem(this._key);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  },
+  save(queue){
+    try{ localStorage.setItem(this._key, JSON.stringify(queue)); }catch(e){ console.warn('push queue save failed', e); }
+  },
+  add(item){
+    const queue = this.load();
+    const existing = queue.findIndex(q => q.uid === item.uid);
+    if(existing >= 0){
+      queue[existing].attempts = 0;
+      queue[existing].created_at = Date.now();
+    } else {
+      queue.push(Object.assign({ attempts: 0, created_at: Date.now() }, item));
+    }
+    this.save(queue);
+    this.scheduleRetry();
+  },
+  remove(uid){
+    const queue = this.load().filter(q => q.uid !== uid);
+    this.save(queue);
+  },
+  async flush(){
+    if(this._processing) return;
+    if(!adapter || adapter.mode !== 'cloud') return;
+    if(!navigator.onLine) return;
+    this._processing = true;
+    const queue = this.load();
+    if(queue.length === 0){ this._processing = false; return; }
+    console.log('[PushQueue] 🔄 محاولة إرسال', queue.length, 'إشعار معلّق');
+    const remaining = [];
+    for(const item of queue){
+      if(item.attempts >= this._maxRetries){
+        console.warn('[PushQueue] ❌ تجاوز الحد:', item.title);
+        continue;
+      }
+      try{
+        const authToken = getPushAuthToken();
+        if(!authToken){ remaining.push(item); continue; }
+        const resp = await fetch(EDGE_FUNCTION_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+          body: JSON.stringify({
+            user_id: item.user_id,
+            title: item.title,
+            body: item.body || '',
+            url: item.url || '/',
+            kind: item.kind || 'general',
+            ref_id: item.ref_id || null,
+            sender_id: item.sender_id || null
+          })
+        });
+        if(resp.ok){
+          console.log('[PushQueue] ✅ تم إرسال:', item.title);
+          // حفظ الإشعار في notices بعد النجاح
+          try{
+            const notice = {
+              id: uuid(), date: today(), kind: item.kind || 'general', target_id: item.user_id,
+              title: item.title, body: item.body || '', items: [], by: 'النظام', ts: Date.now(), done: false
+            };
+            await adapter.saveSimple('notices', notice);
+            if(store && store.notices) store.notices.unshift(notice);
+          }catch(e){ console.warn('save notice after retry failed', e); }
+        } else {
+          item.attempts = (item.attempts || 0) + 1;
+          remaining.push(item);
+          console.warn('[PushQueue] ⚠️ فشل الإرسال (' + resp.status + '), المحاولة القادمة:', item.attempts);
+        }
+      }catch(e){
+        item.attempts = (item.attempts || 0) + 1;
+        remaining.push(item);
+        console.warn('[PushQueue] ❌ خطأ:', e.message);
+      }
+    }
+    this.save(remaining);
+    this._processing = false;
+    if(typeof renderBell === 'function') renderBell();
+  },
+  scheduleRetry(){
+    if(this._timer) return;
+    this._timer = setTimeout(() => {
+      this._timer = null;
+      this.flush();
+    }, 30000);
+  },
+  start(){
+    // إعادة المحاولة عند استعادة الاتصال
+    window.addEventListener('online', () => {
+      console.log('[PushQueue] 🌐 عاد الاتصال — محاولة إرسال المعلقات');
+      setTimeout(() => this.flush(), 1000);
+    });
+    // محاولة كل 30 ثانية
+    setInterval(() => {
+      if(!document.hidden) this.flush();
+    }, 30000);
+    // عند فتح التطبيق
+    setTimeout(() => this.flush(), 2000);
+  }
+};
 
 /* =====================================================================
    NotificationCenter
@@ -1250,7 +1396,7 @@ const NotificationCenter = {
 };
 
 /* =====================================================================
-   Push آمن
+   Push آمن مع Queue
    ===================================================================== */
 function getPushAuthToken(){
   try{
@@ -1261,7 +1407,10 @@ function getPushAuthToken(){
 async function sendPush(userId, title, body, url, kind, refId){
   if(adapter.mode !== 'cloud') return;
   const authToken = getPushAuthToken();
-  if(!authToken){ console.warn('sendPush: no auth token — skipping'); return; }
+  if(!authToken){ console.warn('sendPush: no auth token — queueing'); 
+    PushQueue.add({ uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId, sender_id: (user && user.id) || null });
+    return;
+  }
   if(EDGE_FUNCTION_URL && EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT') < 0){
     try{
       const resp = await fetch(EDGE_FUNCTION_URL, {
@@ -1275,8 +1424,21 @@ async function sendPush(userId, title, body, url, kind, refId){
       if(!resp.ok){
         const errText = await resp.text().catch(()=>'');
         console.warn('push HTTP error:', resp.status, errText);
+        // ✅ أضف للـ Queue للإعادة
+        PushQueue.add({
+          uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId,
+          sender_id: (user && user.id) || null
+        });
+        return;
       }
-    }catch(e){ console.warn('push send failed:', e); }
+    }catch(e){
+      console.warn('push send failed — queueing:', e);
+      PushQueue.add({
+        uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId,
+        sender_id: (user && user.id) || null
+      });
+      return;
+    }
   }
   try{
     const notice = {
@@ -1303,6 +1465,34 @@ async function sendPushToOperators(title,body,url,kind,refId){
   if(!store)return;
   const ops=store.operators.filter(o=>o.user_id);
   await sendPushToUsers(ops.map(o=>o.user_id),title,body,url,kind,refId);
+}
+
+/* =====================================================================
+   🆕 BroadcastChannel — تحديث فوري بين التبويبات
+   ===================================================================== */
+let _broadcast = null;
+try{
+  if('BroadcastChannel' in window){
+    _broadcast = new BroadcastChannel(BROADCAST_CHANNEL);
+    _broadcast.onmessage = (ev) => {
+      if(ev.data && ev.data.type === 'sync'){
+        console.log('[Broadcast] 📢 استقبل إشارة تحديث من تبويب آخر');
+        // أعد تحميل البيانات
+        if(adapter && adapter.mode === 'cloud' && !document.hidden){
+          adapter.init().then(newStore => {
+            store = newStore;
+            renderAll();
+          }).catch(e => console.warn('[Broadcast] reload failed', e));
+        }
+      }
+    };
+  }
+}catch(e){ console.warn('BroadcastChannel not supported'); }
+
+function broadcastChange(){
+  if(_broadcast){
+    try{ _broadcast.postMessage({ type: 'sync', ts: Date.now() }); }catch(e){}
+  }
 }
 
 /* =====================================================================
@@ -1401,7 +1591,7 @@ function mountForm(el,id,fields,o){
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path = 'invoices/' + (user ? user.id : 'anon') + '/' + uuid() + '_' + safeName;
         toast('جارٍ رفع الصورة...');
-        adapter.uploadPhoto(file,path).then(url=>{fileData[f.k]=url;preview();toast('تم رفع الصورة')})
+        adapter.uploadPhoto(file,path).then(url=>{fileData[f.k]=url;preview();toast('تم رفع الصورة','ok')})
           .catch(ex=>{console.error(ex);toast('تعذر رفع الصورة','err');inpEl.value=''});
       }else{
         const rd=new FileReader();rd.onload=()=>{fileData[f.k]=rd.result;preview()};rd.readAsDataURL(file);
@@ -1427,7 +1617,7 @@ function mountForm(el,id,fields,o){
         screen: 'management',
         onFound: (entity, code) => {
           api.set(fieldKey, code);
-          toast('✅ ' + entity.name);
+          toast('✅ ' + entity.name,'ok');
         },
         store, toast, escHtml, adapter, user, uuid,
         closeSheet, openSheet
@@ -1612,7 +1802,7 @@ function reduceItemSheet(headerTable,hid,iid){
       async()=>{await adapter.reduceItem(headerTable,hid,iid,patch,h.items,ITEMTABLE[headerTable])},
       {rerender: headerTable==='sales'?['sales','overview','collections']:headerTable==='shifts'?['production','overview']:['purchases','overview']}
     );
-    if(ok){closeSheet();toast('تم')}
+    if(ok){closeSheet();toast('تم','ok')}
     return false;
   }});
 }
@@ -1628,7 +1818,7 @@ function deleteItemConfirm(headerTable,hid,iid,cnt){
       },
       async()=>{await adapter.deleteItem(headerTable,hid,iid,ITEMTABLE[headerTable],cnt-1)}
     );
-    if(ok)toast('تم');
+    if(ok)toast('تم','ok');
   });
 }
 function deleteTicketConfirm(headerTable,hid){
@@ -1641,10 +1831,9 @@ function deleteTicketConfirm(headerTable,hid){
       },
       async()=>{await adapter.deleteTicket(headerTable,hid)}
     );
-    if(ok)toast('تم');
+    if(ok)toast('تم','ok');
   });
 }
-
 /* =====================================================================
    الورديات (الموظف العام)
    ===================================================================== */
@@ -1666,7 +1855,7 @@ async function shiftCheckIn(photoData,coords){
   try{
     await adapter.saveSimple('attendance_shifts',row);
     store.attendance_shifts.unshift(row);
-    toast('تم بدء الوردية ✓');
+    toast('تم بدء الوردية ✓','ok');
     closeSheet();
     NotificationCenter.fire('shift_start',{
       userName:user.name,userId:user.id,refId:row.id
@@ -1684,7 +1873,7 @@ async function shiftCheckOut(photoData,coords,note){
   try{
     await adapter.updateSimple('attendance_shifts',s.id,patch);
     Object.assign(s,patch);
-    toast('تم إغلاق الوردية ✓');
+    toast('تم إغلاق الوردية ✓','ok');
     closeSheet();
     NotificationCenter.fire('shift_end',{
       userName:user.name,note:note,userId:user.id,refId:s.id
@@ -1730,7 +1919,7 @@ function shiftSheet(){
       toast('جارٍ الرفع...');
       const safeName=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
       const path='shifts/in_'+user.id+'/'+uuid()+'_'+safeName;
-      adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err')});
+      adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع','ok')}).catch(ex=>{toast('تعذر الرفع','err')});
     }else{const rd=new FileReader();rd.onload=()=>apply(rd.result);rd.readAsDataURL(f)}
   };
   btn.onclick=()=>{
@@ -1761,7 +1950,7 @@ function shiftCheckOutForm(){
       toast('جارٍ الرفع...');
       const safeName=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
       const path='shifts/out_'+user.id+'/'+uuid()+'_'+safeName;
-      adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err')});
+      adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع','ok')}).catch(ex=>{toast('تعذر الرفع','err')});
     }else{const rd=new FileReader();rd.onload=()=>apply(rd.result);rd.readAsDataURL(f)}
   };
   btn.onclick=()=>{
@@ -1775,15 +1964,13 @@ function shiftCheckOutForm(){
     }else shiftCheckOut(photo,null,note);
   };
 }
-/* =====================================================================
-   🆕 شريحة وردية المستخدم العام (الإنتاج + المبيعات)
-   ===================================================================== */
+
+/* شريحة وردية الإنتاج */
 function renderProdShiftChip(){
   const el = byId('prod-shift');
   if(!el) return;
   const open = myShiftToday();
   const closed = myShiftClosed();
-  
   if(closed){
     const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
     el.innerHTML = '<div class="notice ok shift-chip" data-prod-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
@@ -1793,8 +1980,7 @@ function renderProdShiftChip(){
   } else {
     el.innerHTML = '<div class="notice shift-chip" data-prod-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
   }
-  
-    const btn = el.querySelector('[data-prod-shift-open]');
+  const btn = el.querySelector('[data-prod-shift-open]');
   if(btn) btn.onclick = shiftSheet;
 }
 
@@ -1804,7 +1990,6 @@ function renderShiftChip(){
   if(!el) return;
   const open = myShiftToday();
   const closed = myShiftClosed();
-  
   if(closed){
     const dur = Math.round((closed.checkout_ts - closed.checkin_ts) / 60000);
     el.innerHTML = '<div class="notice ok shift-chip" data-shift-open>✅ ورديتك انتهت اليوم (' + dur + ' دقيقة) — اضغط للتفاصيل</div>';
@@ -1814,33 +1999,24 @@ function renderShiftChip(){
   } else {
     el.innerHTML = '<div class="notice shift-chip" data-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
   }
-  
   const btn = el.querySelector('[data-shift-open]');
   if(btn) btn.onclick = shiftSheet;
 }
 
 /* =====================================================================
-   🆕 نظام ورديات المشغّل (فريق الإنتاج)
+   نظام ورديات المشغّل (فريق الإنتاج)
    ===================================================================== */
-/* =====================================================================
-   🆕 نظام ورديات المشغّل (فريق الإنتاج)
-   ===================================================================== */
-
-/* شريحة وردية المشغّل */
 function renderOpShiftChip(){
   const el = byId('op-shift');
   if(!el) return;
-  
   const myOperator = store.operators.find(o => o.user_id === user.id);
   if(!myOperator){
     el.innerHTML = '<div class="notice">👤 حسابك غير مرتبط بمشغّل — راجع المدير لربطه من الإدارة</div>';
     return;
   }
-  
   const openShift = getTodayShift(myOperator.id, 'operator');
   const closedShift = getTodayShiftClosed(myOperator.id, 'operator');
   const stats = getShiftStats(myOperator.id, 'operator');
-  
   if(closedShift){
     const dur = calcShiftDurationMinutes(closedShift.checkin_ts, closedShift.checkout_ts);
     const hours = r2(dur / 60);
@@ -1852,19 +2028,16 @@ function renderOpShiftChip(){
   } else {
     el.innerHTML = '<div class="notice shift-chip" data-op-shift-open>⚠️ لم تبدأ ورديتك اليوم — اضغط لتسجيل الحضور</div>';
   }
-  
   const btn = el.querySelector('[data-op-shift-open]');
   if(btn) btn.onclick = () => openOperatorShiftSheet(myOperator.id);
 }
 
-/* نافذة إدارة وردية المشغّل */
 function openOperatorShiftSheet(opId){
   const o = store.operators.find(x => x.id === opId);
   if(!o) return;
   const openShift = getTodayShift(opId, 'operator');
   const closedShift = getTodayShiftClosed(opId, 'operator');
   const stats = getShiftStats(opId, 'operator');
-  
   if(closedShift){
     const minutes = calcShiftDurationMinutes(closedShift.checkin_ts, closedShift.checkout_ts);
     const hours = calcShiftDurationHours(closedShift.checkin_ts, closedShift.checkout_ts);
@@ -1883,7 +2056,6 @@ function openOperatorShiftSheet(opId){
       (closedShift.checkout_photo ? '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:13px">صورة الخروج</h2></div><img class="att-photo big" src="' + closedShift.checkout_photo + '" alt="">' : ''));
     return;
   }
-  
   if(openShift){
     const minutes = calcShiftDurationMinutes(openShift.checkin_ts, Date.now());
     const hours = r2(minutes / 60);
@@ -1901,7 +2073,6 @@ function openOperatorShiftSheet(opId){
     byId('op-shift-out-btn').onclick = () => operatorShiftCheckOutForm(opId);
     return;
   }
-  
   const currentShift = getCurrentShift();
   const shiftAr = (SHIFT_TYPES[currentShift] || {}).ar || currentShift;
   openSheet('<h3>📸 تسجيل حضور وردية ' + escHtml(o.name) + '</h3>' +
@@ -1909,12 +2080,10 @@ function openOperatorShiftSheet(opId){
     '<input class="in" type="file" accept="image/*" capture="user" id="op-shift-in-photo" aria-label="صورة الحضور">' +
     '<div id="op-shift-in-prev" style="margin-top:10px"></div>' +
     '<button class="btn-primary btn-block" id="op-shift-in-btn" disabled>بدء الوردية</button>');
-  
   let photo = null;
   const inp = byId('op-shift-in-photo');
   const btn = byId('op-shift-in-btn');
   const prev = byId('op-shift-in-prev');
-  
   inp.onchange = () => {
     const f = inp.files && inp.files[0];
     if(!f) return;
@@ -1928,14 +2097,13 @@ function openOperatorShiftSheet(opId){
       toast('جارٍ الرفع...');
       const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = 'shifts/op_in_' + opId + '/' + uuid() + '_' + safeName;
-      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع','ok'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
     } else {
       const rd = new FileReader();
       rd.onload = () => apply(rd.result);
       rd.readAsDataURL(f);
     }
   };
-  
   btn.onclick = () => {
     btn.disabled = true;
     if(navigator.geolocation){
@@ -1950,7 +2118,6 @@ function openOperatorShiftSheet(opId){
   };
 }
 
-/* تسجيل حضور وردية مشغّل */
 async function operatorShiftCheckIn(opId, photoData, coords, shiftType){
   if(!requirePerm('production')) return;
   const o = store.operators.find(x => x.id === opId);
@@ -1971,25 +2138,19 @@ async function operatorShiftCheckIn(opId, photoData, coords, shiftType){
     await adapter.saveSimple('operator_shifts', row);
     if(!store.operator_shifts) store.operator_shifts = [];
     store.operator_shifts.unshift(row);
-    toast('✅ تم بدء وردية ' + o.name);
+    toast('✅ تم بدء وردية ' + o.name,'ok');
     closeSheet();
-    
     NotificationCenter.fire('shift_start', {
-      userName: o.name,
-      userId: user.id,
-      refId: row.id
+      userName: o.name, userId: user.id, refId: row.id
     }).catch(e => console.warn(e));
-    
     if(isEarlyShiftStart(now)){
       const th = (store.company && store.company.shift_early_threshold) || 5;
       sendPushToAdmins('⏰ بدء وردية مبكر', o.name + ' بدأ ورديته قبل الساعة ' + th + ' صباحاً', '/#attendance_log', 'early_shift_start', row.id).catch(e=>console.warn(e));
     }
-    
     if(isLateShiftStart(now)){
       const th = (store.company && store.company.shift_late_threshold) || 10;
       sendPushToAdmins('⚠️ تأخير في بدء الوردية', o.name + ' بدأ ورديته بعد الساعة ' + th + ' صباحاً', '/#attendance_log', 'late_shift_start', row.id).catch(e=>console.warn(e));
     }
-    
     renderAll();
   }catch(ex){
     console.error(ex);
@@ -1997,7 +2158,6 @@ async function operatorShiftCheckIn(opId, photoData, coords, shiftType){
   }
 }
 
-/* تسجيل خروج وردية مشغّل */
 async function operatorShiftCheckOut(opId, photoData, coords, note){
   const s = getTodayShift(opId, 'operator');
   if(!s) return toast('لا وردية مفتوحة', 'err');
@@ -2015,16 +2175,12 @@ async function operatorShiftCheckOut(opId, photoData, coords, note){
     Object.assign(s, patch);
     const minutes = calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts);
     const hours = r2(minutes / 60);
-    toast('✅ تم إغلاق وردية ' + (o ? o.name : '') + ' — ' + hours + ' ساعة');
+    toast('✅ تم إغلاق وردية ' + (o ? o.name : '') + ' — ' + hours + ' ساعة','ok');
     closeSheet();
-    
     NotificationCenter.fire('shift_end', {
       userName: o ? o.name : '',
-      note: note,
-      userId: user.id,
-      refId: s.id
+      note: note, userId: user.id, refId: s.id
     }).catch(e => console.warn(e));
-    
     renderAll();
   }catch(ex){
     console.error(ex);
@@ -2032,7 +2188,6 @@ async function operatorShiftCheckOut(opId, photoData, coords, note){
   }
 }
 
-/* نموذج تسجيل خروج وردية مشغّل */
 function operatorShiftCheckOutForm(opId){
   openSheet('<h3>📸 تسجيل خروج وردية المشغّل</h3>' +
     '<p class="muted">ارفع صورة سيلفي لإغلاق الوردية.</p>' +
@@ -2058,7 +2213,7 @@ function operatorShiftCheckOutForm(opId){
       toast('جارٍ الرفع...');
       const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = 'shifts/op_out_' + opId + '/' + uuid() + '_' + safeName;
-      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع','ok'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
     } else {
       const rd = new FileReader();
       rd.onload = () => apply(rd.result);
@@ -2080,7 +2235,6 @@ function operatorShiftCheckOutForm(opId){
   };
 }
 
-
 /* =====================================================================
    هياكل الشاشات
    ===================================================================== */
@@ -2096,13 +2250,18 @@ const SKEL={
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
 };
+
 /* =====================================================================
    المبيعات
    ===================================================================== */
 let salesLB;
 function mountSales(){
   byId('sales-att-btn').onclick=distAttendanceSheet;
-  byId('sales-add-cust').onclick=()=>entSheet('customers',null);
+  byId('sales-add-cust').onclick=()=>{
+    const shf=forms.find(f=>f.id==='sh');
+    const curDist=shf?shf.get('distributor_id'):'';
+    quickAddCustomerSheet(curDist);
+  };
   renderShiftChip();
   mountForm(byId('sales-head'),'sh',[
     {k:'date',label:'تاريخ البيع',type:'date',value:today},
@@ -2126,9 +2285,7 @@ function mountSales(){
   salesScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح منتج للفاتورة',
-      mode: 'product',
-      screen: 'sales',
+      title: 'مسح منتج للفاتورة', mode: 'product', screen: 'sales',
       onFound: (product, code) => {
         const container = byId('sales-lines');
         if(!container) return;
@@ -2144,11 +2301,10 @@ function mountSales(){
           if(prodSel) prodSel.value = product.id;
           if(priceIn) priceIn.value = product.price || 0;
           if(qtyIn){ qtyIn.value = 1; qtyIn.focus(); qtyIn.select(); }
-          toast('✅ أُضيف: ' + product.name);
+          toast('✅ أُضيف: ' + product.name,'ok');
         }, 150);
       },
-      store, toast, escHtml, adapter, user, uuid,
-      closeSheet, openSheet
+      store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
   const linesContainer = byId('sales-lines');
@@ -2163,11 +2319,11 @@ function mountSales(){
     if(!v.type){toast('اختر نوع البيع','err');return}
     if(v.type==='credit'&&!v.customer_id){toast('البيع الآجل يحتاج عميلاً','err');return}
     if(v.distributor_id&&!distributorPresentToday(v.distributor_id)){toast('هذا الموزع غير حاضر اليوم بصورة','err');return}
-   if(v.distributor_id){
-  const rec = distAttendanceToday();
-  if(!rec){toast('أكّد حضور الموزعين أولاً من قسم الإنتاج','err');return}
-  if(!rec.photos || !rec.photos[v.distributor_id]){toast('صورة الموزع غير مسجلة','err');return}
-}
+    if(v.distributor_id){
+      const rec = distAttendanceToday();
+      if(!rec){toast('أكّد حضور الموزعين أولاً من قسم الإنتاج','err');return}
+      if(!rec.photos || !rec.photos[v.distributor_id]){toast('صورة الموزع غير مسجلة','err');return}
+    }
     for(const l of lines){
       const av=v.distributor_id?custody(store,v.distributor_id,l.product_id):stockWH(store,l.product_id);
       if(l.qty>av+1e-9){toast('المتاح من «'+pn(l.product_id)+'» هو '+fmt(av),'err');return}
@@ -2188,7 +2344,7 @@ function mountSales(){
       async()=>{await adapter.saveTicket('sales','sale_items','sale_id',header,items)},
       {rerender:['sales','overview','collections','withdrawals']}
     );
-    if(ok){toast('تم الحفظ');hf.reset();salesLB.reset()}
+    if(ok){toast('تم الحفظ','ok');hf.reset();salesLB.reset()}
   };
 }
 function renderSalesAttendanceWarn(){
@@ -2227,13 +2383,10 @@ function renderAttendanceCard(){
   const card=byId('att-card'),wrap=byId('prod-formwrap');
   if(!card||!wrap)return;
   const rec=attendanceToday();
-  
-  // ✅ حالة: الحضور مسجَّل مسبقاً
   if(rec && !card.dataset.editing){
     const present = rec.present||[];
     const absent = rec.absent||[];
     const photos = rec.photos||{};
-    
     const presentHTML = present.length ? present.map(id => {
       const o = store.operators.find(x => x.id === id);
       const photo = photos[id];
@@ -2242,7 +2395,6 @@ function renderAttendanceCard(){
         '<div class="nm"><b>'+escHtml(o?o.name:'—')+'</b><small>حاضر ✓'+(photo?' · بصورة':'')+'</small></div>'+
         '</div>';
     }).join('') : '<p class="muted">لا حاضرين</p>';
-    
     card.innerHTML='<h2 style="margin-bottom:6px">✅ تم تأكيد حضور فريق الإنتاج</h2>'+
       '<p class="muted" style="margin:0 0 8px">بواسطة '+escHtml(rec.by)+' · '+new Date(rec.ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})+'</p>'+
       '<div class="sec-head" style="margin:8px 0"><h2 style="font-size:14px">الحاضرون ('+present.length+')</h2></div>'+
@@ -2252,12 +2404,11 @@ function renderAttendanceCard(){
           const o = store.operators.find(x => x.id === id);
           return '<div class="att-row"><div class="nm"><b>'+escHtml(o?o.name:'—')+'</b><small class="dn">غائب</small></div></div>';
         }).join('') : '')+
-                (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
+      (isA()?'<button class="btn-ghost sm btn-block" id="att-redo" style="margin-top:12px">تعديل الحضور (المدير فقط)</button>':
         '<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
     $$('[data-att-big]').forEach(img => img.onclick = () =>
       openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
     );
-    
     wrap.hidden=false;
     const redo=byId('att-redo');
     if(redo) redo.onclick = () => {
@@ -2274,11 +2425,8 @@ function renderAttendanceCard(){
     };
     return;
   }
-  
-  // 📝 حالة: نموذج تسجيل جديد
   const ops = store.operators;
   const placeholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23a1a7b6%22 stroke-width=%222%22%3E%3Crect x=%223%22 y=%225%22 width=%2218%22 height=%2214%22 rx=%222%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22/%3E%3C/svg%3E';
-  
   card.innerHTML='<h2 style="margin-bottom:4px">تأكيد حضور فريق الإنتاج</h2>'+
     '<div class="step-hint">📸 <b>مطلوب:</b> صورة لكل مشغّل حاضر — لن يمكنك التعديل بعد التأكيد إلا بموافقة المدير.</div>'+
     (ops.length?ops.map(o =>
@@ -2290,10 +2438,7 @@ function renderAttendanceCard(){
       '</div>'
     ).join(''):'<p class="muted">لا مشغّلين</p>')+
     '<button class="btn-primary btn-block" id="att-confirm" style="margin-top:12px">تأكيد الحضور (نهائي)</button>';
-  
   wrap.hidden=true;
-  
-  // ربط صور المشغلين
   const photos = {};
   $$('.op-photo-input').forEach(inp => {
     const oid = inp.dataset.opInput;
@@ -2308,7 +2453,7 @@ function renderAttendanceCard(){
         const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path = 'attendance/op_'+oid+'/'+uuid()+'_'+safeName;
         toast('جارٍ الرفع...');
-        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err');inp.value=''});
+        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع','ok')}).catch(ex=>{toast('تعذر الرفع','err');inp.value=''});
       } else {
         const rd = new FileReader();
         rd.onload = () => apply(rd.result);
@@ -2316,39 +2461,25 @@ function renderAttendanceCard(){
       }
     };
   });
-  
-  // تأكيد الحضور
   byId('att-confirm').onclick = async () => {
     if(!requirePerm('production','لتأكيد الحضور')) return;
     const btn = byId('att-confirm');
     btn.disabled = true;
     const present = $$('.att-op:checked').map(x=>x.value);
-    // التحقق من الصور
     for(const oid of present){
-      if(!photos[oid]){
-        toast('ارفع صورة للمشغّل: '+nm('operators',oid),'err');
-        btn.disabled = false;
-        return;
-      }
+      if(!photos[oid]){toast('ارفع صورة للمشغّل: '+nm('operators',oid),'err');btn.disabled = false;return;}
     }
     const absent = store.operators.map(o=>o.id).filter(id => present.indexOf(id)<0);
     const old = attendanceToday();
     const row = {id:uuid(), date:today(), by:user.name, ts:Date.now(), present, absent, photos};
-    
     try{
       if(old) await adapter.deleteSimple('attendance', old.id);
       await adapter.saveSimple('attendance', row);
       store.attendance = store.attendance.filter(a => !old || a.id !== old.id);
       store.attendance.unshift(row);
       delete card.dataset.editing;
-      toast('✅ تم تأكيد الحضور نهائياً');
-      
-      NotificationCenter.fire('attendance_prod',{
-        present: present.length,
-        absent: absent.length,
-        refId: row.id
-      }).catch(e=>console.warn(e));
-      
+      toast('✅ تم تأكيد الحضور نهائياً','ok');
+      NotificationCenter.fire('attendance_prod',{present: present.length, absent: absent.length, refId: row.id}).catch(e=>console.warn(e));
       for(const oid of present){
         const o = store.operators.find(x=>x.id===oid);
         if(o && o.user_id){
@@ -2371,10 +2502,8 @@ function renderAttendanceCard(){
    ===================================================================== */
 let prodLB;
 function mountProduction(){
-  // 🆕 عرض شرائح الورديات
   renderProdShiftChip();
-  renderOpShiftChip();  // 🆕
-  
+  renderOpShiftChip();
   const prodScanBtn = document.createElement('button');
   prodScanBtn.type = 'button';
   prodScanBtn.className = 'btn-primary';
@@ -2383,9 +2512,7 @@ function mountProduction(){
   prodScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح منتج للوردية',
-      mode: 'product',
-      screen: 'production',
+      title: 'مسح منتج للوردية', mode: 'product', screen: 'production',
       onFound: (product, code) => {
         const container = byId('prod-lines');
         if(!container) return;
@@ -2399,18 +2526,16 @@ function mountProduction(){
           const plannedIn = lastRow.querySelector('[data-f="planned"]');
           if(prodSel) prodSel.value = product.id;
           if(plannedIn){ plannedIn.value = 0; plannedIn.focus(); }
-          toast('✅ أُضيف: ' + product.name);
+          toast('✅ أُضيف: ' + product.name,'ok');
         }, 150);
       },
-      store, toast, escHtml, adapter, user, uuid,
-      closeSheet, openSheet
+      store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
   const prodLines = byId('prod-lines');
   if(prodLines && prodLines.parentNode){
     prodLines.parentNode.insertBefore(prodScanBtn, prodLines);
   }
-
   mountForm(byId('prod-head'),'ph',[
     {k:'date',label:'تاريخ الإنتاج',type:'date',value:today},
     {k:'operator_id',label:'المشغّل',type:'select',options:opt.operators},
@@ -2424,10 +2549,7 @@ function mountProduction(){
     const presentSet = new Set(attRec.present||[]);
     const photosSet = new Set(Object.keys(attRec.photos||{}));
     for(const pid of presentSet){
-      if(!photosSet.has(pid)){
-        toast('صورة المشغّل '+nm('operators',pid)+' مفقودة','err');
-        return;
-      }
+      if(!photosSet.has(pid)){toast('صورة المشغّل '+nm('operators',pid)+' مفقودة','err');return;}
     }
     const hf=forms.find(f=>f.id==='ph'),v=hf.vals(),lines=prodLB.values().filter(l=>l.product_id&&l.planned>0);
     if(!v.operator_id||!v.shift){toast('أكمل البيانات','err');return}
@@ -2440,17 +2562,16 @@ function mountProduction(){
       async()=>{await adapter.saveTicket('shifts','shift_items','shift_id',header,items)},
       {rerender:['production','overview','withdrawals']}
     );
-    if(ok){toast('تم');hf.reset();prodLB.reset();byId('prod-notes').value=''}
+    if(ok){toast('تم','ok');hf.reset();prodLB.reset();byId('prod-notes').value=''}
   };
 }
 
 function renderProduction(){
   if(!byId('prod-body'))return;
   renderProdShiftChip();
-  renderOpShiftChip();  // 🆕
+  renderOpShiftChip();
   renderAttendanceCard();
   renderDistAttendanceCard();
-  
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -2468,7 +2589,6 @@ function renderProduction(){
     const stats = getShiftStats(o.id, 'operator');
     return {o,due:operatorDue(store,o.id),totalDays:stats.totalDays,totalHours:stats.totalHours};
   }).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
-  
   byId('prod-body').innerHTML='<h2 style="margin:0 0 10px">مجموع الإنتاج لكل منتج</h2>'+
     table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'اليوم',f:r=>fmt(r.day)},{h:'هذا الشهر',f:r=>fmt(r.mo)},{h:'الإجمالي',f:r=>'<b>'+fmt(r.all)+'</b>'}],per,'prodsum')+
     '<h2 style="margin:22px 0 10px">مستحقات فريق الإنتاج</h2>'+
@@ -2500,16 +2620,16 @@ function operatorPaySheet(opId){
         async()=>{await adapter.saveSimple('operator_payments',row)},
         {rerender:['production']}
       );
-      if(ok){closeSheet();toast('تم')}
+      if(ok){closeSheet();toast('تم','ok')}
       return false;
     }});
 }
-/* 🆕 بطاقة حضور الموزعين داخل قسم الإنتاج */
+
+/* بطاقة حضور الموزعين داخل قسم الإنتاج */
 function renderDistAttendanceCard(){
   const card = byId('dist-att-card');
   if(!card) return;
   const rec = distAttendanceToday();
-  
   if(rec && !card.dataset.editing){
     const names = (rec.present||[]).map(id => nm('distributors', id));
     const absentNames = (rec.absent||[]).map(id => nm('distributors', id));
@@ -2517,18 +2637,15 @@ function renderDistAttendanceCard(){
     const photosHTML = Object.keys(photos).map(did =>
       '<div class="att-row"><img class="att-photo" src="'+photos[did]+'" data-att-big="'+photos[did]+'" alt=""><div class="nm"><b>'+escHtml(nm('distributors',did))+'</b><small>حاضر ✓</small></div></div>'
     ).join('');
-    
     card.innerHTML = '<h2 style="margin-bottom:6px">✅ حضور الموزعين مسجَّل</h2>'+
       '<p class="muted" style="margin:0 0 8px">بواسطة '+escHtml(rec.by)+' · '+new Date(rec.ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'})+'</p>'+
       '<p style="margin:0 0 4px"><b>الحاضرون:</b> '+(names.length?names.map(escHtml).join('، '):'لا أحد')+'</p>'+
       (absentNames.length?'<p style="margin:0" class="dn"><b>الغائبون:</b> '+absentNames.map(escHtml).join('، ')+'</p>':'')+
       (photosHTML?'<div class="sec-head" style="margin-top:12px"><h2 style="font-size:13px">صور الحضور</h2></div>'+photosHTML:'')+
       (isA()?'<button class="btn-ghost sm btn-block" id="dist-att-redo" style="margin-top:10px">تعديل الحضور (المدير)</button>':'<p class="hint" style="margin-top:10px;text-align:center">لتعديل الحضور، راجع المدير.</p>');
-    
     $$('[data-att-big]').forEach(img => img.onclick = () =>
       openSheet('<h3>صورة الحضور</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">')
     );
-    
     const redo = byId('dist-att-redo');
     if(redo) redo.onclick = () => {
       if(!isA()) return toast('المدير فقط','err');
@@ -2544,11 +2661,8 @@ function renderDistAttendanceCard(){
     };
     return;
   }
-  
-  // نموذج جديد
   const ds = store.distributors;
   const placeholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23a1a7b6%22 stroke-width=%222%22%3E%3Crect x=%223%22 y=%225%22 width=%2218%22 height=%2214%22 rx=%222%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22/%3E%3C/svg%3E';
-  
   card.innerHTML = '<h2 style="margin-bottom:4px">تأكيد حضور الموزعين</h2>'+
     '<div class="step-hint">📸 <b>مطلوب:</b> صورة لكل موزع حاضر.</div>'+
     (ds.length?ds.map(d =>
@@ -2560,7 +2674,6 @@ function renderDistAttendanceCard(){
       '</div>'
     ).join(''):'<p class="muted">لا موزعين</p>')+
     '<button class="btn-primary btn-block" id="dist-att-confirm" style="margin-top:12px">تأكيد الحضور (نهائي)</button>';
-  
   const photos = {};
   $$('.dist-photo-input').forEach(inp => {
     const did = inp.dataset.distInput;
@@ -2575,7 +2688,7 @@ function renderDistAttendanceCard(){
         const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path = 'attendance/dist_'+did+'/'+uuid()+'_'+safeName;
         toast('جارٍ الرفع...');
-        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{toast('تعذر الرفع','err')});
+        adapter.uploadPhoto(f,path).then(url=>{apply(url);toast('تم الرفع','ok')}).catch(ex=>{toast('تعذر الرفع','err')});
       } else {
         const rd = new FileReader();
         rd.onload = () => apply(rd.result);
@@ -2583,7 +2696,6 @@ function renderDistAttendanceCard(){
       }
     };
   });
-  
   byId('dist-att-confirm').onclick = async () => {
     if(!requirePerm('sales','لتأكيد حضور الموزعين')) return;
     const btn = byId('dist-att-confirm');
@@ -2601,7 +2713,7 @@ function renderDistAttendanceCard(){
       store.dist_attendance = store.dist_attendance.filter(a => !old || a.id !== old.id);
       store.dist_attendance.unshift(row);
       delete card.dataset.editing;
-      toast('✅ تم تأكيد حضور الموزعين');
+      toast('✅ تم تأكيد حضور الموزعين','ok');
       NotificationCenter.fire('attendance_dist',{present:present.length, absent:absent.length, refId:row.id}).catch(e=>console.warn(e));
       renderDistAttendanceCard();
       renderSalesAttendanceWarn();
@@ -2609,8 +2721,9 @@ function renderDistAttendanceCard(){
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
   };
 }
+
 /* =====================================================================
-   حضور الموزعين + ورديات الموزعين (جديد)
+   حضور الموزعين + ورديات الموزعين
    ===================================================================== */
 const distAttendanceToday=()=>store.dist_attendance.find(a=>a.date===today());
 function distributorPresentToday(did){
@@ -2620,7 +2733,6 @@ function distributorPresentToday(did){
   return !!(rec.photos&&rec.photos[did]);
 }
 
-/* 🆕 عرض قائمة ورديات الموزعين داخل النافذة */
 function renderDistShiftsList(ds){
   const list = byId('dist-shifts-list');
   if(!list) return;
@@ -2643,14 +2755,12 @@ function renderDistShiftsList(ds){
   });
 }
 
-/* 🆕 نافذة إدارة وردية موزع */
 function openDistributorShiftSheet(distId){
   const d = store.distributors.find(x => x.id === distId);
   if(!d) return;
   const openShift = getTodayShift(distId, 'distributor');
   const closedShift = getTodayShiftClosed(distId, 'distributor');
   const stats = getShiftStats(distId, 'distributor');
-  
   if(closedShift){
     const minutes = calcShiftDurationMinutes(closedShift.checkin_ts, closedShift.checkout_ts);
     const hours = calcShiftDurationHours(closedShift.checkin_ts, closedShift.checkout_ts);
@@ -2669,7 +2779,6 @@ function openDistributorShiftSheet(distId){
       (closedShift.checkout_photo ? '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:13px">صورة الخروج</h2></div><img class="att-photo big" src="' + closedShift.checkout_photo + '" alt="">' : ''));
     return;
   }
-  
   if(openShift){
     const minutes = calcShiftDurationMinutes(openShift.checkin_ts, Date.now());
     const hours = r2(minutes / 60);
@@ -2687,8 +2796,6 @@ function openDistributorShiftSheet(distId){
     byId('dist-shift-out-btn').onclick = () => distShiftCheckOutForm(distId);
     return;
   }
-  
-  // بدء وردية جديدة
   const currentShift = getCurrentShift();
   const shiftAr = (SHIFT_TYPES[currentShift] || {}).ar || currentShift;
   openSheet('<h3>📸 تسجيل حضور وردية ' + escHtml(d.name) + '</h3>' +
@@ -2696,33 +2803,26 @@ function openDistributorShiftSheet(distId){
     '<input class="in" type="file" accept="image/*" capture="user" id="dist-shift-in-photo" aria-label="صورة الحضور">' +
     '<div id="dist-shift-in-prev" style="margin-top:10px"></div>' +
     '<button class="btn-primary btn-block" id="dist-shift-in-btn" disabled>بدء الوردية</button>');
-  
   let photo = null;
   const inp = byId('dist-shift-in-photo');
   const btn = byId('dist-shift-in-btn');
   const prev = byId('dist-shift-in-prev');
-  
   inp.onchange = () => {
     const f = inp.files && inp.files[0];
     if(!f) return;
     if(f.size > 4 * 1024 * 1024) return toast('الصورة كبيرة', 'err');
-    const apply = url => {
-      photo = url;
-      prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">';
-      btn.disabled = false;
-    };
+    const apply = url => { photo = url; prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">'; btn.disabled = false; };
     if(adapter.mode === 'cloud' && adapter.uploadPhoto){
       toast('جارٍ الرفع...');
       const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = 'shifts/dist_in_' + distId + '/' + uuid() + '_' + safeName;
-      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع','ok'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
     } else {
       const rd = new FileReader();
       rd.onload = () => apply(rd.result);
       rd.readAsDataURL(f);
     }
   };
-  
   btn.onclick = () => {
     btn.disabled = true;
     if(navigator.geolocation){
@@ -2737,7 +2837,6 @@ function openDistributorShiftSheet(distId){
   };
 }
 
-/* 🆕 تسجيل حضور وردية موزع */
 async function distShiftCheckIn(distId, photoData, coords, shiftType){
   if(!requirePerm('distributors') && !requirePerm('sales')) return;
   const d = store.distributors.find(x => x.id === distId);
@@ -2746,51 +2845,31 @@ async function distShiftCheckIn(distId, photoData, coords, shiftType){
   const row = {
     id: uuid(), date: today(), distributor_id: distId,
     shift: shiftType || getCurrentShift(),
-    checkin_ts: now,
-    checkin_photo: photoData || null,
-    checkin_lat: coords ? coords.lat : null,
-    checkin_lng: coords ? coords.lng : null,
+    checkin_ts: now, checkin_photo: photoData || null,
+    checkin_lat: coords ? coords.lat : null, checkin_lng: coords ? coords.lng : null,
     checkout_ts: null, checkout_photo: null, checkout_lat: null, checkout_lng: null,
-    closed: false, note: '',
-    by: user.name, ts: now
+    closed: false, note: '', by: user.name, ts: now
   };
   try{
     await adapter.saveSimple('distributor_shifts', row);
     if(!store.distributor_shifts) store.distributor_shifts = [];
     store.distributor_shifts.unshift(row);
-    toast('✅ تم بدء وردية ' + d.name);
+    toast('✅ تم بدء وردية ' + d.name,'ok');
     closeSheet();
-    
-    // إشعار بدء الوردية
     NotificationCenter.fire('dist_shift_start', {
-      distName: d.name,
-      distUserId: d.user_id,
-      shiftAr: (SHIFT_TYPES[row.shift] || {}).ar || row.shift,
-      refId: row.id
+      distName: d.name, distUserId: d.user_id,
+      shiftAr: (SHIFT_TYPES[row.shift] || {}).ar || row.shift, refId: row.id
     }).catch(e => console.warn(e));
-    
-    // تنبيه البدء المبكر (قبل الساعة 5)
     if(isEarlyShiftStart(now)){
       const th = (store.company && store.company.shift_early_threshold) || 5;
-      NotificationCenter.fire('early_shift_start', {
-        userName: d.name,
-        threshold: th,
-        refId: row.id
-      }).catch(e => console.warn(e));
+      NotificationCenter.fire('early_shift_start', { userName: d.name, threshold: th, refId: row.id }).catch(e => console.warn(e));
       sendPushToAdmins('⏰ بدء وردية مبكر', d.name + ' بدأ ورديته قبل الساعة ' + th + ' صباحاً', '/#attendance_log', 'early_shift_start', row.id).catch(e=>console.warn(e));
     }
-    
-    // تنبيه التأخير (بعد الساعة 10)
     if(isLateShiftStart(now)){
       const th = (store.company && store.company.shift_late_threshold) || 10;
-      NotificationCenter.fire('late_shift_start', {
-        userName: d.name,
-        threshold: th,
-        refId: row.id
-      }).catch(e => console.warn(e));
+      NotificationCenter.fire('late_shift_start', { userName: d.name, threshold: th, refId: row.id }).catch(e => console.warn(e));
       sendPushToAdmins('⚠️ تأخير في بدء الوردية', d.name + ' بدأ ورديته بعد الساعة ' + th + ' صباحاً', '/#attendance_log', 'late_shift_start', row.id).catch(e=>console.warn(e));
     }
-    
     renderAll();
   }catch(ex){
     console.error(ex);
@@ -2798,17 +2877,14 @@ async function distShiftCheckIn(distId, photoData, coords, shiftType){
   }
 }
 
-/* 🆕 تسجيل خروج وردية موزع */
 async function distShiftCheckOut(distId, photoData, coords, note){
   const s = getTodayShift(distId, 'distributor');
   if(!s) return toast('لا وردية مفتوحة', 'err');
   const d = store.distributors.find(x => x.id === distId);
   const now = Date.now();
   const patch = {
-    checkout_ts: now,
-    checkout_photo: photoData || null,
-    checkout_lat: coords ? coords.lat : null,
-    checkout_lng: coords ? coords.lng : null,
+    checkout_ts: now, checkout_photo: photoData || null,
+    checkout_lat: coords ? coords.lat : null, checkout_lng: coords ? coords.lng : null,
     note: note || '', closed: true
   };
   try{
@@ -2816,16 +2892,12 @@ async function distShiftCheckOut(distId, photoData, coords, note){
     Object.assign(s, patch);
     const minutes = calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts);
     const hours = r2(minutes / 60);
-    toast('✅ تم إغلاق وردية ' + (d ? d.name : '') + ' — ' + hours + ' ساعة');
+    toast('✅ تم إغلاق وردية ' + (d ? d.name : '') + ' — ' + hours + ' ساعة','ok');
     closeSheet();
-    
     NotificationCenter.fire('dist_shift_end', {
-      distName: d ? d.name : '',
-      distUserId: d ? d.user_id : null,
-      duration: hours + ' ساعة',
-      refId: s.id
+      distName: d ? d.name : '', distUserId: d ? d.user_id : null,
+      duration: hours + ' ساعة', refId: s.id
     }).catch(e => console.warn(e));
-    
     renderAll();
   }catch(ex){
     console.error(ex);
@@ -2833,7 +2905,6 @@ async function distShiftCheckOut(distId, photoData, coords, note){
   }
 }
 
-/* 🆕 نموذج تسجيل خروج وردية موزع */
 function distShiftCheckOutForm(distId){
   openSheet('<h3>📸 تسجيل خروج وردية الموزع</h3>' +
     '<p class="muted">ارفع صورة سيلفي لإغلاق الوردية.</p>' +
@@ -2850,16 +2921,12 @@ function distShiftCheckOutForm(distId){
     const f = inp.files && inp.files[0];
     if(!f) return;
     if(f.size > 4 * 1024 * 1024) return toast('الصورة كبيرة', 'err');
-    const apply = url => {
-      photo = url;
-      prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">';
-      btn.disabled = false;
-    };
+    const apply = url => { photo = url; prev.innerHTML = '<img class="att-photo big" src="' + url + '" alt="">'; btn.disabled = false; };
     if(adapter.mode === 'cloud' && adapter.uploadPhoto){
       toast('جارٍ الرفع...');
       const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = 'shifts/dist_out_' + distId + '/' + uuid() + '_' + safeName;
-      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
+      adapter.uploadPhoto(f, path).then(url => { apply(url); toast('تم الرفع','ok'); }).catch(ex => { toast('تعذر الرفع', 'err'); });
     } else {
       const rd = new FileReader();
       rd.onload = () => apply(rd.result);
@@ -2881,7 +2948,6 @@ function distShiftCheckOutForm(distId){
   };
 }
 
-/* نافذة حضور الموزعين (معدّلة مع قسم الورديات) */
 function distAttendanceSheet(){
   if(!requirePerm('sales','لتسجيل حضور الموزعين'))return;
   const rec=distAttendanceToday(),ds=store.distributors;
@@ -2912,7 +2978,6 @@ function distAttendanceSheet(){
     }
     return;
   }
-
   const placeholder='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23a1a7b6%22 stroke-width=%222%22%3E%3Crect x=%223%22 y=%225%22 width=%2218%22 height=%2214%22 rx=%222%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22/%3E%3C/svg%3E';
   const html='<h3>سجل حضور الموزعين (مع صورة)</h3>'+
     '<div class="step-hint">📸 <b>مطلوب:</b> صورة لكل موزع حاضر — لن يمكنك التعديل بعد التأكيد إلا بموافقة المدير.</div>'+
@@ -2927,7 +2992,6 @@ function distAttendanceSheet(){
     '<div id="dist-shifts-list"></div>' +
     '<button class="btn-primary btn-block" id="da-confirm" style="margin-top:12px">تأكيد حضور اليوم (نهائي)</button>';
   openSheet(html);
-
   const photos={};
   $$('.da-photo-input').forEach(inp=>{
     const did=inp.dataset.attInput;
@@ -2941,14 +3005,11 @@ function distAttendanceSheet(){
         const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='attendance/'+did+'/'+uuid()+'_'+safeName;
         toast('جارٍ الرفع...');
-        adapter.uploadPhoto(file,path).then(url=>{apply(url);toast('تم الرفع')}).catch(ex=>{console.error(ex);toast('تعذر الرفع','err');inp.value=''});
+        adapter.uploadPhoto(file,path).then(url=>{apply(url);toast('تم الرفع','ok')}).catch(ex=>{console.error(ex);toast('تعذر الرفع','err');inp.value=''});
       }else{const rd=new FileReader();rd.onload=()=>apply(rd.result);rd.readAsDataURL(file)}
     });
   });
-
-  // عرض ورديات الموزعين
   renderDistShiftsList(ds);
-
   const btn=byId('da-confirm');if(!btn)return;
   btn.onclick=async()=>{
     btn.disabled=true;
@@ -2962,7 +3023,7 @@ function distAttendanceSheet(){
     try{
       await adapter.saveSimple('dist_attendance',row);
       store.dist_attendance.unshift(row);
-      toast('تم التسجيل نهائياً');
+      toast('تم التسجيل نهائياً','ok');
       closeSheet();
       NotificationCenter.fire('attendance_dist',{
         present: present.length, absent: absent.length, refId: row.id
@@ -2992,28 +3053,24 @@ function mountWithdrawals(){
   distScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح بطاقة الموزع (إلزامي)',
-      mode: 'distributor',
-      screen: 'withdrawals',
+      title: 'مسح بطاقة الموزع (إلزامي)', mode: 'distributor', screen: 'withdrawals',
       onFound: (dist, code) => {
         const wf = forms.find(f => f.id === 'wf');
         if(wf){
           wf.set('distributor_id', dist.id);
           wf.refresh();
           const s = dSummary(store, dist);
-          toast('✅ ' + dist.name + ' — المتبقي: ' + fmt(s.bal));
+          toast('✅ ' + dist.name + ' — المتبقي: ' + fmt(s.bal),'ok');
           unlockWithdrawalForm();
         }
       },
-      store, toast, escHtml, adapter, user, uuid,
-      closeSheet, openSheet
+      store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
   const wdForm = byId('wd-form');
   if(wdForm && wdForm.parentNode){
     wdForm.parentNode.insertBefore(distScanBtn, wdForm);
   }
-
   mountForm(byId('wd-form'),'wf',[
     {k:'date',label:'تاريخ السحب',type:'date',value:today},
     {k:'distributor_id',label:'الموزع (مقفل حتى المسح)',type:'select',options:opt.distributors,readonly:true},
@@ -3034,13 +3091,9 @@ function mountWithdrawals(){
       async()=>{await adapter.saveSimple('withdrawals',row)},
       {rerender:['withdrawals','overview','sales','distributors']}
     );
-    if(ok){
-      toast('تم');
-      lockWithdrawalForm();
-    }
+    if(ok){toast('تم','ok');lockWithdrawalForm();}
     return ok;
   }});
-  
   lockWithdrawalForm();
 
   function lockWithdrawalForm(){
@@ -3100,22 +3153,19 @@ function mountWithdrawals(){
       scanBtn.onclick = () => {
         if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
         window.openScanner({
-          title: 'مسح منتج للمسحوبة',
-          mode: 'product',
-          screen: 'withdrawals',
+          title: 'مسح منتج للمسحوبة', mode: 'product', screen: 'withdrawals',
           onFound: (product, code) => {
             if(wf){
               wf.set('product_id', product.id);
               wf.refresh();
-              toast('✅ ' + product.name);
+              toast('✅ ' + product.name,'ok');
               setTimeout(() => {
                 const qty = byId('wf__qty');
                 if(qty){ qty.focus(); qty.select(); }
               }, 100);
             }
           },
-          store, toast, escHtml, adapter, user, uuid,
-          closeSheet, openSheet
+          store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
         });
       };
       if(wdForm && wdForm.parentNode){
@@ -3162,7 +3212,7 @@ document.addEventListener('click',e=>{
       async()=>{await adapter.deleteSimple('withdrawals',id)},
       {rerender:['withdrawals','overview','sales']}
     );
-    if(ok)toast('تم');
+    if(ok)toast('تم','ok');
   });
 });
 
@@ -3202,7 +3252,7 @@ function mountPurchases(){
       {rerender:['purchases','overview','withdrawals']}
     );
     if(ok){
-      toast('تم');
+      toast('تم','ok');
       const req=window.__pendingPurchaseRequest;
       if(req){
         try{
@@ -3215,7 +3265,7 @@ function mountPurchases(){
           if(r2x){r2x.status='converted';r2x.converted_purchase_id=header.id;r2x.approved_by=user.name;r2x.approved_at=Date.now()}
           store=draft2;
           renderAll();
-          toast('✅ تم ربط الطلب بفاتورة الشراء');
+          toast('✅ تم ربط الطلب بفاتورة الشراء','ok');
         }catch(e){console.warn('update request failed:',e);}
         delete window.__pendingPurchaseRequest;
       }
@@ -3230,7 +3280,7 @@ function renderPurchases(){
   const rows=[...store.purchases].sort(byDate);
   const sup=store.suppliers.map(s=>({s,bal:supplierBal(store,s)}));
   const pendingRequests=(store.purchase_requests||[]).filter(r=>r.status==='pending');
-   const requestsSection=pendingRequests.length?
+  const requestsSection=pendingRequests.length?
     '<div class="sec-head"><h2>📦 طلبات نواقص معلّقة ('+pendingRequests.length+')</h2>'+
     '<button class="btn-ghost sm" data-go="purchase_requests">عرض الكل</button></div>'+
     pendingRequests.slice(0,3).map(r=>{
@@ -3282,11 +3332,10 @@ function supplierPaySheet(sid){
         async()=>{await adapter.saveSimple('supplier_payments',row)},
         {rerender:['purchases','overview']}
       );
-      if(ok){closeSheet();toast('تم')}
+      if(ok){closeSheet();toast('تم','ok')}
       return false;
     }});
 }
-
 /* =====================================================================
    التحصيل
    ===================================================================== */
@@ -3300,19 +3349,16 @@ function mountCollections(){
   colScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح بطاقة عميل',
-      mode: 'customer',
-      screen: 'collections',
+      title: 'مسح بطاقة عميل', mode: 'customer', screen: 'collections',
       onFound: (customer, code) => {
         const qf = forms.find(f => f.id === 'qf');
         if(qf){
           qf.set('customer_id', customer.id);
           const bal = custBal(store, customer);
-          toast('✅ ' + customer.name + ' — المتبقي: ' + fmt(bal.remaining));
+          toast('✅ ' + customer.name + ' — المتبقي: ' + fmt(bal.remaining),'ok');
         }
       },
-      store, toast, escHtml, adapter, user, uuid,
-      closeSheet, openSheet
+      store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
   const settle = byId('settle');
@@ -3340,7 +3386,7 @@ function mountCollections(){
         {rerender:['collections','production']}
       );
       if(ok){
-        toast('تم إرسال الطلب');
+        toast('تم إرسال الطلب','ok');
         closeSheet();
         NotificationCenter.fire('production_request',{
           urgent:v.urgent,
@@ -3371,7 +3417,7 @@ function mountCollections(){
       async()=>{await adapter.saveSimple('payments',row)},
       {rerender:['collections','overview','distributors']}
     );
-    if(ok)toast(b.remaining-v.amount<=0.009?'تم السداد بالكامل':'تم');
+    if(ok)toast(b.remaining-v.amount<=0.009?'تم السداد بالكامل':'تم','ok');
     return ok;
   }});
 }
@@ -3435,7 +3481,7 @@ document.addEventListener('click',e=>{
       draft=>{draft.payments=draft.payments.filter(x=>x.id!==id);draft.audit.unshift(auditRow('حذف','سند'))},
       async()=>{await adapter.deleteSimple('payments',id)}
     );
-    if(ok)toast('تم');
+    if(ok)toast('تم','ok');
   });
 });
 document.addEventListener('click',e=>{
@@ -3482,26 +3528,22 @@ function mountDistributors(){
   distScanBtn.onclick = () => {
     if(!window.openScanner){ toast('وحدة المسح غير محمّلة','err'); return; }
     window.openScanner({
-      title: 'مسح بطاقة موزع',
-      mode: 'distributor',
-      screen: 'distributors',
+      title: 'مسح بطاقة موزع', mode: 'distributor', screen: 'distributors',
       onFound: (dist, code) => {
         const df = forms.find(f => f.id === 'df');
         if(df){
           df.set('distributor_id', dist.id);
           const s = dSummary(store, dist);
-          toast('✅ ' + dist.name + ' — المتبقي: ' + fmt(s.bal));
+          toast('✅ ' + dist.name + ' — المتبقي: ' + fmt(s.bal),'ok');
         }
       },
-      store, toast, escHtml, adapter, user, uuid,
-      closeSheet, openSheet
+      store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
   const rcform = byId('rcform');
   if(rcform && rcform.parentNode){
     rcform.parentNode.insertBefore(distScanBtn, rcform);
   }
-
   mountForm(byId('di-form'),'df',[
     {k:'distributor_id',label:'الموزع',type:'select',options:()=>store.distributors.map(d=>{
       const s=dSummary(store,d);return[d.id,d.name+' — '+fmt(s.bal)+' '+cur()];
@@ -3521,7 +3563,7 @@ function mountDistributors(){
       async()=>{await adapter.saveSimple('remittances',row)},
       {rerender:['distributors','overview']}
     );
-    if(ok){toast('تم');setTimeout(()=>receiptSheet(row.id),50)}
+    if(ok){toast('تم','ok');setTimeout(()=>receiptSheet(row.id),50)}
     return ok;
   }});
 }
@@ -3623,7 +3665,7 @@ document.addEventListener('click',e=>{
         async()=>{await adapter.deleteSimple('remittances',id)},
         {rerender:['distributors','overview']}
       );
-      if(ok)toast('تم');
+      if(ok)toast('تم','ok');
     });return;
   }
   const rq=e.target.closest('[data-reqcol]');if(rq){collectionRequestSheet(rq.dataset.reqcol)}
@@ -3657,10 +3699,7 @@ function collectionRequestSheet(did){
     if(ok){
       const summary='المطلوب: '+fmt(v.amount)+' '+cur()+' — '+per;
       NotificationCenter.fire('collection_req',{
-        distName: d.name,
-        distUserId: d.user_id,
-        summary: summary,
-        refId: row.id
+        distName: d.name, distUserId: d.user_id, summary: summary, refId: row.id
       }).catch(e=>console.warn(e));
       const phone=(d.phone||'').replace(/[^\d]/g,'');
       openSheet('<h3>رسالة إلى '+escHtml(d.name)+'</h3><textarea class="rep" rows="7" id="rq-text" readonly></textarea><div class="btnrow">'+
@@ -3701,7 +3740,7 @@ function distributorProductionRequestSheet(did){
       {rerender:['production']}
     );
     if(ok){
-      toast('تم');closeSheet();
+      toast('تم','ok');closeSheet();
       NotificationCenter.fire('production_request',{
         urgent:v.urgent,
         summary: pn(v.product_id)+' × '+fmt(v.qty)+(v.note?' — '+v.note:''),
@@ -3740,17 +3779,10 @@ function mountPurchaseRequests(){
       name:l.product_id?pn(l.product_id):mn(l.material_id)
     }));
     const row={
-      id:uuid(),
-      date:v.date||today(),
-      requested_by:user.id,
-      requested_by_name:user.name,
-      notes:v.notes||'',
-      items:items,
-      status:'pending',
-      converted_purchase_id:null,
-      approved_by:null,
-      approved_at:null,
-      ts:Date.now()
+      id:uuid(), date:v.date||today(),
+      requested_by:user.id, requested_by_name:user.name,
+      notes:v.notes||'', items:items, status:'pending',
+      converted_purchase_id:null, approved_by:null, approved_at:null, ts:Date.now()
     };
     const ok=await tryCommit(
       draft=>{
@@ -3762,12 +3794,9 @@ function mountPurchaseRequests(){
       {rerender:['purchase_requests','purchases']}
     );
     if(ok){
-      toast('تم إرسال الطلب للمشتريات');
+      toast('تم إرسال الطلب للمشتريات','ok');
       const summary=items.slice(0,3).map(i=>i.name+' × '+fmt(i.qty)).join('، ')+(items.length>3?' +'+(items.length-3):'');
-      NotificationCenter.fire('purchase_request',{
-        summary: summary,
-        refId: row.id
-      }).catch(e=>console.warn(e));
+      NotificationCenter.fire('purchase_request',{summary: summary, refId: row.id}).catch(e=>console.warn(e));
       hf.reset();
       prLB.reset();
     }
@@ -3841,7 +3870,6 @@ function renderPurchaseRequests(){
   if(!byId('pr-body'))return;
   const all=store.purchase_requests||[];
   const pending=all.filter(r=>r.status==='pending');
-  const approved=all.filter(r=>r.status==='approved');
   const converted=all.filter(r=>r.status==='converted');
   const rejected=all.filter(r=>r.status==='rejected');
   const f=ui.f.pr||'all';
@@ -3858,7 +3886,6 @@ function renderPurchaseRequests(){
   const rows=sorted.map(r=>{
     const statusTag=
       r.status==='pending'?tag('credit','معلّق'):
-      r.status==='approved'?tag('rec','معتمد'):
       r.status==='converted'?tag('cash','تم الشراء'):
       tag('disc','مرفوض');
     const itemsHTML=r.items.map(it=>
@@ -3873,7 +3900,7 @@ function renderPurchaseRequests(){
       '<button class="btn-danger sm" data-pr-reject="'+r.id+'">❌ رفض</button>'+
       '</div>'
     ):'';
-       const convertedInfo=r.status==='converted'&&r.converted_purchase_id?
+    const convertedInfo=r.status==='converted'&&r.converted_purchase_id?
       '<div class="hint" style="margin-top:8px;color:var(--green)">✅ تم تحويله إلى فاتورة شراء</div>':
       r.status==='rejected'?
       '<div class="hint" style="margin-top:8px;color:var(--red)">❌ مرفوض'+(r.rejection_reason?' — '+escHtml(r.rejection_reason):'')+'</div>':'';
@@ -3906,7 +3933,7 @@ document.addEventListener('click',async e=>{
     convertPurchaseRequestToInvoice(req);
     return;
   }
-    const rejectBtn=e.target.closest('[data-pr-reject]');
+  const rejectBtn=e.target.closest('[data-pr-reject]');
   if(rejectBtn){
     if(!requirePerm('purchases','لرفض الطلب'))return;
     const rid=rejectBtn.dataset.prReject;
@@ -3925,39 +3952,23 @@ document.addEventListener('click',async e=>{
       {k:'reason',label:'سبب الرفض (سيُرسل للمُرسِل)',type:'textarea',placeholder:'مثال: الأصناف متوفرة حالياً في المخزون'}
     ],{label:'❌ تأكيد الرفض',submit:async v=>{
       if(!v.reason){toast('اذكر سبب الرفض','err');return false}
-      const patch={
-        status:'rejected',
-        approved_by:user.name,
-        approved_at:Date.now(),
-        rejection_reason:v.reason
-      };
+      const patch={status:'rejected',approved_by:user.name,approved_at:Date.now(),rejection_reason:v.reason};
       const ok=await tryCommit(
         draft=>{
           const r=(draft.purchase_requests||[]).find(x=>x.id===rid);
-          if(r){
-            r.status='rejected';
-            r.approved_by=user.name;
-            r.approved_at=Date.now();
-            r.rejection_reason=v.reason;
-          }
+          if(r){r.status='rejected';r.approved_by=user.name;r.approved_at=Date.now();r.rejection_reason=v.reason}
           draft.audit.unshift(auditRow('رفض','طلب نواقص: '+v.reason));
         },
         async()=>{await adapter.updateSimple('purchase_requests',rid,patch)},
         {rerender:['purchase_requests','purchases']}
       );
       if(ok){
-        toast('تم الرفض وإرسال الإشعار');
+        toast('تم الرفض وإرسال الإشعار','ok');
         closeSheet();
         const requester = store.users.find(u => u.id === req.requested_by);
         if(requester){
-          sendPush(
-            requester.id,
-            '❌ تم رفض طلب النواقص',
-            'السبب: '+v.reason,
-            '/#purchase_requests',
-            'purchase_request_rejected',
-            rid
-          ).catch(e=>console.warn('push fail',e));
+          sendPush(requester.id,'❌ تم رفض طلب النواقص','السبب: '+v.reason,'/#purchase_requests','purchase_request_rejected',rid)
+            .catch(e=>console.warn('push fail',e));
         }
       }
       return false;
@@ -3989,7 +4000,7 @@ function fillPurchaseFormFromRequest(req){
       if(qtyEl)qtyEl.value=it.qty||0;
     },idx*50);
   });
-  setTimeout(()=>{toast('📦 تم تعبئة النموذج — راجع البيانات وأكمل الحفظ')},500);
+  setTimeout(()=>{toast('📦 تم تعبئة النموذج — راجع البيانات وأكمل الحفظ','ok')},500);
 }
 
 /* =====================================================================
@@ -4026,29 +4037,23 @@ function renderAttendanceLog(){
       const dur = s.checkout_ts ? calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts) : null;
       recs.push({
         kind: 'dist_shift', date: s.date, by: s.by, ts: s.ts || s.checkin_ts || 0,
-        user: d ? d.name : '—',
-        shift: s.shift,
+        user: d ? d.name : '—', shift: s.shift,
         checkin: s.checkin_ts ? new Date(s.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
         checkout: s.checkout_ts ? new Date(s.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
-        duration: dur,
-        photos: [s.checkin_photo, s.checkout_photo].filter(Boolean),
-        closed: s.closed
+        duration: dur, photos: [s.checkin_photo, s.checkout_photo].filter(Boolean), closed: s.closed
       });
     });
   }
-    if(_attFilter==='all'||_attFilter==='op_shifts'){
+  if(_attFilter==='all'||_attFilter==='op_shifts'){
     (store.operator_shifts || []).forEach(s => {
       const o = store.operators.find(x => x.id === s.operator_id);
       const dur = s.checkout_ts ? calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts) : null;
       recs.push({
         kind: 'op_shift', date: s.date, by: s.by, ts: s.ts || s.checkin_ts || 0,
-        user: o ? o.name : '—',
-        shift: s.shift,
+        user: o ? o.name : '—', shift: s.shift,
         checkin: s.checkin_ts ? new Date(s.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
         checkout: s.checkout_ts ? new Date(s.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—',
-        duration: dur,
-        photos: [s.checkin_photo, s.checkout_photo].filter(Boolean),
-        closed: s.closed
+        duration: dur, photos: [s.checkin_photo, s.checkout_photo].filter(Boolean), closed: s.closed
       });
     });
   }
@@ -4059,9 +4064,7 @@ function renderAttendanceLog(){
         user:(s.by||'—'),
         checkin:s.checkin_ts?new Date(s.checkin_ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}):'—',
         checkout:s.checkout_ts?new Date(s.checkout_ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}):'—',
-        duration:dur,
-        photos:[s.checkin_photo,s.checkout_photo].filter(Boolean),
-        closed:s.closed});
+        duration:dur,photos:[s.checkin_photo,s.checkout_photo].filter(Boolean),closed:s.closed});
     });
   }
   recs.sort((a,b)=>(b.ts||0)-(a.ts||0));
@@ -4086,6 +4089,7 @@ function renderAttendanceLog(){
       (r.photos&&r.photos.length?'<div class="chips" style="margin-top:8px">'+r.photos.map(u=>'<img class="att-photo" src="'+u+'" data-att-big="'+u+'" alt="">').join('')+'</div>':'')+
       '</div>';
   }).join(''):'<div class="empty">لا سجلات بعد</div>';
+  byId('att-body').innerHTML=html;
   $$('[data-att-big]').forEach(img=>img.onclick=()=>openSheet('<h3>صورة</h3><img class="att-photo big" src="'+img.dataset.attBig+'" alt="">'));
 }
 document.addEventListener('click',e=>{
@@ -4244,6 +4248,39 @@ function entUsedCount(ent,id){
   if(t.indexOf('products')>=0)n+=(store.products||[]).filter(x=>x.material_id===id).length;
   return n;
 }
+function quickAddCustomerSheet(prefillDistId){
+  if(!requirePerm('sales','لإضافة عميل'))return;
+  openSheet('<h3>+ إضافة عميل جديد</h3><div id="qac-form"></div>');
+  mountForm(byId('qac-form'),'qac',[
+    {k:'name',label:'اسم العميل',type:'text'},
+    {k:'phone',label:'الهاتف (واتساب)',type:'text',placeholder:'+218xxxxxxxx'},
+    {k:'region',label:'المنطقة',type:'text'},
+    {k:'distributor_id',label:'الموزع',type:'select',nophd:true,options:()=>[['','بدون موزع']].concat(opt.distributors()),value:prefillDistId||''},
+    {k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}
+  ],{label:'حفظ العميل',submit:async v=>{
+    if(!v.name){toast('أدخل اسم العميل','err');return false}
+    const row={name:v.name,phone:v.phone||'',region:v.region||'',distributor_id:v.distributor_id||null,terms:v.terms||14,barcode:''};
+    const ok=await tryCommit(
+      draft=>{
+        draft.customers.push(Object.assign({id:'__new__'},row));
+        draft.audit.unshift(auditRow('إضافة','عميل: '+v.name));
+      },
+      async draft=>{
+        const newId=await adapter.saveEntity('customers',row);
+        const x=draft.customers.find(y=>y.id==='__new__');
+        x.id=newId;
+        index(draft);
+      },
+      {rerender:['sales']}
+    );
+    if(ok){
+      toast('تم إضافة العميل','ok');closeSheet();
+      const shf=forms.find(f=>f.id==='sh');
+      if(shf){shf.refresh();}
+    }
+    return false;
+  }});
+}
 function entSheet(ent,id){
   if(!isA()){toast('الإدارة للمدير فقط','err');return}
   const cfg=ENT[ent],rec=id?store[ent].find(x=>x.id===id):null;
@@ -4272,7 +4309,7 @@ function entSheet(ent,id){
         }
         draft.audit.unshift(auditRow(rec?'تعديل':'إضافة','مستخدم: '+v.name));
         store=draft;
-        closeSheet();toast('تم');
+        closeSheet();toast('تم','ok');
         startApp(ui.tab);
       }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
       return false;
@@ -4294,7 +4331,7 @@ function entSheet(ent,id){
         }
       }
     );
-    if(ok){closeSheet();toast('تم')}
+    if(ok){closeSheet();toast('تم','ok')}
     return false;
   }});
   const del=byId('ent-del');
@@ -4308,7 +4345,7 @@ function entSheet(ent,id){
           draft.users=draft.users.filter(x=>x.id!==id);
           draft.audit.unshift(auditRow('حذف','مستخدم'));
           store=draft;
-          closeSheet();toast('تم');
+          closeSheet();toast('تم','ok');
           startApp(ui.tab);
         }catch(ex){toast('تعذر','err')}
       });
@@ -4324,7 +4361,7 @@ function entSheet(ent,id){
         },
         async()=>{await adapter.deleteEntity(ent,id)}
       );
-      if(ok)toast('تم');
+      if(ok)toast('تم','ok');
     });
   };
 }
@@ -4352,7 +4389,7 @@ function productionRequestSheet(){
       {rerender:['production','management']}
     );
     if(ok){
-      toast('تم');closeSheet();
+      toast('تم','ok');closeSheet();
       NotificationCenter.fire('production_request',{
         urgent:v.urgent,
         summary: lines.slice(0,3).map(l=>pn(l.product_id)+' × '+fmt(l.qty)).join('، ')+(lines.length>3?' +'+(lines.length-3):''),
@@ -4369,7 +4406,7 @@ document.addEventListener('click',e=>{
       draft=>{const n=draft.notices.find(x=>x.id===id);if(n)n.done=true},
       async()=>{await adapter.updateSimple('notices',id,{done:true})}
     );
-    if(ok)toast('تم');
+    if(ok)toast('تم','ok');
   });
 });
 function mountManagement(){
@@ -4402,7 +4439,7 @@ function mountManagement(){
       async()=>{await adapter.saveCompany(patch)},
       {rerender:['management','overview']}
     );
-    if(ok){toast('تم');applyBrand()}
+    if(ok){toast('تم','ok');applyBrand()}
     return false;
   }});
   mountDiscounts();
@@ -4437,18 +4474,11 @@ function mountDiscounts(){
       {rerender:['management','overview','distributors','collections']}
     );
     if(ok){
-      toast('تم تسجيل الخصم');
+      toast('تم تسجيل الخصم','ok');
       let targetUserId=null;
-      if(v.kind==='operator'){
-        const op=store.operators.find(x=>x.id===v.ref_id);
-        if(op&&op.user_id)targetUserId=op.user_id;
-      }else if(v.kind==='distributor'){
-        const dist=store.distributors.find(x=>x.id===v.ref_id);
-        if(dist&&dist.user_id)targetUserId=dist.user_id;
-      }else if(v.kind==='customer'){
-        const cust=store.customers.find(x=>x.id===v.ref_id);
-        if(cust&&cust.user_id)targetUserId=cust.user_id;
-      }
+      if(v.kind==='operator'){const op=store.operators.find(x=>x.id===v.ref_id);if(op&&op.user_id)targetUserId=op.user_id;}
+      else if(v.kind==='distributor'){const dist=store.distributors.find(x=>x.id===v.ref_id);if(dist&&dist.user_id)targetUserId=dist.user_id;}
+      else if(v.kind==='customer'){const cust=store.customers.find(x=>x.id===v.ref_id);if(cust&&cust.user_id)targetUserId=cust.user_id;}
       NotificationCenter.fire('discount',{
         targetName: targetName,
         summary: fmt(v.amount)+' '+cur()+' — '+v.reason,
@@ -4487,9 +4517,7 @@ function renderManagement(){
       '</div>' +
       '<small style="color:var(--muted)">' + new Date(l.ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + '</small>' +
       '</div>'
-    ).join('') +
-    '</div>' : '';
-
+    ).join('') + '</div>' : '';
   const list=(title,ent,rows,line)=>'<div class="sec-head"><h2>'+title+'</h2><button class="btn-ghost sm" data-ent-new="'+ent+'">+ إضافة</button></div><div class="card">'+
     (rows.length?rows.map(r=>'<div class="lrow"><div>'+line(r)+'</div><button class="mini" data-ent="'+ent+'" data-id="'+r.id+'">تعديل</button></div>').join(''):'<div class="empty">لا يوجد</div>')+'</div>';
   const modName=id=>(MODS.find(m=>m.id===id)||{}).t;
@@ -4508,6 +4536,7 @@ function renderManagement(){
     '<div class="sec-head"><h2>سجل التعديلات</h2></div><div class="card">'+(S.audit.length?S.audit.slice(0,25).map(a=>'<div class="lrow"><div>'+tag(a.act==='حذف'?'credit':'rec',escHtml(a.act))+' '+escHtml(a.text)+'<small>'+escHtml(a.by)+' · '+new Date(a.ts).toLocaleString('en-GB')+'</small></div></div>').join(''):'<div class="empty">لا تعديلات</div>')+'</div>'+
     '<div class="sec-head"><h2>قاعدة البيانات</h2></div><div class="card">'+
       '<div class="kv"><span>الوضع</span><b>'+(adapter.mode==='cloud'?'☁️ مشتركة':'📴 محلي')+'</b></div>'+
+      '<div class="kv"><span>المزامنة</span><b>كل '+Math.round(SYNC_INTERVAL_MS/1000)+' ثانية</b></div>'+
       '<div class="btnrow"><button class="btn-ghost" id="mg-cloud">'+(adapter.mode==='cloud'?'تعديل الاتصال':'ربط')+'</button>'+(adapter.mode==='cloud'?'<button class="btn-ghost" id="mg-disconnect">فصل</button>':'')+'</div></div>'+
     '<div class="sec-head"><h2>البيانات</h2></div><div class="card"><div class="btnrow">'+
       '<button class="btn-ghost" data-data="backup">نسخة احتياطية</button><button class="btn-ghost" data-data="restore">استعادة</button></div>'+
@@ -4538,7 +4567,7 @@ function dataAction(a){
         if(!o||!Array.isArray(o.users)||!Array.isArray(o.products)||!o.company)throw new Error('bad');
         ['materials','operators','distributors','customers','suppliers','shifts','withdrawals','sales','payments','purchases','remittances','supplier_payments','notices','audit','discounts','attendance_shifts','purchase_requests','push_subscriptions','scan_log','distributor_shifts','operator_shifts'].forEach(k=>{if(!Array.isArray(o[k]))o[k]=[]});
         localStorage.setItem(DBKEY,JSON.stringify(o));
-        closeSheet();toast('تمت — سجّل الدخول');
+        closeSheet();toast('تمت — سجّل الدخول','ok');
         logout();
       }catch(e){toast('غير صالحة','err')}
     };
@@ -4559,11 +4588,11 @@ function dataAction(a){
       draft.company.demo=false;
       store=draft;
       LocalAdapter._p();
-      toast('تم');
+      toast('تم','ok');
       renderAll();
     });
   }else if(a==='demo'){
-    confirmSheet('استبدال كل البيانات؟','استعادة',async()=>{store=await seedStore();LocalAdapter._p();logout();toast('تمت')});
+    confirmSheet('استبدال كل البيانات؟','استعادة',async()=>{store=await seedStore();LocalAdapter._p();logout();toast('تمت','ok')});
   }
 }
 document.addEventListener('click',e=>{const t=e.target.closest('[data-data]');if(t)dataAction(t.dataset.data)});
@@ -4606,10 +4635,11 @@ function renderAll(){
    التنبيهات التلقائية
    ===================================================================== */
 let _autoNotifyDay=null;
+let _autoNotifyAttempted=false;
 async function autoNotify(){
   if(!store||!user)return;
   const t=today();
-  if(_autoNotifyDay===t)return;
+  if(_autoNotifyDay===t && _autoNotifyAttempted)return;
   _autoNotifyDay=t;
   try{
     for(const d of store.distributors){
@@ -4669,8 +4699,12 @@ async function autoNotify(){
       }
       try{localStorage.setItem(pushDayKey,t)}catch(e){}
     }
+    _autoNotifyAttempted = true;
     renderBell();
-  }catch(ex){console.error(ex)}
+  }catch(ex){
+    console.error(ex);
+    _autoNotifyAttempted = false;
+  }
 }
 
 /* =====================================================================
@@ -4755,7 +4789,7 @@ document.addEventListener('click',e=>{
         await adapter.updateSimple('complaints',id,{done:true,status:'approved',approved_by:user.name,approved_at:Date.now()});
         const c=(store.complaints||[]).find(x=>x.id===id);
         if(c){c.done=true;c.status='approved';c.approved_by=user.name;c.approved_at=Date.now()}
-        toast('تم الاعتماد');
+        toast('تم الاعتماد','ok');
         renderAll();
         openBellSheet();
       }catch(ex){console.error(ex);toast('تعذر','err')}
@@ -4783,29 +4817,17 @@ function rejectComplaintSheet(id){
   ],{label:'❌ تأكيد الرفض',submit:async v=>{
     if(!v.reason){toast('اذكر سبب الرفض','err');return false}
     try{
-      const patch={
-        done:true,
-        status:'rejected',
-        rejected_by:user.name,
-        rejected_at:Date.now(),
-        rejection_reason:v.reason
-      };
+      const patch={done:true,status:'rejected',rejected_by:user.name,rejected_at:Date.now(),rejection_reason:v.reason};
       await adapter.updateSimple('complaints',id,patch);
       const cc=(store.complaints||[]).find(x=>x.id===id);
       if(cc)Object.assign(cc,patch);
-      toast('تم الرفض وإرسال الإشعار');
+      toast('تم الرفض وإرسال الإشعار','ok');
       closeSheet();
       renderAll();
       const targetUser = store.users.find(u => u.name === c.by);
       if(targetUser){
-        sendPush(
-          targetUser.id,
-          '❌ تم رفض '+(c.type==='withdraw'?'طلب سحب المال':'شكواك'),
-          'السبب: '+v.reason,
-          '/#overview',
-          'complaint_rejected',
-          id
-        ).catch(e=>console.warn('push fail',e));
+        sendPush(targetUser.id,'❌ تم رفض '+(c.type==='withdraw'?'طلب سحب المال':'شكواك'),'السبب: '+v.reason,'/#overview','complaint_rejected',id)
+          .catch(e=>console.warn('push fail',e));
       }
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
     return false;
@@ -4871,20 +4893,13 @@ function complaintSheet(){
       await adapter.saveSimple('complaints',row);
       store.complaints=store.complaints||[];
       store.complaints.unshift(row);
-      const notice={
-        id:uuid(),date:today(),kind:'complaint',target_id:null,
+      const notice={id:uuid(),date:today(),kind:'complaint',target_id:null,
         title:(v.type==='withdraw'?'طلب سحب مال':'شكوى')+' من '+user.name,
         body:v.reason+(v.type==='withdraw'?' — المبلغ: '+fmt(v.amount)+' '+cur():''),
-        items:[],by:user.name,ts:Date.now(),done:false
-      };
+        items:[],by:user.name,ts:Date.now(),done:false};
       try{await adapter.saveSimple('notices',notice);store.notices.unshift(notice)}catch(e){console.warn('notice fail',e)}
-      NotificationCenter.fire('complaint',{
-        type: v.type,
-        userName: user.name,
-        reason: v.reason,
-        refId: row.id
-      }).catch(e=>console.warn(e));
-      toast('تم إرسال طلبك للمدير');
+      NotificationCenter.fire('complaint',{type: v.type,userName: user.name,reason: v.reason,refId: row.id}).catch(e=>console.warn(e));
+      toast('تم إرسال طلبك للمدير','ok');
       closeSheet();
       renderAll();
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err')}
@@ -4893,7 +4908,9 @@ function complaintSheet(){
 }
 function userSheet(){
   const pushEnabled=localStorage.getItem('muzn_push_enabled')==='1';
+  const queueLen = PushQueue.load().length;
   openSheet('<h3>'+escHtml(user.name)+'</h3><p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>'+
+    (queueLen>0?'<div class="notice info">📤 '+queueLen+' إشعار في قائمة الانتظار — سيُرسل تلقائياً عند عودة الاتصال</div>':'')+
     '<button class="opt" id="us-push">'+(pushEnabled?'🔔 إيقاف الإشعارات':'🔕 تفعيل الإشعارات')+'</button>'+
     '<button class="opt" id="us-pw">تغيير كلمة المرور</button>'+
     '<button class="opt" id="us-theme">تبديل المظهر</button>'+
@@ -4910,7 +4927,7 @@ function userSheet(){
     }else{
       const ok=await subscribeToPush();
       if(ok){
-        toast('✅ تم تفعيل الإشعارات');
+        toast('✅ تم تفعيل الإشعارات','ok');
         closeSheet();
         setTimeout(userSheet,300);
       }
@@ -4934,7 +4951,7 @@ function pwSheet(){
         if(u)u.default_pw=false;
         store=draft;
         user=Object.assign({},user,{default_pw:false});
-        closeSheet();toast('تم');
+        closeSheet();toast('تم','ok');
       }catch(ex){toast('تعذر','err')}
       return false;
     }});
@@ -4976,7 +4993,7 @@ function cloudSetupSheet(){
       const test=SupabaseAdapter(v.url.trim().replace(/\/$/,''),v.key.trim());
       await test.init();
       localStorage.setItem(CFGKEY,JSON.stringify({url:v.url.trim().replace(/\/$/,''),key:v.key.trim()}));
-      toast('تم — إعادة تحميل');
+      toast('تم — إعادة تحميل','ok');
       setTimeout(()=>location.reload(),700);
     }catch(ex){console.error(ex);toast('تعذر الاتصال','err')}
     return false;
@@ -5038,6 +5055,10 @@ function logLoginLocation(){
 }
 function logout(){
   try{localStorage.removeItem(SESSKEY)}catch(e){}
+  // ✅ إلغاء الاشتراك في الـ Realtime
+  if(adapter && adapter.unsubscribe){
+    try{ adapter.unsubscribe(); }catch(e){}
+  }
   closeSheet();
   forms=[];
   showLogin();
@@ -5122,10 +5143,7 @@ async function subscribeToPush(){
   }
   if(Notification.permission!=='granted'){
     const perm=await Notification.requestPermission();
-    if(perm!=='granted'){
-      toast('تم رفض إذن الإشعارات','err');
-      return false;
-    }
+    if(perm!=='granted'){toast('تم رفض إذن الإشعارات','err');return false;}
   }
   try{
     const reg=await navigator.serviceWorker.ready;
@@ -5137,15 +5155,8 @@ async function subscribeToPush(){
       });
     }
     const json=sub.toJSON();
-    const row={
-      id:uuid(),
-      user_id:user.id,
-      endpoint:json.endpoint,
-      keys:json.keys,
-      platform:'web',
-      created_at:Date.now(),
-      last_used:Date.now()
-    };
+    const row={id:uuid(),user_id:user.id,endpoint:json.endpoint,keys:json.keys,
+      platform:'web',created_at:Date.now(),last_used:Date.now()};
     try{await adapter.saveSimple('push_subscriptions',row)}
     catch(ex){console.log('already subscribed or error:',ex.message)}
     try{localStorage.setItem('muzn_push_enabled','1')}catch(e){}
@@ -5171,12 +5182,89 @@ async function unsubscribeFromPush(){
       }catch(e){console.warn('delete sub failed',e)}
     }
     try{localStorage.removeItem('muzn_push_enabled')}catch(e){}
-    toast('تم إيقاف الإشعارات');
+    toast('تم إيقاف الإشعارات','ok');
     return true;
-  }catch(e){
-    console.error(e);
-    return false;
-  }
+  }catch(e){console.error(e);return false;}
+}
+
+/* =====================================================================
+   🆕 Sync Indicator — مؤشر المزامنة
+   ===================================================================== */
+let _syncIndTimer = null;
+function showSyncIndicator(text, type){
+  const el = byId('syncIndicator');
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'sync-indicator on' + (type === 'ok' ? ' ok' : type === 'err' ? ' err' : '');
+  if(_syncIndTimer) clearTimeout(_syncIndTimer);
+  _syncIndTimer = setTimeout(() => { el.className = 'sync-indicator'; }, 2000);
+}
+
+/* =====================================================================
+   🆕 مزامنة ذكية — 5 ثوانٍ + Hash يشمل التعديلات
+   ===================================================================== */
+function computeStoreHash(s){
+  if(!s) return '';
+  // ✅ نشمل عدد السجلات + بصمات السجلات الحرجة (status / closed / done)
+  const prq = (s.purchase_requests || []);
+  const shifts = (s.distributor_shifts || []).concat(s.operator_shifts || []);
+  const complaints = (s.complaints || []);
+  return JSON.stringify({
+    // الأطوال
+    s: s.sales?.length, si: s.sale_items?.length,
+    sh: s.shifts?.length, shi: s.shift_items?.length,
+    w: s.withdrawals?.length, p: s.payments?.length,
+    r: s.remittances?.length, pu: s.purchases?.length,
+    dsh: s.distributor_shifts?.length, osh: s.operator_shifts?.length,
+    da: s.dist_attendance?.length, a: s.attendance?.length,
+    n: s.notices?.length, c: s.customers?.length,
+    pr: s.products?.length, m: s.materials?.length,
+    d: s.distributors?.length, u: s.users?.length,
+    sp: s.supplier_payments?.length, disc: s.discounts?.length,
+    prq: prq.length,
+    // ✅ بصمات الحالات (لكشف التعديلات بدون تغيير الطول)
+    prqStatus: prq.map(x => x.id + ':' + x.status).sort().join(','),
+    shiftState: shifts.map(x => x.id + ':' + (x.closed ? 'C' : 'O')).sort().join(','),
+    compStatus: complaints.map(x => x.id + ':' + (x.done ? 'D' : 'P')).sort().join(','),
+    noticeDone: (s.notices || []).map(x => x.id + ':' + (x.done ? '1' : '0')).sort().join(',')
+  });
+}
+
+let _syncTimer = null;
+let _syncBusy = false;
+let _lastHash = '';
+function startSmartSync(){
+  if(_syncTimer) clearInterval(_syncTimer);
+  _lastHash = computeStoreHash(store);
+  _syncTimer = setInterval(async () => {
+    if(document.hidden) return;
+    if(!navigator.onLine) return;
+    if(_syncBusy) return;
+    // ✅ لا تزامن أثناء الكتابة في حقل
+    const el = document.activeElement;
+    if(el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName)) return;
+    // ✅ لا تزامن إذا كان sheet مفتوح
+    if(!byId('sheet').classList.contains('hidden')) return;
+    // ✅ لا تزامن أثناء الكتابة داخل حقل داخل sheet
+    if(el && el.closest && el.closest('#sheetCard')) return;
+    
+    _syncBusy = true;
+    try{
+      const newStore = await adapter.init();
+      const newHash = computeStoreHash(newStore);
+      if(newHash !== _lastHash){
+        _lastHash = newHash;
+        store = newStore;
+        renderAll();
+        showSyncIndicator('🔄 تم التحديث', 'ok');
+        console.log('[Sync] ✅ تحديث تلقائي في', new Date().toLocaleTimeString());
+      }
+    }catch(ex){
+      console.warn('[Sync] فشل:', ex);
+      showSyncIndicator('⚠️ فشل المزامنة', 'err');
+    }
+    _syncBusy = false;
+  }, SYNC_INTERVAL_MS);
 }
 
 /* =====================================================================
@@ -5203,64 +5291,37 @@ async function boot(){
     try{
       const newStore = await adapter.init();
       store = newStore;
+      _lastHash = computeStoreHash(store);
       renderAll();
     }catch(ex){console.error(ex)}
   });
-  
-    // 🆕 مزامنة كل 10 ثوانٍ (بدلاً من 30)
-  if(cfg){
-    setInterval(async () => {
-      if(document.hidden) return;
-      if(!navigator.onLine) return;
-      
-      try{
-        const newStore = await adapter.init();
-        
-        const oldHash = JSON.stringify({
-          s: store.sales?.length,
-          si: store.sale_items?.length,
-          sh: store.shifts?.length,
-          shi: store.shift_items?.length,
-          w: store.withdrawals?.length,
-          p: store.payments?.length,
-          r: store.remittances?.length,
-          dsh: store.distributor_shifts?.length,
-          osh: store.operator_shifts?.length,
-          da: store.dist_attendance?.length,
-          a: store.attendance?.length,
-          n: store.notices?.length,
-          c: store.customers?.length,
-          pr: store.products?.length
-        });
-        
-        const newHash = JSON.stringify({
-          s: newStore.sales?.length,
-          si: newStore.sale_items?.length,
-          sh: newStore.shifts?.length,
-          shi: newStore.shift_items?.length,
-          w: newStore.withdrawals?.length,
-          p: newStore.payments?.length,
-          r: newStore.remittances?.length,
-          dsh: newStore.distributor_shifts?.length,
-          osh: newStore.operator_shifts?.length,
-          da: newStore.dist_attendance?.length,
-          a: newStore.attendance?.length,
-          n: newStore.notices?.length,
-          c: newStore.customers?.length,
-          pr: newStore.products?.length
-        });
-        
-        if(oldHash !== newHash){
+
+  // ✅ بدء المزامنة الذكية (5 ثوانٍ + Hash يشمل التعديلات)
+  if(cfg) startSmartSync();
+
+  // ✅ بدء Push Queue (إعادة إرسال الإشعارات الفاشلة)
+  PushQueue.start();
+
+  // ✅ مزامنة عند عودة الاتصال
+  window.addEventListener('online', () => {
+    showSyncIndicator('🌐 عاد الاتصال', 'ok');
+    if(cfg && !document.hidden){
+      setTimeout(async () => {
+        try{
+          const newStore = await adapter.init();
           store = newStore;
+          _lastHash = computeStoreHash(store);
           renderAll();
-          console.log('[Sync] ✅ تحديث تلقائي في', new Date().toLocaleTimeString());
-        }
-      }catch(ex){
-        console.warn('[Sync] فشل:', ex);
-      }
-    }, 10000);  // ← 10 ثوانٍ
-  }
-  
+          PushQueue.flush();
+        }catch(e){ console.warn('[Online Sync]', e); }
+      }, 500);
+    }
+  });
+
+  // ✅ عرض حالة الاتصال
+  window.addEventListener('offline', () => {
+    showSyncIndicator('📴 لا اتصال', 'err');
+  });
 
   let sid=null;
   try{sid=JSON.parse(localStorage.getItem(SESSKEY)||'null')}catch(e){}
@@ -5273,34 +5334,33 @@ async function boot(){
   }
 
   window.__muzn={
-  get store(){return store},
-  get adapter(){return adapter},
-  get user(){return user},
-  seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal,
-  sendPush,sendPushToUsers,sendPushToAdmins,sendPushToOperators,
-  subscribeToPush,unsubscribeFromPush,registerServiceWorker,urlBase64ToUint8Array,
-  NotificationCenter,
-  get ENT(){return ENT},
-  get SKEL(){return SKEL},
-  get VAPID_PUBLIC_KEY(){return VAPID_PUBLIC_KEY},
-  get EDGE_FUNCTION_URL(){return EDGE_FUNCTION_URL},
-  requirePerm,requireEdit,requireDelete,
-  // دوال الورديات للموزعين
-  getShiftTypeByHour,getCurrentShift,calcShiftDurationMinutes,calcShiftDurationHours,
-  isEarlyShiftStart,isLateShiftStart,getShiftStats,getTodayShift,getTodayShiftClosed,
-  openDistributorShiftSheet,distShiftCheckIn,distShiftCheckOut,distShiftCheckOutForm,
-  renderDistShiftsList,
-  // 🆕 دوال ورديات المشغّل
-  renderOpShiftChip,openOperatorShiftSheet,operatorShiftCheckIn,
-  operatorShiftCheckOut,operatorShiftCheckOutForm
-};
+    get store(){return store},
+    get adapter(){return adapter},
+    get user(){return user},
+    seedStore,inv,custBal,dSummary,stockWH,materialStock,custody,supplierBal,
+    sendPush,sendPushToUsers,sendPushToAdmins,sendPushToOperators,
+    subscribeToPush,unsubscribeFromPush,registerServiceWorker,urlBase64ToUint8Array,
+    NotificationCenter,PushQueue,
+    get ENT(){return ENT},
+    get SKEL(){return SKEL},
+    get VAPID_PUBLIC_KEY(){return VAPID_PUBLIC_KEY},
+    get EDGE_FUNCTION_URL(){return EDGE_FUNCTION_URL},
+    requirePerm,requireEdit,requireDelete,
+    getShiftTypeByHour,getCurrentShift,calcShiftDurationMinutes,calcShiftDurationHours,
+    isEarlyShiftStart,isLateShiftStart,getShiftStats,getTodayShift,getTodayShiftClosed,
+    openDistributorShiftSheet,distShiftCheckIn,distShiftCheckOut,distShiftCheckOutForm,
+    renderDistShiftsList,
+    renderOpShiftChip,openOperatorShiftSheet,operatorShiftCheckIn,
+    operatorShiftCheckOut,operatorShiftCheckOutForm,
+    computeStoreHash,startSmartSync,showSyncIndicator
+  };
 }
 boot();
 
 })();
 
 /* =====================================================================
-   🆕 AUTO-UPDATE SYSTEM
+   🆕 AUTO-UPDATE SYSTEM — تحديث فوري (15 ثانية بدل 60)
    ===================================================================== */
 (function autoUpdater() {
   if (!('serviceWorker' in navigator)) return;
@@ -5326,28 +5386,31 @@ boot();
     }
   }
   
-  // فحص عند التحميل
+  // ✅ فحص عند التحميل — 500ms (بدل 2s)
   window.addEventListener('load', () => {
-    setTimeout(checkForUpdate, 2000);
+    setTimeout(checkForUpdate, 500);
   });
   
-  // فحص دوري كل 60 ثانية
-  setInterval(checkForUpdate, 60000);
+  // ✅ فحص دوري كل 15 ثانية (بدل 60s)
+  setInterval(checkForUpdate, 15000);
   
-  // فحص عند العودة للتطبيق
+  // ✅ فحص فوري عند العودة للتطبيق
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) checkForUpdate();
   });
   
-  // فحص عند استعادة الاتصال
+  // ✅ فحص عند استعادة الاتصال
   window.addEventListener('online', checkForUpdate);
   
   // رسالة نجاح التحديث
   if (sessionStorage.getItem('muzn_pre_reload')) {
     sessionStorage.removeItem('muzn_pre_reload');
     setTimeout(() => {
-      if (window.toast) window.toast('✅ تم تحديث التطبيق');
-    }, 1000);
+      if (window.__muzn && window.__muzn.showSyncIndicator) {
+        window.__muzn.showSyncIndicator('✅ تم التحديث', 'ok');
+      }
+      if (window.toast) window.toast('✅ تم تحديث التطبيق','ok');
+    }, 800);
   }
 })();
 </script>
