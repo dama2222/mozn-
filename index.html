@@ -1311,10 +1311,23 @@ const NotificationCenter = {
     attendance_dist: (ctx) => ({
       admins: { title: '📸 حضور الموزعين مسجَّل', body: ctx.present + ' موزع حاضر' + (ctx.absent ? ' · ' + ctx.absent + ' غائب' : ''), url: '/#attendance_log' }
     }),
-    production_request: (ctx) => ({
-      admins:    { title: ctx.urgent ? '🔴 عاجل — 📦 طلب إنتاج' : '📦 طلب إنتاج', body: ctx.summary, url: '/#production' },
-      operators: { title: ctx.urgent ? '🔴 عاجل — 📦 طلب إنتاج' : '📦 طلب إنتاج', body: ctx.summary, url: '/#production' }
-    }),
+   production_request: (ctx) => ({
+  admins: {
+    title: ctx.urgent ? '🔴 عاجل — 📦 طلب إنتاج' : '📦 طلب إنتاج',
+    body: ctx.summary,
+    url: '/#production'
+  },
+  // ✅ إشعار لكل مشغّل مرتبط بحساب
+  operators: ctx.urgent ? {
+    title: '🔴 عاجل — إنتاج مطلوب',
+    body: ctx.summary + ' — راجع الوردية',
+    url: '/#production'
+  } : {
+    title: '📦 طلب إنتاج جديد',
+    body: ctx.summary,
+    url: '/#production'
+  }
+}),
     purchase_request: (ctx) => ({
       admins: { title: '📦 طلب نواقص جديد', body: ctx.summary, url: '/#purchases' },
       buyers: { title: '📦 طلب نواقص جديد', body: ctx.summary, url: '/#purchases' }
@@ -1355,6 +1368,65 @@ const NotificationCenter = {
     dist_shift_end: (ctx) => ({
       admins: { title: '🔴 إغلاق وردية موزع', body: ctx.distName + ' أنهى ورديته — المدة: ' + ctx.duration, url: '/#distributors' },
       dist: { title: '🔴 ورديتك انتهت', body: 'شكراً لك على جهودك اليوم — المدة: ' + ctx.duration, url: '/#distributors' }
+    }),
+        // 🆕 إشعارات موجهة للموزع شخصياً
+    overdue_cust_single: (ctx) => ({
+      dist: {
+        title: '⚠️ عملاء متأخرون لديك',
+        body: ctx.summary,
+        url: '/#collections'
+      }
+    }),
+    collection_due_dist: (ctx) => ({
+      dist: {
+        title: '📅 موعد تسليمك قريب',
+        body: ctx.summary,
+        url: '/#distributors'
+      }
+    }),
+    low_stock_dist: (ctx) => ({
+      dist: {
+        title: '📦 مخزون منخفض — ' + (ctx.productName || ''),
+        body: ctx.summary,
+        url: '/#withdrawals'
+      }
+    }),
+    // 🆕 إشعارات موجهة للمشغّل شخصياً
+    production_daily: (ctx) => ({
+      operator: {
+        title: '📊 إنتاجك اليوم',
+        body: ctx.summary,
+        url: '/#production'
+      }
+    }),
+    urgent_production_op: (ctx) => ({
+      operator: {
+        title: '🔴 عاجل — طلب إنتاج',
+        body: ctx.summary,
+        url: '/#production'
+      }
+    }),
+    my_attendance_recorded: (ctx) => ({
+      operator: {
+        title: '✅ تم تسجيل حضورك',
+        body: ctx.summary,
+        url: '/#production'
+      }
+    }),
+    // 🆕 إشعارات موجهة للمشتريات شخصياً
+    low_material_buyer: (ctx) => ({
+      buyer: {
+        title: '📦 مادة خام منخفضة — ' + (ctx.materialName || ''),
+        body: ctx.summary,
+        url: '/#purchases'
+      }
+    }),
+    pr_assigned: (ctx) => ({
+      buyer: {
+        title: '📋 طلب نواقص جديد',
+        body: ctx.summary,
+        url: '/#purchase_requests'
+      }
     })
   },
   async fire(eventType, context){
@@ -1381,6 +1453,26 @@ const NotificationCenter = {
       ops.forEach(o => {
         promises.push(sendPush(o.user_id, messages.operators.title, messages.operators.body, messages.operators.url, eventType, refId));
       });
+    }
+        // 🆕 إشعار لمشغّل واحد محدد
+    if(messages.operator && context.operatorUserId){
+      promises.push(sendPush(
+        context.operatorUserId,
+        messages.operator.title,
+        messages.operator.body,
+        messages.operator.url,
+        eventType, refId
+      ));
+    }
+    // 🆕 إشعار لمشتري واحد محدد
+    if(messages.buyer && context.buyerUserId){
+      promises.push(sendPush(
+        context.buyerUserId,
+        messages.buyer.title,
+        messages.buyer.body,
+        messages.buyer.url,
+        eventType, refId
+      ));
     }
     if(messages.buyers){
       const buyers = store.users.filter(u => u.active && u.role === 'staff' && u.perms && u.perms.indexOf('purchases') >= 0);
@@ -2173,8 +2265,34 @@ async function operatorShiftCheckOut(opId, photoData, coords, note){
   try{
     await adapter.updateSimple('operator_shifts', s.id, patch);
     Object.assign(s, patch);
+
     const minutes = calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts);
     const hours = r2(minutes / 60);
+    
+    // 🆕 إشعار ملخص للمشغّل بعد إغلاق ورديته
+if(o && o.user_id){
+  const myItems = store.shift_items_flat.filter(x => 
+    x.date === today() && x.operator_id === opId
+  );
+  const totalActual = sum(myItems, x => x.actual);
+  const totalWaste = sum(myItems, x => x.waste);
+  const totalDown = sum(myItems, x => x.down);
+  
+  if(myItems.length > 0){
+        const summary = `${myItems.length} منتج · منجز ${fmt(totalActual)} · هدر ${fmt(totalWaste)}` +
+          (totalDown > 0 ? ` · توقف ${fmt(totalDown)} د` : '');
+        
+        sendPush(
+          o.user_id,
+          '🔴 انتهت ورديتك — ' + hours + ' ساعة',
+          summary,
+          '/#production',
+          'my_shift_end',
+          s.id
+        ).catch(e=>console.warn(e));
+      }
+    }
+    
     toast('✅ تم إغلاق وردية ' + (o ? o.name : '') + ' — ' + hours + ' ساعة','ok');
     closeSheet();
     NotificationCenter.fire('shift_end', {
@@ -4630,79 +4748,202 @@ function renderAll(){
   renderBell();
   autoNotify();
 }
-
-/* =====================================================================
-   التنبيهات التلقائية
-   ===================================================================== */
 let _autoNotifyDay=null;
 let _autoNotifyAttempted=false;
 async function autoNotify(){
   if(!store||!user)return;
+  / ✅ لا تشغّل autoNotify إذا كان المستخدم قد عطّلها
+  const dailyEnabled = localStorage.getItem('muzn_daily_notify') !== '0';
+  if(!dailyEnabled) return;
   const t=today();
   if(_autoNotifyDay===t && _autoNotifyAttempted)return;
   _autoNotifyDay=t;
   try{
-    for(const d of store.distributors){
-      const s=dSummary(store,d);
-      if(s.per.left<0&&s.bal>0.009){
-        const exists=store.notices.some(n=>n.kind==='distributor'&&n.target_id===d.id&&n.date===t&&(n.title||'').indexOf('تأخر تسليم')===0);
-        if(!exists){
-          const row={id:uuid(),date:t,kind:'distributor',target_id:d.id,
-            title:'تأخر تسليم — '+d.name,body:'المتبقي: '+fmt(s.bal)+' '+cur(),
-            items:[],by:'تنبيه تلقائي',ts:Date.now(),done:false};
-          store.notices.unshift(row);
-          try{await adapter.saveSimple('notices',row)}catch(ex){console.error(ex)}
-        }
-      }
-    }
+    // =========================================================
+    // 1) عملاء متأخرون — إشعار لكل موزع + للمدراء
+    // =========================================================
     const custByDist={};
     store.customers.forEach(c=>{
       if(!c.distributor_id)return;
       const b=custBal(store,c);
-      if(b.bucket==='overdue')(custByDist[c.distributor_id]=custByDist[c.distributor_id]||[]).push(c.name+' ('+fmt(b.remaining)+' '+cur()+')');
+      if(b.bucket==='overdue'){
+        (custByDist[c.distributor_id]=custByDist[c.distributor_id]||[]).push(
+          c.name+' ('+fmt(b.remaining)+' '+cur()+')'
+        );
+      }
     });
+    
     for(const did in custByDist){
-      const d=store.distributors.find(x=>x.id===did);if(!d)continue;
-      const exists=store.notices.some(n=>n.kind==='distributor'&&n.target_id===did&&n.date===t&&(n.title||'').indexOf('فاتورة عميل متأخرة')===0);
+      const d=store.distributors.find(x=>x.id===did);
+      if(!d)continue;
+      
+      const summary = custByDist[did].slice(0,3).join('، ') + 
+        (custByDist[did].length>3 ? ' +'+(custByDist[did].length-3) : '');
+      
+      // إشعار للموزع نفسه
+      if(d.user_id){
+        NotificationCenter.fire('overdue_cust_single', {
+          distUserId: d.user_id,
+          summary: summary,
+          refId: d.id
+        }).catch(e=>console.warn(e));
+      }
+      
+      // إشعار للمدراء (النسخة القديمة)
+      NotificationCenter.fire('overdue_cust', {
+        distName: d.name,
+        summary: summary,
+        refId: d.id
+      }).catch(e=>console.warn(e));
+      
+      // حفظ في notices للمدراء
+      const exists = store.notices.some(n => 
+        n.kind==='distributor' && n.target_id===did && 
+        n.date===t && (n.title||'').indexOf('فاتورة عميل متأخرة')===0
+      );
       if(!exists){
-        const row={id:uuid(),date:t,kind:'distributor',target_id:did,
-          title:'فاتورة عميل متأخرة — '+d.name,body:custByDist[did].join('، '),
-          items:[],by:'تنبيه تلقائي',ts:Date.now(),done:false};
+        const row = {
+          id:uuid(), date:t, kind:'distributor', target_id:did,
+          title:'فاتورة عميل متأخرة — '+d.name,
+          body:custByDist[did].join('، '),
+          items:[], by:'تنبيه تلقائي', ts:Date.now(), done:false
+        };
         store.notices.unshift(row);
         try{await adapter.saveSimple('notices',row)}catch(ex){console.error(ex)}
       }
     }
-    const pushDayKey='auto_push_'+t;
-    if(localStorage.getItem(pushDayKey)!==t){
-      for(const d of store.distributors){
-        const custs=store.customers.filter(c=>c.distributor_id===d.id).map(c=>({c,b:custBal(store,c)})).filter(x=>x.b.bucket==='overdue');
-        if(custs.length===0)continue;
-        const total=r2(sum(custs,x=>x.b.remaining));
-        const totalTax=r2(sum(custs,x=>x.b.tax||0));
-        const msg=custs.length+' عميل — '+fmt(total)+' '+cur()+(totalTax>0?' + ضريبة '+fmt(totalTax):'');
-        NotificationCenter.fire('overdue_cust_dist',{distUserId:d.user_id,summary:msg,refId:d.id}).catch(e=>console.warn(e));
-        NotificationCenter.fire('overdue_cust',{distName:d.name,summary:msg,refId:d.id}).catch(e=>console.warn(e));
+
+    // =========================================================
+    // 2) موزعون متأخرون — للمدراء فقط (كما كان)
+    // =========================================================
+    const lateDist = store.distributors
+      .map(d=>({d,s:dSummary(store,d)}))
+      .filter(x=>x.s.per.left<0 && x.s.bal>0.009);
+    
+    if(lateDist.length>0){
+      NotificationCenter.fire('late_dist', {
+        summary: lateDist.map(x=>x.d.name+' ('+fmt(x.s.bal)+')').join('، ')
+      }).catch(e=>console.warn(e));
+    }
+    
+    // 🆕 إشعارات تسليم قريب لكل موزع
+    for(const d of store.distributors){
+      const s = dSummary(store, d);
+      if(s.per.left >= 0 && s.per.left <= 1 && s.bal > 0.009){
+        if(d.user_id){
+          NotificationCenter.fire('collection_due_dist', {
+            distUserId: d.user_id,
+            summary: 'التسليم ' + (s.per.left===0?'اليوم':'غداً') + ' — ' + 
+                     fmt(s.bal) + ' ' + cur(),
+            refId: d.id
+          }).catch(e=>console.warn(e));
+        }
       }
-      const lateDist=store.distributors.map(d=>({d,s:dSummary(store,d)})).filter(x=>x.s.per.left<0&&x.s.bal>0.009);
-      if(lateDist.length>0){
-        NotificationCenter.fire('late_dist',{
-          summary: lateDist.map(x=>x.d.name+' ('+fmt(x.s.bal)+')').join('، ')
+    }
+
+    // =========================================================
+    // 3) مخزون منخفض — إشعار للمدراء + المشتريات
+    // =========================================================
+    const lowStock = store.products.filter(p => 
+      p.min_stock && stockWH(store,p.id) < p.min_stock
+    );
+    const lowMat = store.materials.filter(m => 
+      m.min_stock && materialStock(store,m.id) < m.min_stock
+    );
+    
+    if(lowStock.length + lowMat.length > 0){
+      const lines = [];
+      if(lowStock.length) lines.push('منتجات: '+lowStock.slice(0,3).map(p=>p.name).join('، '));
+      if(lowMat.length) lines.push('مواد: '+lowMat.slice(0,3).map(m=>m.name).join('، '));
+      
+      // للمدراء
+      NotificationCenter.fire('low_stock', {
+        summary: lines.join(' · ')
+      }).catch(e=>console.warn(e));
+      
+      // 🆕 للمشتريات
+      const buyers = store.users.filter(u => 
+        u.active && u.role==='staff' && 
+        u.perms && u.perms.indexOf('purchases') >= 0
+      );
+      for(const b of buyers){
+        sendPush(
+          b.id,
+          '📦 نواقص — ' + (lowStock.length + lowMat.length) + ' عنصر',
+          lines.join(' · '),
+          '/#purchases',
+          'low_stock_buyer',
+          null
+        ).catch(e=>console.warn(e));
+      }
+    }
+
+    // =========================================================
+    // 4) 🆕 ملخص إنتاج يومي لكل مشغّل
+    // =========================================================
+    const todayItems = store.shift_items_flat.filter(s => s.date === t);
+    
+    if(todayItems.length > 0){
+      for(const o of store.operators){
+        if(!o.user_id) continue;
+        
+        const myItems = todayItems.filter(s => s.operator_id === o.id);
+        if(!myItems.length) continue;
+        
+        const totalActual = sum(myItems, s => s.actual);
+        const totalWaste = sum(myItems, s => s.waste);
+        const totalDown = sum(myItems, s => s.down);
+        const productsCount = myItems.length;
+        
+        const summary = `${productsCount} منتج · منجز ${fmt(totalActual)} · هدر ${fmt(totalWaste)}` + 
+          (totalDown > 0 ? ` · توقف ${fmt(totalDown)} د` : '');
+        
+        NotificationCenter.fire('production_daily', {
+          operatorUserId: o.user_id,
+          summary: summary,
+          refId: o.id
         }).catch(e=>console.warn(e));
       }
-      const lowStock=store.products.filter(p=>p.min_stock&&stockWH(store,p.id)<p.min_stock);
-      const lowMat=store.materials.filter(m=>m.min_stock&&materialStock(store,m.id)<m.min_stock);
-      if(lowStock.length+lowMat.length>0){
-        const lines=[];
-        if(lowStock.length)lines.push('منتجات: '+lowStock.slice(0,3).map(p=>p.name).join('، '));
-        if(lowMat.length)lines.push('مواد: '+lowMat.slice(0,3).map(m=>m.name).join('، '));
-        NotificationCenter.fire('low_stock',{summary:lines.join(' · ')}).catch(e=>console.warn(e));
-      }
-      try{localStorage.setItem(pushDayKey,t)}catch(e){}
     }
+
+    // =========================================================
+    // 5) 🆕 طلبات النواقص → المشتريات + المدراء
+    // =========================================================
+    const pendingPR = (store.purchase_requests || [])
+      .filter(r => r.status === 'pending');
+    
+    if(pendingPR.length > 0){
+      const summary = `${pendingPR.length} طلب معلّق — راجعها`;
+      
+      const buyers = store.users.filter(u => 
+        u.active && u.role==='staff' && 
+        u.perms && u.perms.indexOf('purchases') >= 0
+      );
+      
+      for(const b of buyers){
+        sendPush(
+          b.id,
+          '📋 لديك ' + pendingPR.length + ' طلب نواقص',
+          summary,
+          '/#purchase_requests',
+          'pr_pending_buyer',
+          null
+        ).catch(e=>console.warn(e));
+      }
+    }
+
+    // =========================================================
+    // حفظ علامة اليوم
+    // =========================================================
+    const pushDayKey = 'auto_push_v2_' + t;
+    if(localStorage.getItem(pushDayKey) !== t){
+      try{ localStorage.setItem(pushDayKey, t); }catch(e){}
+    }
+    
     _autoNotifyAttempted = true;
     renderBell();
   }catch(ex){
-    console.error(ex);
+    console.error('[autoNotify] فشل:', ex);
     _autoNotifyAttempted = false;
   }
 }
@@ -4907,30 +5148,63 @@ function complaintSheet(){
   }});
 }
 function userSheet(){
-  const pushEnabled=localStorage.getItem('muzn_push_enabled')==='1';
+  const pushEnabled = localStorage.getItem('muzn_push_enabled') === '1';
+  const dailyEnabled = localStorage.getItem('muzn_daily_notify') !== '0';
   const queueLen = PushQueue.load().length;
-  openSheet('<h3>'+escHtml(user.name)+'</h3><p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>'+
-    (queueLen>0?'<div class="notice info">📤 '+queueLen+' إشعار في قائمة الانتظار — سيُرسل تلقائياً عند عودة الاتصال</div>':'')+
-    '<button class="opt" id="us-push">'+(pushEnabled?'🔔 إيقاف الإشعارات':'🔕 تفعيل الإشعارات')+'</button>'+
-    '<button class="opt" id="us-pw">تغيير كلمة المرور</button>'+
-    '<button class="opt" id="us-theme">تبديل المظهر</button>'+
-    (isA()?'':'<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>')+
-    '<button class="opt" id="us-out" style="color:var(--red)">تسجيل الخروج</button>');
-  byId('us-pw').onclick=pwSheet;
-  byId('us-theme').onclick=()=>{toggleTheme();closeSheet()};
-  byId('us-out').onclick=()=>{closeSheet();logout()};
-  byId('us-push').onclick=async()=>{
+  
+  openSheet(
+    '<h3>'+escHtml(user.name)+'</h3>' +
+    '<p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>' +
+    
+    (queueLen>0?'<div class="notice info">📤 '+queueLen+' إشعار في قائمة الانتظار</div>':'') +
+    
+    '<button class="opt" id="us-push">'+
+      (pushEnabled?'🔔 إيقاف الإشعارات':'🔕 تفعيل الإشعارات')+
+    '</button>' +
+    
+    '<button class="opt" id="us-daily">'+
+      (dailyEnabled?'📅 إيقاف التقرير اليومي':'📅 تفعيل التقرير اليومي')+
+    '</button>' +
+    
+    '<button class="opt" id="us-pw">تغيير كلمة المرور</button>' +
+    '<button class="opt" id="us-theme">تبديل المظهر</button>' +
+    (isA()?'':'<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>') +
+    '<button class="opt" id="us-out" style="color:var(--red)">تسجيل الخروج</button>'
+  );
+  
+  byId('us-pw').onclick = pwSheet;
+  byId('us-theme').onclick = () => { toggleTheme(); closeSheet(); };
+  byId('us-out').onclick = () => { closeSheet(); logout(); };
+  
+  byId('us-push').onclick = async () => {
     if(pushEnabled){
       await unsubscribeFromPush();
-      closeSheet();
-      setTimeout(userSheet,300);
-    }else{
-      const ok=await subscribeToPush();
+      closeSheet(); setTimeout(userSheet, 300);
+    } else {
+      const ok = await subscribeToPush();
       if(ok){
         toast('✅ تم تفعيل الإشعارات','ok');
-        closeSheet();
-        setTimeout(userSheet,300);
+        closeSheet(); setTimeout(userSheet, 300);
       }
+    }
+  };
+  
+  // 🆕 تفعيل/إيقاف التقرير اليومي
+  byId('us-daily').onclick = () => {
+    if(dailyEnabled){
+      localStorage.setItem('muzn_daily_notify', '0');
+      toast('تم إيقاف التقرير اليومي','ok');
+    } else {
+      localStorage.setItem('muzn_daily_notify', '1');
+      toast('سيصلك التقرير اليومي','ok');
+    }
+    closeSheet();
+    setTimeout(userSheet, 300);
+  };
+  
+  const uc = byId('us-complain');
+  if(uc) uc.onclick = complaintSheet;
+}
     }
   };
   const uc=byId('us-complain');
