@@ -1,7 +1,7 @@
 /* =====================================================================
-   MUZN Operations — Service Worker v3.3
+   MUZN Operations — Service Worker v3.4
    ===================================================================== */
-const CACHE_NAME = 'muzn-v3-3';
+const CACHE_NAME = 'muzn-v3-4';
 
 const CORE_ASSETS = [
   './',
@@ -19,33 +19,28 @@ const OPTIONAL_ASSETS = [
 ];
 
 /* =====================================================================
-   INSTALL — تخزين الملفات الأساسية
+   INSTALL — تخزين الملفات + تنشيط فوري
    ===================================================================== */
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(async cache => {
-      // الملفات الأساسية (إجباري)
       try {
         await cache.addAll(CORE_ASSETS);
         console.log('[SW] ✅ Core assets cached');
       } catch (err) {
         console.warn('[SW] ⚠️ Core cache failed:', err);
       }
-      // الملفات الاختيارية (قد تفشل - لا مشكلة)
       for (const asset of OPTIONAL_ASSETS) {
-        try {
-          await cache.add(asset);
-        } catch (err) {
-          console.warn('[SW] Skipped optional:', asset);
-        }
+        try { await cache.add(asset); } catch (err) {}
       }
+      // 🆕 إجبار التنشيط الفوري بدون انتظار
       await self.skipWaiting();
     })
   );
 });
 
 /* =====================================================================
-   ACTIVATE — حذف الكاش القديم
+   ACTIVATE — حذف الكاش القديم + السيطرة الفورية
    ===================================================================== */
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -56,25 +51,40 @@ self.addEventListener('activate', e => {
           return caches.delete(k);
         })
       ))
-      .then(() => self.clients.claim())
+      .then(() => {
+        console.log('[SW] ✅ Activated:', CACHE_NAME);
+        // 🆕 السيطرة على كل التبويبات فوراً
+        return self.clients.claim();
+      })
   );
 });
 
 /* =====================================================================
-   FETCH — Cache-First مع Network Fallback
+   MESSAGE — استقبال أوامر من الصفحة
+   ===================================================================== */
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  if (e.data && e.data.type === 'CHECK_UPDATE') {
+    self.registration.update();
+  }
+});
+
+/* =====================================================================
+   FETCH — Cache-First مع Fallback
    ===================================================================== */
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   
   const url = event.request.url;
   
-  // تجاهل الطلبات الخارجية (Supabase, CDN, Google Fonts)
+  // تجاهل الطلبات الخارجية
   if (url.includes('supabase') ||
       url.includes('googleapis') ||
       url.includes('jsdelivr') ||
       url.includes('unpkg')) return;
   
-  // تجاهل البروتوكولات غير المدعومة
   if (!url.startsWith('http://') && !url.startsWith('https://')) return;
   if (url.includes('chrome-extension')) return;
   if (url.includes('moz-extension')) return;
@@ -82,12 +92,9 @@ self.addEventListener('fetch', event => {
   
   event.respondWith(
     caches.match(event.request).then(cached => {
-      // إذا وُجد في الكاش، أرجعه فوراً
       if (cached) return cached;
       
-      // وإلا اجلبه من الشبكة وخزّنه
       return fetch(event.request).then(response => {
-        // فقط خزّن الاستجابات الصحيحة
         if (response.ok && response.type === 'basic' && response.status === 200) {
           const clone = response.clone();
           caches.open(CACHE_NAME)
@@ -96,7 +103,6 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() => {
-        // إذا فشلت الشبكة، أعد صفحة index.html كحل احتياطي
         return caches.match('./index.html');
       });
     })
@@ -104,14 +110,14 @@ self.addEventListener('fetch', event => {
 });
 
 /* =====================================================================
-   PUSH — استقبال الإشعارات
+   PUSH — استقبال الإشعارات (مع معالجة الأخطاء)
    ===================================================================== */
 self.addEventListener('push', e => {
   let data = {};
   try {
     data = e.data ? e.data.json() : {};
   } catch (err) {
-    console.warn('[SW] push data is not JSON:', err);
+    console.warn('[SW] push data is not JSON');
     data = { title: 'MUZN', body: e.data ? e.data.text() : '' };
   }
   
@@ -132,7 +138,7 @@ self.addEventListener('push', e => {
 });
 
 /* =====================================================================
-   NOTIFICATION CLICK — عند الضغط على الإشعار
+   NOTIFICATION CLICK
    ===================================================================== */
 self.addEventListener('notificationclick', e => {
   e.notification.close();
@@ -140,15 +146,14 @@ self.addEventListener('notificationclick', e => {
   
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      // إذا كان التطبيق مفتوحاً، ركّز عليه
       for (const c of list) {
         if (c.url.includes(self.location.origin) && 'focus' in c) {
           c.navigate(url);
           return c.focus();
         }
       }
-      // وإلا افتح نافذة جديدة
       if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
+Update SW to v3.4 with auto-update
