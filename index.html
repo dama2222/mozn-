@@ -5356,7 +5356,12 @@ async function boot(){
   };
 }
 boot();
-
+// ✅ إتاحة الدوال للاستخدام من Console + Service Worker
+window.toast = toast;
+window.openSheet = openSheet;
+window.closeSheet = closeSheet;
+window.showSyncIndicator = showSyncIndicator;
+window.__muzn_version = 'v11';
 })();
 
 /* =====================================================================
