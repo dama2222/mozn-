@@ -1492,11 +1492,53 @@ const NotificationCenter = {
         url: '/#purchases'
       }
     }),
-    pr_assigned: (ctx) => ({
+        pr_assigned: (ctx) => ({
       buyer: {
         title: '📋 طلب نواقص جديد',
         body: ctx.summary,
         url: '/#purchase_requests'
+      }
+    }),
+    // 🆕 إشعارات تأكيد استلام البضاعة
+    withdrawal_created: (ctx) => ({
+      admins: {
+        title: '📦 تم سحب بضاعة',
+        body: ctx.summary + ' لـ ' + ctx.distName,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '📦 سحب بضاعة جديد',
+        body: ctx.summary + ' لـ ' + ctx.distName,
+        url: '/#withdrawals'
+      },
+      dist: {
+        title: '📦 بضاعة في الطريق إليك',
+        body: ctx.summary + ' — افتح عملياتك للتأكيد',
+        url: '/#dist_ops'
+      }
+    }),
+    withdrawal_confirmed: (ctx) => ({
+      admins: {
+        title: '✅ تأكيد استلام البضاعة',
+        body: ctx.distName + ' أكد استلام ' + ctx.itemsCount + ' صنف',
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '✅ تأكيد استلام البضاعة',
+        body: ctx.distName + ' أكد الاستلام',
+        url: '/#withdrawals'
+      }
+    }),
+    withdrawal_disputed: (ctx) => ({
+      admins: {
+        title: '⚠️ اعتراض على استلام البضاعة',
+        body: ctx.distName + ': ' + ctx.reason,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '⚠️ اعتراض على استلام البضاعة',
+        body: ctx.distName + ': ' + ctx.reason,
+        url: '/#withdrawals'
       }
     })
   },
@@ -3763,6 +3805,13 @@ function renderDistOps(){
     .sort(byDate);
   const remitTotal = sum(remittances, r => r.amount);
   const customers = store.customers.filter(c => c.distributor_id === did);
+    // 🆕 سجلات التشيك
+  const confirmations = (store.withdrawal_confirmations || [])
+    .filter(c => c.distributor_id === did)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const pendingConfirmations = confirmations.filter(c => c.status === 'pending');
+  const confirmedConfirmations = confirmations.filter(c => c.status === 'confirmed');
+  const disputedConfirmations = confirmations.filter(c => c.status === 'disputed');
   const customerBals = customers.map(c => ({c, b: custBal(store, c)}));
   const overdueCustomers = customerBals.filter(x => x.b.bucket === 'overdue');
   const totalOverdue = sum(overdueCustomers, x => x.b.remaining);
@@ -3781,8 +3830,12 @@ function renderDistOps(){
   '</div>';
   
   // الشرائح
-  html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
+    html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
     '<button class="pill on" data-dopstab="overview">📊 نظرة عامة</button>' +
+    (pendingConfirmations.length > 0 
+      ? '<button class="pill" data-dopstab="confirmations" style="background:var(--orange);color:#fff">🔔 تشيكاتي (' + pendingConfirmations.length + ')</button>'
+      : '<button class="pill" data-dopstab="confirmations">📋 سجل التشيكات</button>'
+    ) +
     '<button class="pill" data-dopstab="debts">💳 المطلوب منه</button>' +
     '<button class="pill" data-dopstab="discounts">💸 الخصومات</button>' +
     '<button class="pill" data-dopstab="profit">💰 الأرباح</button>' +
@@ -3796,9 +3849,10 @@ function renderDistOps(){
   html += '<div id="dops-body"></div>';
   content.innerHTML = html;
   
-  const data = { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
+    const data = { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
     withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
-    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue };
+    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue,
+    confirmations, pendingConfirmations, confirmedConfirmations, disputedConfirmations };
   
  // ربط الشرائح — طريقة أفضل
 const tabsEl = byId('dops-tabs');
@@ -3814,9 +3868,11 @@ function renderDistOpsTab(tab, data){
   const body = byId('dops-body');
   if(!body) return;
   
-  const { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
+    const { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
     withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
-    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue } = data;
+    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue,
+    confirmations = [], pendingConfirmations = [], 
+    confirmedConfirmations = [], disputedConfirmations = [] } = data; 
   
   let html = '';
   
@@ -3842,7 +3898,73 @@ function renderDistOpsTab(tab, data){
       '<div class="kv"><span>💰 إجمالي المتأخرات</span><b class="dn">' + fmt(totalOverdue) + ' ' + cur() + '</b></div>' +
     '</div>';
   }
-  
+   
+  else if(tab === 'confirmations'){
+    // ملخص
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">⏳ بانتظار التأكيد</div>' +
+        '<div class="val ' + (pendingConfirmations.length > 0 ? 'warn' : 'up') + '">' + pendingConfirmations.length + '</div></div>' +
+      '<div class="kpi"><div class="lb">✅ مؤكدة</div>' +
+        '<div class="val up">' + confirmedConfirmations.length + '</div></div>' +
+      '<div class="kpi"><div class="lb">⚠️ معترض عليها</div>' +
+        '<div class="val ' + (disputedConfirmations.length > 0 ? 'dn' : 'up') + '">' + disputedConfirmations.length + '</div></div>' +
+      '<div class="kpi"><div class="lb">📦 الإجمالي</div>' +
+        '<div class="val">' + confirmations.length + '</div></div>' +
+    '</div>';
+    
+    // قائمة التشيكات
+    if(confirmations.length === 0){
+      html += '<div class="empty" style="margin-top:20px">لا توجد سجلات تشيك بعد</div>';
+    } else {
+      html += '<h2 style="margin:22px 0 10px">📋 سجلات التشيك</h2>';
+      
+      // عرض كل تشيك كبطاقة
+      confirmations.forEach(c => {
+        const statusTag = 
+          c.status === 'pending' ? '<span class="tag credit">⏳ بانتظار التأكيد</span>' :
+          c.status === 'confirmed' ? '<span class="tag cash">✅ مؤكد</span>' :
+          '<span class="tag disc">⚠️ معترض عليه</span>';
+        
+        const wd = store.withdrawals.find(w => w.id === c.withdrawal_id);
+        const wdDate = wd ? wd.date : new Date(c.ts).toISOString().slice(0, 10);
+        
+        html += '<div class="card" style="margin-bottom:12px;border-color:' + 
+          (c.status === 'pending' ? 'var(--orange)' : c.status === 'disputed' ? 'var(--red)' : 'var(--green)') + '">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">' +
+            '<div>' +
+              '<b>سحب #' + c.withdrawal_id.slice(0, 8) + '</b>' +
+              '<small style="display:block;color:var(--muted);font-size:12px">' + wdDate + '</small>' +
+            '</div>' +
+            statusTag +
+          '</div>';
+        
+        // الأصناف
+        html += '<div style="border-top:1px solid var(--line);padding-top:8px">';
+        (c.items || []).forEach(it => {
+          const icon = it.checked ? '✅' : '⬜';
+          html += '<div class="kv">' +
+            '<span>' + icon + ' ' + escHtml(it.product_name || '—') + '</span>' +
+            '<b>' + fmt(it.qty_expected || 0) + '</b>' +
+          '</div>';
+        });
+        html += '</div>';
+        
+        // الأزرار
+        if(c.status === 'pending'){
+          html += '<div class="btnrow" style="margin-top:10px">' +
+            '<button class="btn-primary sm" data-openconfirm="' + c.id + '">🔔 فتح الجدول للتأكيد</button>' +
+          '</div>';
+        } else {
+          html += '<div class="hint" style="margin-top:8px;color:var(--muted);font-size:12px">' +
+            (c.status === 'confirmed' ? '✅ تم التأكيد بواسطة ' + escHtml(c.confirmed_by || '—') : 
+             '⚠️ ' + escHtml(c.notes || 'اعتراض')) +
+          '</div>';
+        }
+        
+        html += '</div>';
+      });
+    }
+  }
   else if(tab === 'debts'){
     html = '<div class="card">' +
       '<h2 style="margin-bottom:10px">💳 كم تريد منه الشركة</h2>' +
@@ -4103,6 +4225,144 @@ function mountWithdrawals(){
       store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
     });
   };
+  /* =====================================================================
+   🆕 جدول تأكيد استلام البضاعة
+   ===================================================================== */
+async function openConfirmSheet(confirmationId){
+  const c = store.withdrawal_confirmations.find(x => x.id === confirmationId);
+  if(!c) return toast('السجل غير موجود','err');
+  
+  if(c.status !== 'pending'){
+    return toast('تم التعامل مع هذا السجل مسبقاً','err');
+  }
+  
+  const d = store.distributors.find(x => x.id === c.distributor_id);
+  const wd = store.withdrawals.find(w => w.id === c.withdrawal_id);
+  
+  // بناء الجدول
+  let itemsHTML = '';
+  (c.items || []).forEach((it, idx) => {
+    itemsHTML += 
+      '<div class="card" style="margin:8px 0;padding:12px">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+          '<input type="checkbox" id="confirm_item_' + idx + '" ' +
+            'checked data-idx="' + idx + '" class="confirm-check" style="width:24px;height:24px">' +
+          '<b style="flex:1;font-size:15px">' + escHtml(it.product_name) + '</b>' +
+          '<b style="color:var(--accent);font-size:18px">' + fmt(it.qty_expected) + '</b>' +
+        '</div>' +
+        '<label class="fl" style="font-size:12px">الكمية المستلمة فعلياً (إن اختلفت)</label>' +
+        '<input class="in" type="number" id="confirm_qty_' + idx + '" ' +
+          'placeholder="' + fmt(it.qty_expected) + '" ' +
+          'value="' + fmt(it.qty_expected) + '" ' +
+          'data-idx="' + idx + '" class="confirm-qty" style="margin-top:4px">' +
+      '</div>';
+  });
+  
+  openSheet(
+    '<h3>🔔 جدول تأكيد الاستلام</h3>' +
+    '<div class="card" style="background:rgba(108,184,255,.1);border-color:var(--blue);margin-bottom:12px">' +
+      '<div class="kv"><span>الموزع</span><b>' + escHtml(d ? d.name : '—') + '</b></div>' +
+      '<div class="kv"><span>التاريخ</span><b>' + (wd ? wd.date : today()) + '</b></div>' +
+      '<div class="kv"><span>عدد الأصناف</span><b>' + (c.items || []).length + '</b></div>' +
+    '</div>' +
+    
+    '<div class="step-hint">' +
+      '📋 <b>راجع كل صنف:</b> إذا استلمت الكمية كاملة — اترك ✅. ' +
+      'إذا كانت أقل — عدّل الكمية في الحقل.' +
+    '</div>' +
+    
+    itemsHTML +
+    
+    '<label class="fl">ملاحظات (اختياري)</label>' +
+    '<textarea class="in" id="confirm_notes" placeholder="أي ملاحظات على الاستلام..."></textarea>' +
+    
+    '<button class="btn-primary btn-block" id="confirm_submit" style="margin-top:16px">' +
+      '✅ تأكيد الاستلام' +
+    '</button>' +
+    
+    '<button class="btn-ghost btn-block" id="confirm_dispute" style="margin-top:8px;color:var(--red)">' +
+      '⚠️ تسجيل اعتراض' +
+    '</button>'
+  );
+  
+  // زر تأكيد
+  byId('confirm_submit').onclick = () => confirmWithdrawal(confirmationId, false);
+  
+  // زر اعتراض
+  byId('confirm_dispute').onclick = () => confirmWithdrawal(confirmationId, true);
+}
+
+async function confirmWithdrawal(confirmationId, isDispute){
+  const c = store.withdrawal_confirmations.find(x => x.id === confirmationId);
+  if(!c) return toast('السجل غير موجود','err');
+  
+  const btn = byId(isDispute ? 'confirm_dispute' : 'confirm_submit');
+  if(btn) btn.disabled = true;
+  
+  // جمع البيانات
+  const checks = document.querySelectorAll('.confirm-check');
+  const qtys = document.querySelectorAll('.confirm-qty');
+  const notes = (byId('confirm_notes') || {}).value || '';
+  
+  const items = (c.items || []).map((it, idx) => {
+    const checkEl = byId('confirm_item_' + idx);
+    const qtyEl = byId('confirm_qty_' + idx);
+    return Object.assign({}, it, {
+      checked: checkEl ? checkEl.checked : true,
+      qty_received: qtyEl ? (parseFloat(qtyEl.value) || it.qty_expected) : it.qty_expected
+    });
+  });
+  
+  const patch = {
+    items: items,
+    status: isDispute ? 'disputed' : 'confirmed',
+    confirmed_at: Date.now(),
+    confirmed_by: user.name,
+    notes: notes || (isDispute ? 'اعتراض من الموزع' : 'تم الاستلام')
+  };
+  
+  try{
+    await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
+    Object.assign(c, patch);
+    
+    const d = store.distributors.find(x => x.id === c.distributor_id);
+    
+    toast(isDispute ? '⚠️ تم تسجيل الاعتراض' : '✅ تم تأكيد الاستلام', isDispute ? 'err' : 'ok');
+    closeSheet();
+    
+    // 🆕 إرسال الإشعارات
+    if(isDispute){
+      NotificationCenter.fire('withdrawal_disputed', {
+        distName: d ? d.name : 'موزع',
+        reason: notes || 'اعتراض على الاستلام',
+        refId: c.id
+      }).catch(e => console.warn(e));
+    } else {
+      NotificationCenter.fire('withdrawal_confirmed', {
+        distName: d ? d.name : 'موزع',
+        itemsCount: items.length,
+        refId: c.id
+      }).catch(e => console.warn(e));
+    }
+    
+    // تحديث الواجهة
+    renderAll();
+    
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر الحفظ: ' + ex.message, 'err');
+    if(btn) btn.disabled = false;
+  }
+}
+
+// 🆕 معالج فتح الجدول
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('[data-openconfirm]');
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openConfirmSheet(btn.dataset.openconfirm);
+}, true);
   const wdForm = byId('wd-form');
   if(wdForm && wdForm.parentNode){
     wdForm.parentNode.insertBefore(distScanBtn, wdForm);
@@ -4122,12 +4382,59 @@ function mountWithdrawals(){
     if(v.qty>av+1e-9){toast('المتاح '+fmt(av),'err');return false}
     const row={id:uuid(),date:v.date||today(),distributor_id:v.distributor_id,product_id:v.product_id,qty:v.qty,
       price:pOf(store,v.product_id).dist_price||pOf(store,v.product_id).price,note:v.note,by:user.name,ts:Date.now(),log:[]};
-    const ok=await tryCommit(
+       const ok=await tryCommit(
       draft=>{draft.withdrawals.unshift(row)},
       async()=>{await adapter.saveSimple('withdrawals',row)},
       {rerender:['withdrawals','overview','sales','distributors']}
     );
-    if(ok){toast('تم','ok');lockWithdrawalForm();}
+    if(ok){
+      toast('تم','ok');
+      
+      // 🆕 إنشاء سجل تشيك تلقائياً
+      try{
+        const d = store.distributors.find(x => x.id === row.distributor_id);
+        const p = store.products.find(x => x.id === row.product_id);
+        
+        const confirmation = {
+          id: uuid(),
+          withdrawal_id: row.id,
+          distributor_id: row.distributor_id,
+          distributor_user_id: d ? d.user_id : null,
+          items: [{
+            product_id: row.product_id,
+            product_name: p ? p.name : '—',
+            qty_expected: row.qty,
+            qty_received: null,
+            checked: false
+          }],
+          status: 'pending',
+          confirmed_at: null,
+          confirmed_by: null,
+          notes: '',
+          photo: null,
+          ts: Date.now()
+        };
+        
+        await adapter.saveSimple('withdrawal_confirmations', confirmation);
+        if(!store.withdrawal_confirmations) store.withdrawal_confirmations = [];
+        store.withdrawal_confirmations.unshift(confirmation);
+        
+        console.log('[Withdrawal] ✅ تم إنشاء سجل تشيك:', confirmation.id);
+        
+        // 🆕 إرسال إشعارات
+        NotificationCenter.fire('withdrawal_created', {
+          summary: (p ? p.name : 'بضاعة') + ' × ' + fmt(row.qty),
+          distName: d ? d.name : 'موزع',
+          distUserId: d ? d.user_id : null,
+          refId: confirmation.id
+        }).catch(e => console.warn('push notification failed:', e));
+        
+      }catch(ex){
+        console.error('[Withdrawal] فشل إنشاء سجل التشيك:', ex);
+      }
+      
+      lockWithdrawalForm();
+    }
     return ok;
   }});
   lockWithdrawalForm();
