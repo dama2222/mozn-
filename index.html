@@ -1556,6 +1556,7 @@ const NotificationCenter = {
       }
     })
   },
+  
   async fire(eventType, context){
     if(!store || !user) return;
     const tpl = this.templates[eventType];
