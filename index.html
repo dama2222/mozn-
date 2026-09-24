@@ -3313,17 +3313,12 @@ function renderDistOps(){
     withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
     remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue };
   
-  // ربط الشرائح
-  const tabsEl = byId('dops-tabs');
-  if(tabsEl){
-    tabsEl.querySelectorAll('[data-dopstab]').forEach(btn => {
-      btn.onclick = () => {
-        tabsEl.querySelectorAll('[data-dopstab]').forEach(b => b.classList.remove('on'));
-        btn.classList.add('on');
-        renderDistOpsTab(btn.dataset.dopstab, data);
-      };
-    });
-  }
+ // ربط الشرائح — طريقة أفضل
+const tabsEl = byId('dops-tabs');
+if(tabsEl){
+  // احفظ البيانات للاستخدام من المعالج العام
+  tabsEl._dopsData = data;
+}
   
   renderDistOpsTab('overview', data);
 }
@@ -3379,8 +3374,7 @@ function renderDistOpsTab(tab, data){
     store.products.forEach(p => {
       const q = custody(store, d.id, p.id);
       if(q > 0) cust.push({p, q});
-    });
-    
+     });
     if(cust.length){
       html += '<h2 style="margin:22px 0 10px">تفاصيل البضاعة بعهدته</h2>' +
         table([
@@ -5810,7 +5804,16 @@ document.addEventListener('click',e=>{
   if(t.dataset.tab){t.dataset.tab==='__more'?moreSheet():go(t.dataset.tab);return}
   if(t.dataset.go){closeSheet();go(t.dataset.go);return}
   if(t.dataset.more){ui.lim[t.dataset.more]=(ui.lim[t.dataset.more]||20)+20;renderAll();return}
-  if(t.classList.contains('pill')){ui.f[t.dataset.f]=t.dataset.k;renderAll();return}
+  if(t.classList.contains('pill')){
+  // ✅ إذا كان في تبويب عمليات الموزع — تجاهل
+  if(t.hasAttribute('data-dopstab')) return;
+  // ✅ إذا لم يكن له data-f — تجاهل
+  if(!t.dataset.f) return;
+  // وإلا — عالج كالمعتاد
+  ui.f[t.dataset.f]=t.dataset.k;
+  renderAll();
+  return;
+}
   if(t.classList.contains('kcard')){
     const c=store.customers.find(x=>x.id===t.dataset.cust);
     if(c&&custBal(store,c).remaining<=0){toast('مسدد بالكامل');return}
@@ -6066,13 +6069,35 @@ async function boot(){
     computeStoreHash,startSmartSync,showSyncIndicator
   };
 }
+/* =====================================================================
+   🆕 معالج نقر شرائح عمليات الموزع
+   ===================================================================== */
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('[data-dopstab]');
+  if(!btn) return;
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const tabsEl = document.getElementById('dops-tabs');
+  if(!tabsEl) return;
+  
+  // إزالة الحالة النشطة من الجميع
+  tabsEl.querySelectorAll('[data-dopstab]').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  
+  // استخدام البيانات المحفوظة
+  if(tabsEl._dopsData && typeof renderDistOpsTab === 'function'){
+    renderDistOpsTab(btn.dataset.dopstab, tabsEl._dopsData);
+  }
+}, true);  // ← useCapture = true
+
 boot();
-// ✅ إتاحة الدوال للاستخدام من Console + Service Worker
+
 window.toast = toast;
 window.openSheet = openSheet;
 window.closeSheet = closeSheet;
-window.showSyncIndicator = showSyncIndicator;
-window.__muzn_version = 'v11';
+
 })();
 
 /* =====================================================================
