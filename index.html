@@ -5235,6 +5235,58 @@ async function boot(){
 boot();
 
 })();
+
+/* =====================================================================
+   🆕 AUTO-UPDATE SYSTEM
+   ===================================================================== */
+(function autoUpdater() {
+  if (!('serviceWorker' in navigator)) return;
+  
+  let refreshing = false;
+  
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    console.log('[Update] 🔄 New version detected — reloading...');
+    try {
+      sessionStorage.setItem('muzn_pre_reload', '1');
+    } catch(e) {}
+    location.reload();
+  });
+  
+  async function checkForUpdate() {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+    } catch(e) {
+      console.warn('[Update] check failed:', e);
+    }
+  }
+  
+  // فحص عند التحميل
+  window.addEventListener('load', () => {
+    setTimeout(checkForUpdate, 2000);
+  });
+  
+  // فحص دوري كل 60 ثانية
+  setInterval(checkForUpdate, 60000);
+  
+  // فحص عند العودة للتطبيق
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkForUpdate();
+  });
+  
+  // فحص عند استعادة الاتصال
+  window.addEventListener('online', checkForUpdate);
+  
+  // رسالة نجاح التحديث
+  if (sessionStorage.getItem('muzn_pre_reload')) {
+    sessionStorage.removeItem('muzn_pre_reload');
+    setTimeout(() => {
+      if (window.toast) window.toast('✅ تم تحديث التطبيق');
+    }, 1000);
+  }
+})();
 </script>
 </body>
 </html>
