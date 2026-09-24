@@ -855,6 +855,7 @@ const LocalAdapter={
     s.push_subscriptions=s.push_subscriptions||[];s.scan_log=s.scan_log||[];
     s.distributor_shifts=s.distributor_shifts||[];
     s.operator_shifts=s.operator_shifts||[];
+    s.withdrawal_confirmations=s.withdrawal_confirmations||[];
     if(s.company.tax_enabled==null)s.company.tax_enabled=false;
     if(s.company.tax_grace_days==null)s.company.tax_grace_days=7;
     if(s.company.tax_monthly_rate==null)s.company.tax_monthly_rate=2;
@@ -960,7 +961,8 @@ function SupabaseAdapter(url,key){
         safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),
         safeAll('complaints'),safeAll('operator_payments'),safeAll('attendance_shifts'),
         safeAll('purchase_requests'),safeAll('push_subscriptions'),safeAll('scan_log'),
-        safeAll('distributor_shifts'),safeAll('operator_shifts')
+        safeAll('distributor_shifts'),safeAll('operator_shifts'),
+        safeAll('withdrawal_confirmations')
       ]);
       const s={
         company:company[0]||{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:false,tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2,shift_early_threshold:5,shift_late_threshold:10},
@@ -970,7 +972,7 @@ function SupabaseAdapter(url,key){
         purchases:group(purchases,purchase_items,'purchase_id'),
         withdrawals,payments,remittances,supplier_payments,notices,audit,discounts,
         attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,
-        purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,seq:{}
+        purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations, seq:{}
       };
       IndexManager.forceAll();
       index(s);
@@ -987,7 +989,7 @@ function SupabaseAdapter(url,key){
         'payments', 'remittances', 'supplier_payments', 'notices', 'audit',
         'attendance', 'checkins', 'dist_attendance', 'complaints',
         'operator_payments', 'discounts', 'attendance_shifts',
-        'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts'
+        'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts', 'withdrawal_confirmations'
       ];
       let syncTimer = null;
       tables.forEach(t => {
@@ -1404,6 +1406,48 @@ const NotificationCenter = {
         title: '🔴 عاجل — طلب إنتاج',
         body: ctx.summary,
         url: '/#production'
+      }
+    }),
+        // 🆕 إشعارات تأكيد استلام البضاعة
+    withdrawal_created: (ctx) => ({
+      admins: {
+        title: '📦 تم سحب بضاعة',
+        body: ctx.summary,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '📦 سحب بضاعة جديد',
+        body: ctx.summary,
+        url: '/#withdrawals'
+      },
+      dist: {
+        title: '📦 بضاعة في الطريق إليك',
+        body: ctx.summary + ' — افتح عملياتك للتأكيد',
+        url: '/#dist_ops'
+      }
+    }),
+    withdrawal_confirmed: (ctx) => ({
+      admins: {
+        title: '✅ تأكيد استلام البضاعة',
+        body: ctx.distName + ' أكد استلام ' + ctx.itemsCount + ' صنف',
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '✅ تأكيد استلام البضاعة',
+        body: ctx.distName + ' أكد الاستلام',
+        url: '/#withdrawals'
+      }
+    }),
+    withdrawal_disputed: (ctx) => ({
+      admins: {
+        title: '⚠️ اعتراض على استلام البضاعة',
+        body: ctx.distName + ': ' + ctx.reason,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '⚠️ اعتراض على استلام البضاعة',
+        body: ctx.distName + ': ' + ctx.reason,
+        url: '/#withdrawals'
       }
     }),
     my_attendance_recorded: (ctx) => ({
@@ -5477,6 +5521,7 @@ function computeStoreHash(s){
   const prq = (s.purchase_requests || []);
   const shifts = (s.distributor_shifts || []).concat(s.operator_shifts || []);
   const complaints = (s.complaints || []);
+  const wc = (s.withdrawal_confirmations || []);
   return JSON.stringify({
     // الأطوال
     s: s.sales?.length, si: s.sale_items?.length,
@@ -5490,11 +5535,13 @@ function computeStoreHash(s){
     d: s.distributors?.length, u: s.users?.length,
     sp: s.supplier_payments?.length, disc: s.discounts?.length,
     prq: prq.length,
+    wc: wc.length, 
     // ✅ بصمات الحالات (لكشف التعديلات بدون تغيير الطول)
     prqStatus: prq.map(x => x.id + ':' + x.status).sort().join(','),
     shiftState: shifts.map(x => x.id + ':' + (x.closed ? 'C' : 'O')).sort().join(','),
     compStatus: complaints.map(x => x.id + ':' + (x.done ? 'D' : 'P')).sort().join(','),
-    noticeDone: (s.notices || []).map(x => x.id + ':' + (x.done ? '1' : '0')).sort().join(',')
+    noticeDone: (s.notices || []).map(x => x.id + ':' + (x.done ? '1' : '0')).sort().join(','),
+    wcStatus: wc.map(x => x.id + ':' + x.status).sort().join(',') 
   });
 }
 
