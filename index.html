@@ -4213,12 +4213,18 @@ function openScannerForStock(){
         setTimeout(openScannerForStock, 300);
       };
       
-      toast('✅ ' + product.name + ' — المتاح: ' + fmt(stock),'ok');
-    }
-  ,store, toast, escHtml, adapter, user, uuid,
-  closeSheet, openSheet
+     toast('✅ ' + product.name + ' — المتاح: ' + fmt(stock),'ok');
+    },
+    store: store,
+    toast: toast,
+    escHtml: escHtml,
+    adapter: adapter,
+    user: user,
+    uuid: uuid,
+    closeSheet: closeSheet,
+    openSheet: openSheet
   });
-} 
+}
 /* =====================================================================
    🆕 إضافة منتج سريع (لأمين المستودع)
    ===================================================================== */
