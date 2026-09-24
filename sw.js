@@ -1,7 +1,7 @@
 /* =====================================================================
-   MUZN Operations — Service Worker v3.2
+   MUZN Operations — Service Worker v3.3
    ===================================================================== */
-const CACHE_NAME = 'muzn-v3-2';
+const CACHE_NAME = 'muzn-v3-3';
 
 const CORE_ASSETS = [
   './',
@@ -18,15 +18,20 @@ const OPTIONAL_ASSETS = [
   './barcode.js'
 ];
 
+/* =====================================================================
+   INSTALL — تخزين الملفات الأساسية
+   ===================================================================== */
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(async cache => {
+      // الملفات الأساسية (إجباري)
       try {
         await cache.addAll(CORE_ASSETS);
-        console.log('[SW] Core assets cached');
+        console.log('[SW] ✅ Core assets cached');
       } catch (err) {
-        console.warn('[SW] Core cache failed:', err);
+        console.warn('[SW] ⚠️ Core cache failed:', err);
       }
+      // الملفات الاختيارية (قد تفشل - لا مشكلة)
       for (const asset of OPTIONAL_ASSETS) {
         try {
           await cache.add(asset);
@@ -39,49 +44,77 @@ self.addEventListener('install', e => {
   );
 });
 
+/* =====================================================================
+   ACTIVATE — حذف الكاش القديم
+   ===================================================================== */
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-    )).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => {
+          console.log('[SW] 🗑️ Deleting old cache:', k);
+          return caches.delete(k);
+        })
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// ✅ استقبال رسالة تحديث من الصفحة
-self.addEventListener('message', e => {
-  if(e.data && e.data.type === 'CHECK_UPDATE'){
-    self.registration.update();
-  }
-});
-
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+/* =====================================================================
+   FETCH — Cache-First مع Network Fallback
+   ===================================================================== */
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
   
-  // ✅ تجاهل إضافات المتصفح والبروتوكولات غير المدعومة
-  const url = e.request.url;
+  const url = event.request.url;
+  
+  // تجاهل الطلبات الخارجية (Supabase, CDN, Google Fonts)
+  if (url.includes('supabase') ||
+      url.includes('googleapis') ||
+      url.includes('jsdelivr') ||
+      url.includes('unpkg')) return;
+  
+  // تجاهل البروتوكولات غير المدعومة
   if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-  if (url.indexOf('chrome-extension') >= 0) return;
-  if (url.indexOf('moz-extension') >= 0) return;
-  if (url.indexOf('safari-extension') >= 0) return;
-  if (url.indexOf('supabase') >= 0) return;
-  if (url.indexOf('googleapis') >= 0) return;
-  if (url.indexOf('cdn.jsdelivr') >= 0) return;
-  if (url.indexOf('unpkg.com') >= 0) return;
-
-  e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
-      // ✅ فقط خزّن الاستجابات الصحيحة
-      if (resp.ok && resp.type === 'basic' && resp.status === 200) {
-        const clone = resp.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone)).catch(() => {});
-      }
-      return resp;
-    }).catch(() => caches.match('./index.html')))
+  if (url.includes('chrome-extension')) return;
+  if (url.includes('moz-extension')) return;
+  if (url.includes('safari-extension')) return;
+  
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      // إذا وُجد في الكاش، أرجعه فوراً
+      if (cached) return cached;
+      
+      // وإلا اجلبه من الشبكة وخزّنه
+      return fetch(event.request).then(response => {
+        // فقط خزّن الاستجابات الصحيحة
+        if (response.ok && response.type === 'basic' && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME)
+            .then(cache => cache.put(event.request, clone))
+            .catch(() => {});
+        }
+        return response;
+      }).catch(() => {
+        // إذا فشلت الشبكة، أعد صفحة index.html كحل احتياطي
+        return caches.match('./index.html');
+      });
+    })
   );
 });
 
+/* =====================================================================
+   PUSH — استقبال الإشعارات
+   ===================================================================== */
 self.addEventListener('push', e => {
-  const data = e.data ? e.data.json() : {};
+  let data = {};
+  try {
+    data = e.data ? e.data.json() : {};
+  } catch (err) {
+    console.warn('[SW] push data is not JSON:', err);
+    data = { title: 'MUZN', body: e.data ? e.data.text() : '' };
+  }
+  
   const title = data.title || 'MUZN';
   const options = {
     body: data.body || '',
@@ -90,19 +123,31 @@ self.addEventListener('push', e => {
     vibrate: [200, 100, 200],
     data: { url: data.url || '/' },
     dir: 'rtl',
-    lang: 'ar'
+    lang: 'ar',
+    tag: data.kind || 'general',
+    renotify: false
   };
+  
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
+/* =====================================================================
+   NOTIFICATION CLICK — عند الضغط على الإشعار
+   ===================================================================== */
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || '/';
+  
   e.waitUntil(
-    clients.matchAll({ type: 'window' }).then(list => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      // إذا كان التطبيق مفتوحاً، ركّز عليه
       for (const c of list) {
-        if (c.url.indexOf(url) >= 0 && 'focus' in c) return c.focus();
+        if (c.url.includes(self.location.origin) && 'focus' in c) {
+          c.navigate(url);
+          return c.focus();
+        }
       }
+      // وإلا افتح نافذة جديدة
       if (clients.openWindow) return clients.openWindow(url);
     })
   );
