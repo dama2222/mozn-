@@ -1353,23 +1353,22 @@ const NotificationCenter = {
     attendance_dist: (ctx) => ({
       admins: { title: '📸 حضور الموزعين مسجَّل', body: ctx.present + ' موزع حاضر' + (ctx.absent ? ' · ' + ctx.absent + ' غائب' : ''), url: '/#attendance_log' }
     }),
-   production_request: (ctx) => ({
-  admins: {
-    title: ctx.urgent ? '🔴 عاجل — 📦 طلب إنتاج' : '📦 طلب إنتاج',
-    body: ctx.summary,
-    url: '/#production'
-  },
-  // ✅ إشعار لكل مشغّل مرتبط بحساب
-  operators: ctx.urgent ? {
-    title: '🔴 عاجل — إنتاج مطلوب',
-    body: ctx.summary + ' — راجع الوردية',
-    url: '/#production'
-  } : {
-    title: '📦 طلب إنتاج جديد',
-    body: ctx.summary,
-    url: '/#production'
-  }
-}),
+    production_request: (ctx) => ({
+      admins: {
+        title: ctx.urgent ? '🔴 عاجل — 📦 طلب إنتاج' : '📦 طلب إنتاج',
+        body: ctx.summary,
+        url: '/#production'
+      },
+      operators: ctx.urgent ? {
+        title: '🔴 عاجل — إنتاج مطلوب',
+        body: ctx.summary + ' — راجع الوردية',
+        url: '/#production'
+      } : {
+        title: '📦 طلب إنتاج جديد',
+        body: ctx.summary,
+        url: '/#production'
+      }
+    }),
     purchase_request: (ctx) => ({
       admins: { title: '📦 طلب نواقص جديد', body: ctx.summary, url: '/#purchases' },
       buyers: { title: '📦 طلب نواقص جديد', body: ctx.summary, url: '/#purchases' }
@@ -1411,7 +1410,6 @@ const NotificationCenter = {
       admins: { title: '🔴 إغلاق وردية موزع', body: ctx.distName + ' أنهى ورديته — المدة: ' + ctx.duration, url: '/#distributors' },
       dist: { title: '🔴 ورديتك انتهت', body: 'شكراً لك على جهودك اليوم — المدة: ' + ctx.duration, url: '/#distributors' }
     }),
-        // 🆕 إشعارات موجهة للموزع شخصياً
     overdue_cust_single: (ctx) => ({
       dist: {
         title: '⚠️ عملاء متأخرون لديك',
@@ -1433,7 +1431,6 @@ const NotificationCenter = {
         url: '/#withdrawals'
       }
     }),
-    // 🆕 إشعارات موجهة للمشغّل شخصياً
     production_daily: (ctx) => ({
       operator: {
         title: '📊 إنتاجك اليوم',
@@ -1448,16 +1445,36 @@ const NotificationCenter = {
         url: '/#production'
       }
     }),
-        // 🆕 إشعارات تأكيد استلام البضاعة
+    my_attendance_recorded: (ctx) => ({
+      operator: {
+        title: '✅ تم تسجيل حضورك',
+        body: ctx.summary,
+        url: '/#production'
+      }
+    }),
+    low_material_buyer: (ctx) => ({
+      buyer: {
+        title: '📦 مادة خام منخفضة — ' + (ctx.materialName || ''),
+        body: ctx.summary,
+        url: '/#purchases'
+      }
+    }),
+    pr_assigned: (ctx) => ({
+      buyer: {
+        title: '📋 طلب نواقص جديد',
+        body: ctx.summary,
+        url: '/#purchase_requests'
+      }
+    }),
     withdrawal_created: (ctx) => ({
       admins: {
         title: '📦 تم سحب بضاعة',
-        body: ctx.summary,
+        body: ctx.summary + ' لـ ' + ctx.distName,
         url: '/#withdrawals'
       },
       operators: {
         title: '📦 سحب بضاعة جديد',
-        body: ctx.summary,
+        body: ctx.summary + ' لـ ' + ctx.distName,
         url: '/#withdrawals'
       },
       dist: {
@@ -1478,7 +1495,7 @@ const NotificationCenter = {
         url: '/#withdrawals'
       }
     }),
-      withdrawal_disputed: (ctx) => ({
+    withdrawal_disputed: (ctx) => ({
       admins: {
         title: '⚠️ اعتراض على استلام البضاعة',
         body: ctx.distName + ' رفض الاستلام: ' + ctx.reason + ' — أُرجعت البضاعة للمخزون',
@@ -1490,69 +1507,23 @@ const NotificationCenter = {
         url: '/#withdrawals'
       }
     }),
-    // 🆕 طلب إعادة تشييك
-       withdrawal_recheck_requested: (ctx) => ({
-      // ...
+    withdrawal_recheck_requested: (ctx) => ({
+      admins: {
+        title: '🔄 طلب إعادة تشييك',
+        body: ctx.distName + ' يطلب إعادة تشييك: ' + ctx.reason,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '🔄 طلب إعادة تشييك',
+        body: ctx.distName + ': ' + ctx.reason + '\nالأصناف: ' + ctx.itemsSummary,
+        url: '/#withdrawals'
+      }
     }),
-    // 🆕 إشعار إضافة منتج
     product_added: (ctx) => ({
       admins: {
         title: '➕ منتج جديد',
         body: ctx.addedBy + ' أضاف: ' + ctx.productName,
         url: '/#warehouse'
-      }
-    })
-  },
-    my_attendance_recorded: (ctx) => ({
-      operator: {
-        title: '✅ تم تسجيل حضورك',
-        body: ctx.summary,
-        url: '/#production'
-      }
-    }),
-    // 🆕 إشعارات موجهة للمشتريات شخصياً
-    low_material_buyer: (ctx) => ({
-      buyer: {
-        title: '📦 مادة خام منخفضة — ' + (ctx.materialName || ''),
-        body: ctx.summary,
-        url: '/#purchases'
-      }
-    }),
-        pr_assigned: (ctx) => ({
-      buyer: {
-        title: '📋 طلب نواقص جديد',
-        body: ctx.summary,
-        url: '/#purchase_requests'
-      }
-    }),
-    // 🆕 إشعارات تأكيد استلام البضاعة
-    withdrawal_created: (ctx) => ({
-      admins: {
-        title: '📦 تم سحب بضاعة',
-        body: ctx.summary + ' لـ ' + ctx.distName,
-        url: '/#withdrawals'
-      },
-      operators: {
-        title: '📦 سحب بضاعة جديد',
-        body: ctx.summary + ' لـ ' + ctx.distName,
-        url: '/#withdrawals'
-      },
-      dist: {
-        title: '📦 بضاعة في الطريق إليك',
-        body: ctx.summary + ' — افتح عملياتك للتأكيد',
-        url: '/#dist_ops'
-      }
-    }),
-    withdrawal_confirmed: (ctx) => ({
-      admins: {
-        title: '✅ تأكيد استلام البضاعة',
-        body: ctx.distName + ' أكد استلام ' + ctx.itemsCount + ' صنف',
-        url: '/#withdrawals'
-      },
-      operators: {
-        title: '✅ تأكيد استلام البضاعة',
-        body: ctx.distName + ' أكد الاستلام',
-        url: '/#withdrawals'
       }
     })
   },
