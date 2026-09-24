@@ -1465,18 +1465,31 @@ const NotificationCenter = {
         url: '/#withdrawals'
       }
     }),
-    withdrawal_disputed: (ctx) => ({
+      withdrawal_disputed: (ctx) => ({
       admins: {
         title: '⚠️ اعتراض على استلام البضاعة',
-        body: ctx.distName + ': ' + ctx.reason,
+        body: ctx.distName + ' رفض الاستلام: ' + ctx.reason + ' — أُرجعت البضاعة للمخزون',
         url: '/#withdrawals'
       },
       operators: {
         title: '⚠️ اعتراض على استلام البضاعة',
-        body: ctx.distName + ': ' + ctx.reason,
+        body: ctx.distName + ' رفض الاستلام: ' + ctx.reason,
         url: '/#withdrawals'
       }
     }),
+    // 🆕 طلب إعادة تشييك
+    withdrawal_recheck_requested: (ctx) => ({
+      admins: {
+        title: '🔄 طلب إعادة تشييك',
+        body: ctx.distName + ' يطلب إعادة تشييك: ' + ctx.reason,
+        url: '/#withdrawals'
+      },
+      operators: {
+        title: '🔄 طلب إعادة تشييك',
+        body: ctx.distName + ': ' + ctx.reason + '\nالأصناف: ' + ctx.itemsSummary,
+        url: '/#withdrawals'
+      }
+     }),
     my_attendance_recorded: (ctx) => ({
       operator: {
         title: '✅ تم تسجيل حضورك',
@@ -1526,18 +1539,6 @@ const NotificationCenter = {
       operators: {
         title: '✅ تأكيد استلام البضاعة',
         body: ctx.distName + ' أكد الاستلام',
-        url: '/#withdrawals'
-      }
-    }),
-    withdrawal_disputed: (ctx) => ({
-      admins: {
-        title: '⚠️ اعتراض على استلام البضاعة',
-        body: ctx.distName + ': ' + ctx.reason,
-        url: '/#withdrawals'
-      },
-      operators: {
-        title: '⚠️ اعتراض على استلام البضاعة',
-        body: ctx.distName + ': ' + ctx.reason,
         url: '/#withdrawals'
       }
     })
@@ -3919,11 +3920,22 @@ function renderDistOpsTab(tab, data){
       html += '<h2 style="margin:22px 0 10px">📋 سجلات التشيك</h2>';
       
       // عرض كل تشيك كبطاقة
-      confirmations.forEach(c => {
-        const statusTag = 
-          c.status === 'pending' ? '<span class="tag credit">⏳ بانتظار التأكيد</span>' :
-          c.status === 'confirmed' ? '<span class="tag cash">✅ مؤكد</span>' :
-          '<span class="tag disc">⚠️ معترض عليه</span>';
+            confirmations.forEach(c => {
+        // ✅ تحديد الحالة
+        let statusTag;
+        
+        // 🆕 تحقق أولاً من طلب إعادة التشييك
+        const isRecheckRequested = c.notes && c.notes.startsWith('[طلب إعادة تشييك]');
+        
+        if(isRecheckRequested && c.status === 'pending'){
+          statusTag = '<span class="tag warn" style="background:var(--orange);color:#1b1200">🔄 إعادة تشييك</span>';
+        } else if(c.status === 'pending'){
+          statusTag = '<span class="tag credit">⏳ بانتظار التأكيد</span>';
+        } else if(c.status === 'confirmed'){
+          statusTag = '<span class="tag cash">✅ مؤكد</span>';
+        } else {
+          statusTag = '<span class="tag disc">⚠️ معترض عليه</span>';
+        }
         
         const wd = store.withdrawals.find(w => w.id === c.withdrawal_id);
         const wdDate = wd ? wd.date : new Date(c.ts).toISOString().slice(0, 10);
@@ -3948,6 +3960,14 @@ function renderDistOpsTab(tab, data){
           '</div>';
         });
         html += '</div>';
+        
+              // 🆕 إظهار سبب إعادة التشييك
+        if(isRecheckRequested && c.status === 'pending'){
+          const reason = c.notes.replace('[طلب إعادة تشييك]', '').trim();
+          html += '<div class="notice info" style="margin-top:8px;font-size:12px;padding:8px 10px">' +
+            '🔄 <b>طلب إعادة تشييك:</b> ' + escHtml(reason) +
+          '</div>';
+        }
         
         // الأزرار
         if(c.status === 'pending'){
@@ -4239,27 +4259,36 @@ async function openConfirmSheet(confirmationId){
   const d = store.distributors.find(x => x.id === c.distributor_id);
   const wd = store.withdrawals.find(w => w.id === c.withdrawal_id);
   
-  // بناء الجدول
+  // بناء الجدول — بدون حقول تعديل الكمية
   let itemsHTML = '';
   (c.items || []).forEach((it, idx) => {
     itemsHTML += 
-      '<div class="card" style="margin:8px 0;padding:12px">' +
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
-          '<input type="checkbox" id="confirm_item_' + idx + '" ' +
-            'checked data-idx="' + idx + '" class="confirm-check" style="width:24px;height:24px">' +
-          '<b style="flex:1;font-size:15px">' + escHtml(it.product_name) + '</b>' +
-          '<b style="color:var(--accent);font-size:18px">' + fmt(it.qty_expected) + '</b>' +
+      '<div class="card" style="margin:8px 0;padding:12px;background:var(--card2)">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<b style="display:block;font-size:15px;margin-bottom:2px">' + escHtml(it.product_name) + '</b>' +
+            '<small style="color:var(--muted);font-size:12px">الكمية المسحوبة</small>' +
+          '</div>' +
+          '<b style="color:var(--accent);font-size:22px;font-weight:800">' + fmt(it.qty_expected) + '</b>' +
         '</div>' +
-        '<label class="fl" style="font-size:12px">الكمية المستلمة فعلياً (إن اختلفت)</label>' +
-        '<input class="in" type="number" id="confirm_qty_' + idx + '" ' +
-          'placeholder="' + fmt(it.qty_expected) + '" ' +
-          'value="' + fmt(it.qty_expected) + '" ' +
-          'data-idx="' + idx + '" class="confirm-qty" style="margin-top:4px">' +
       '</div>';
   });
   
+  // 🆕 تحقق من طلب إعادة التشييك
+  const isRecheck = c.notes && c.notes.startsWith('[طلب إعادة تشييك]');
+  const recheckReason = isRecheck ? c.notes.replace('[طلب إعادة تشييك]', '').trim() : '';
+  
   openSheet(
     '<h3>🔔 جدول تأكيد الاستلام</h3>' +
+    
+    // 🆕 تنبيه إعادة التشييك
+    (isRecheck ? 
+      '<div class="notice" style="border-color:var(--orange);background:rgba(255,176,74,.15);margin-bottom:12px">' +
+        '🔄 <b>طلب سابق لإعادة التشييك:</b><br>' +
+        escHtml(recheckReason) +
+      '</div>' : ''
+    ) +
+    
     '<div class="card" style="background:rgba(108,184,255,.1);border-color:var(--blue);margin-bottom:12px">' +
       '<div class="kv"><span>الموزع</span><b>' + escHtml(d ? d.name : '—') + '</b></div>' +
       '<div class="kv"><span>التاريخ</span><b>' + (wd ? wd.date : today()) + '</b></div>' +
@@ -4267,70 +4296,119 @@ async function openConfirmSheet(confirmationId){
     '</div>' +
     
     '<div class="step-hint">' +
-      '📋 <b>راجع كل صنف:</b> إذا استلمت الكمية كاملة — اترك ✅. ' +
-      'إذا كانت أقل — عدّل الكمية في الحقل.' +
+      '📋 <b>راجع كل صنف:</b> إذا استلمت الكميات كاملة كما هي — اضغط تأكيد. ' +
+      'إذا كانت هناك مشكلة — اضغط اعتراض.' +
     '</div>' +
     
     itemsHTML +
     
     '<label class="fl">ملاحظات (اختياري)</label>' +
-    '<textarea class="in" id="confirm_notes" placeholder="أي ملاحظات على الاستلام..."></textarea>' +
+    '<textarea class="in" id="confirm_notes" placeholder="أي ملاحظات..."></textarea>' +
     
     '<button class="btn-primary btn-block" id="confirm_submit" style="margin-top:16px">' +
       '✅ تأكيد الاستلام' +
     '</button>' +
     
-    '<button class="btn-ghost btn-block" id="confirm_dispute" style="margin-top:8px;color:var(--red)">' +
-      '⚠️ تسجيل اعتراض' +
+    '<button class="btn-danger btn-block" id="confirm_dispute" style="margin-top:8px">' +
+      '⚠️ رفض / اعتراض — إرجاع البضاعة للمخزون' +
+    '</button>' +
+    
+    '<button class="btn-ghost btn-block" id="confirm_recheck" style="margin-top:8px">' +
+      '🔄 طلب إعادة تشييك' +
     '</button>'
   );
   
-  // زر تأكيد
-  byId('confirm_submit').onclick = () => confirmWithdrawal(confirmationId, false);
-  
-  // زر اعتراض
-  byId('confirm_dispute').onclick = () => confirmWithdrawal(confirmationId, true);
+  // ربط الأزرار
+  byId('confirm_submit').onclick = () => confirmWithdrawal(confirmationId, 'confirmed');
+  byId('confirm_dispute').onclick = () => confirmWithdrawal(confirmationId, 'disputed');
+  byId('confirm_recheck').onclick = () => requestRecheck(confirmationId);
 }
 
-async function confirmWithdrawal(confirmationId, isDispute){
+async function confirmWithdrawal(confirmationId, action){
   const c = store.withdrawal_confirmations.find(x => x.id === confirmationId);
   if(!c) return toast('السجل غير موجود','err');
+  
+  // action: 'confirmed' أو 'disputed'
+  const isDispute = action === 'disputed';
   
   const btn = byId(isDispute ? 'confirm_dispute' : 'confirm_submit');
   if(btn) btn.disabled = true;
   
-  // جمع البيانات
-  const checks = document.querySelectorAll('.confirm-check');
-  const qtys = document.querySelectorAll('.confirm-qty');
   const notes = (byId('confirm_notes') || {}).value || '';
   
-  const items = (c.items || []).map((it, idx) => {
-    const checkEl = byId('confirm_item_' + idx);
-    const qtyEl = byId('confirm_qty_' + idx);
-    return Object.assign({}, it, {
-      checked: checkEl ? checkEl.checked : true,
-      qty_received: qtyEl ? (parseFloat(qtyEl.value) || it.qty_expected) : it.qty_expected
-    });
-  });
+  // ✅ تأكيد على نافذة إذا كان اعتراضاً
+  if(isDispute){
+    const confirmed = window.confirm(
+      '⚠️ أنت على وشك رفض البضاعة.\n\n' +
+      'سيتم:\n' +
+      '• إرجاع البضاعة للمخزون\n' +
+      '• إلغاء السحب\n' +
+      '• إشعار المدير والمشغّل\n\n' +
+      'هل أنت متأكد؟'
+    );
+    if(!confirmed){
+      if(btn) btn.disabled = false;
+      return;
+    }
+  }
   
+  // ✅ تحقق: هل يوجد سبب في حالة الاعتراض؟
+  if(isDispute && !notes.trim()){
+    toast('يرجى كتابة سبب الاعتراض في الملاحظات','err');
+    if(btn) btn.disabled = false;
+    return;
+  }
+  
+  // البيانات
   const patch = {
-    items: items,
-    status: isDispute ? 'disputed' : 'confirmed',
+    status: action,
     confirmed_at: Date.now(),
     confirmed_by: user.name,
     notes: notes || (isDispute ? 'اعتراض من الموزع' : 'تم الاستلام')
   };
   
   try{
-    await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
-    Object.assign(c, patch);
+    // ✅ إذا كان اعتراضاً — أعد البضاعة للمخزون
+    if(isDispute){
+      // 1. احذف السحب من قاعدة البيانات
+      await adapter.deleteSimple('withdrawals', c.withdrawal_id);
+      
+      // 2. حدّث سجل التشيك
+      await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
+      
+      // 3. حدّث المخزون محلياً
+      const draft = clone(store);
+      draft.withdrawals = draft.withdrawals.filter(w => w.id !== c.withdrawal_id);
+      const cc = draft.withdrawal_confirmations.find(x => x.id === confirmationId);
+      if(cc) Object.assign(cc, patch);
+      
+      // 4. سجّل في audit
+      draft.audit.unshift({
+        id: uuid(),
+        ts: Date.now(),
+        by: user.name,
+        act: 'اعتراض',
+        text: 'إرجاع بضاعة للمخزون — ' + 
+          (c.items || []).map(i => i.product_name + ' × ' + fmt(i.qty_expected)).join('، ')
+      });
+      
+      store = draft;
+    } else {
+      // ✅ تأكيد عادي — لا تغيير في المخزون
+      await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
+      Object.assign(c, patch);
+    }
     
     const d = store.distributors.find(x => x.id === c.distributor_id);
+    const itemsCount = (c.items || []).length;
     
-    toast(isDispute ? '⚠️ تم تسجيل الاعتراض' : '✅ تم تأكيد الاستلام', isDispute ? 'err' : 'ok');
+    toast(
+      isDispute ? '⚠️ تم رفض الاستلام — أُرجعت البضاعة للمخزون' : '✅ تم تأكيد الاستلام',
+      isDispute ? 'err' : 'ok'
+    );
     closeSheet();
     
-    // 🆕 إرسال الإشعارات
+    // 🆕 الإشعارات
     if(isDispute){
       NotificationCenter.fire('withdrawal_disputed', {
         distName: d ? d.name : 'موزع',
@@ -4340,12 +4418,11 @@ async function confirmWithdrawal(confirmationId, isDispute){
     } else {
       NotificationCenter.fire('withdrawal_confirmed', {
         distName: d ? d.name : 'موزع',
-        itemsCount: items.length,
+        itemsCount: itemsCount,
         refId: c.id
       }).catch(e => console.warn(e));
     }
     
-    // تحديث الواجهة
     renderAll();
     
   }catch(ex){
@@ -4354,8 +4431,9 @@ async function confirmWithdrawal(confirmationId, isDispute){
     if(btn) btn.disabled = false;
   }
 }
-
-// 🆕 معالج فتح الجدول
+/* =====================================================================
+   🆕 معالجات جدول التشيك
+   ===================================================================== */
 document.addEventListener('click', function(e){
   const btn = e.target.closest('[data-openconfirm]');
   if(!btn) return;
@@ -4363,6 +4441,62 @@ document.addEventListener('click', function(e){
   e.stopPropagation();
   openConfirmSheet(btn.dataset.openconfirm);
 }, true);
+
+/* =====================================================================
+   🆕 طلب إعادة التشييك
+   ===================================================================== */
+async function requestRecheck(confirmationId){
+  const c = store.withdrawal_confirmations.find(x => x.id === confirmationId);
+  if(!c) return toast('السجل غير موجود','err');
+  
+  if(c.status !== 'pending'){
+    return toast('تم التعامل مع هذا السجل مسبقاً','err');
+  }
+  
+  const notes = (byId('confirm_notes') || {}).value || '';
+  
+  if(!notes.trim()){
+    return toast('يرجى كتابة سبب طلب إعادة التشييك في الملاحظات','err');
+  }
+  
+  // ✅ نافذة تأكيد
+  const confirmed = window.confirm(
+    '🔄 طلب إعادة تشييك\n\n' +
+    'سيتم:\n' +
+    '• إرسال إشعار للمشغّل وأمين المستودع\n' +
+    '• سبب الطلب: ' + notes + '\n\n' +
+    'هل أنت متأكد؟'
+  );
+  
+  if(!confirmed) return;
+  
+  const d = store.distributors.find(x => x.id === c.distributor_id);
+  
+  // احفظ السبب في notes لكن لا تغيّر الحالة
+  const patch = {
+    notes: '[طلب إعادة تشييك] ' + notes
+  };
+  
+  try{
+    await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
+    Object.assign(c, patch);
+    
+    // ✅ إرسال إشعارات
+    NotificationCenter.fire('withdrawal_recheck_requested', {
+      distName: d ? d.name : 'موزع',
+      reason: notes,
+      itemsSummary: (c.items || []).map(i => i.product_name + ' × ' + fmt(i.qty_expected)).join('، '),
+      refId: c.id
+    }).catch(e => console.warn(e));
+    
+    toast('✅ تم إرسال طلب إعادة التشييك', 'ok');
+    closeSheet();
+    
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر الإرسال: ' + ex.message, 'err');
+  }
+}
   const wdForm = byId('wd-form');
   if(wdForm && wdForm.parentNode){
     wdForm.parentNode.insertBefore(distScanBtn, wdForm);
@@ -4523,12 +4657,24 @@ function renderWithdrawals(){
   const all=store.withdrawals;
   byId('wd-stats').innerHTML=statsStrip(all,w=>w.qty,fmt,a=>'بقيمة '+fmt(sum(a,w=>w.qty*w.price)));
   const rows=[...all].sort(byDate);
+    // 🆕 دوال للحصول على حالة التشيك
+  const getConfirmationStatus = (wdId) => {
+    const c = (store.withdrawal_confirmations || []).find(x => x.withdrawal_id === wdId);
+    if(!c) return '—';
+    if(c.status === 'confirmed') return '<span class="tag cash">✅ مؤكد</span>';
+    if(c.status === 'disputed') return '<span class="tag disc">⚠️ مرفوض</span>';
+    if(c.notes && c.notes.startsWith('[طلب إعادة تشييك]')) 
+      return '<span class="tag warn" style="background:var(--orange);color:#1b1200">🔄 إعادة تشييك</span>';
+    return '<span class="tag credit">⏳ بانتظار</span>';
+  };
+  
   const cols=[
     {h:'التاريخ',f:r=>r.date,cls:'nw'},
     {h:'الموزع',f:r=>escHtml(dn(r.distributor_id))},
     {h:'المنتج',f:r=>escHtml(pn(r.product_id))},
     {h:'الكمية',f:r=>fmt(r.qty)+adj(r),cls:'nw'},
     {h:'القيمة',f:r=>money(r.qty*r.price),cls:'nw'},
+    {h:'📋 التشيك',f:r=>getConfirmationStatus(r.id),cls:'nw'},   // 🆕
     {h:'ملاحظة',f:r=>escHtml(r.note||'—')}
   ];
   if(canD())cols.push({h:'',f:r=>'<button class="mini dng" data-wddel="'+r.id+'">حذف</button>',cls:'nw'});
