@@ -4140,6 +4140,7 @@ function openScannerForStock(){
               '<div class="kv"><span>يكفي لتصنيع</span><b class="' + (matStock > 0 ? 'up' : 'dn') + '">' + 
                 (product.material_qty > 0 ? fmt(Math.floor(matStock / product.material_qty)) : '—') + ' وحدة</b></div>' +
             '</div>';
+       }
       }
       
       // ✅ سجل عمليات المسح
