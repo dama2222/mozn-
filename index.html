@@ -827,7 +827,8 @@ const MODS=[
   {id:'sales',t:'المبيعات',s:'المبيعات'},
   {id:'production',t:'الإنتاج',s:'الإنتاج'},
   {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},
-  {id:'dist_ops',t:'عمليات الموزع',s:'عمليات'},        // 🆕
+  {id:'dist_ops',t:'عمليات الموزع',s:'عمليات'},
+  {id:'op_ops',t:'عمليات المشغّل',s:'مشغّل'},          // 🆕
   {id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
   {id:'purchase_requests',t:'طلبات النواقص',s:'النواقص'},
   {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},
@@ -838,7 +839,32 @@ const MODS=[
 const isA=()=>user&&user.role==='admin';
 const canE=()=>isA()||(user&&user.can_edit);
 const canD=()=>isA()||(user&&user.can_delete);
-const allowed=()=>MODS.filter(m=>isA()||(!m.admin&&user.perms.indexOf(m.id)>=0));
+const allowed=()=>{
+  return MODS.filter(m=>{
+    // ✅ المدير يرى الكل
+    if(isA()) return true;
+    // ✅ الأقسام الإدارية — للمدير فقط
+    if(m.admin) return false;
+    
+    // ✅ إذا كان المستخدم مشغّلاً مرتبطاً
+    if(m.id === 'op_ops'){
+      const myOperator = (store.operators||[]).find(o => o.user_id === user.id);
+      return !!myOperator;   // يرى التبويب فقط إذا كان مشغّلاً مرتبطاً
+    }
+    
+    // ✅ إذا كان المستخدم موزعاً مرتبطاً
+    if(m.id === 'dist_ops'){
+      const myDist = (store.distributors||[]).find(d => d.user_id === user.id);
+      if(myDist) return true;   // موزع → يرى dist_ops
+      // وإلا — يحتاج صلاحية 'distributors' أو 'sales'
+      return user.perms.indexOf('distributors') >= 0 || 
+             user.perms.indexOf('sales') >= 0;
+    }
+    
+    // ✅ الأقسام العادية — حسب الصلاحيات
+    return user.perms.indexOf(m.id) >= 0;
+  });
+};
 
 /* =====================================================================
    LocalAdapter
@@ -2412,6 +2438,19 @@ const SKEL={
       '<select class="in" id="dops-picker"></select>' +
     '</div>' +
     '<div id="dops-content"></div>',
+    dist_ops:'<h1>عمليات الموزع</h1>' +
+    '<div class="card" style="margin-bottom:12px">' +
+      '<label class="fl">اختر الموزع</label>' +
+      '<select class="in" id="dops-picker"></select>' +
+    '</div>' +
+    '<div id="dops-content"></div>',
+  op_ops:'<h1>عمليات المشغّل</h1>' +
+    '<div class="card" style="margin-bottom:12px" id="oops-picker-wrap">' +
+      '<label class="fl">اختر المشغّل</label>' +
+      '<select class="in" id="oops-picker"></select>' +
+    '</div>' +
+    '<div id="oops-content"></div>',
+  purchases:'<h1>المشتريات والموردون</h1>...',
   purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
@@ -3207,6 +3246,454 @@ function distAttendanceSheet(){
       renderAll();
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
   };
+}
+  /* =====================================================================
+   🆕 عمليات المشغّل
+   ===================================================================== */
+function mountOpOps(){
+  const picker = byId('oops-picker');
+  const wrap = byId('oops-picker-wrap');
+  if(!picker) return;
+  
+  // ✅ إذا كان المستخدم مشغّلاً — اقفل على نفسه
+  const myOperator = (store.operators||[]).find(o => o.user_id === user.id);
+  
+  const ops = store.operators;
+  picker.innerHTML = ops.map(o => 
+    '<option value="' + o.id + '">' + escHtml(o.name) + '</option>'
+  ).join('');
+  
+  if(myOperator && !isA()){
+    // ✅ المشغّل يرى نفسه فقط — أخفِ القائمة
+    picker.value = myOperator.id;
+    if(wrap) wrap.style.display = 'none';
+  }
+  
+  picker.onchange = () => renderOpOps();
+  renderOpOps();
+}
+
+function renderOpOps(){
+  const content = byId('oops-content');
+  if(!content) return;
+  
+  const picker = byId('oops-picker');
+  const oid = picker ? picker.value : null;
+  if(!oid){
+    content.innerHTML = '<div class="empty">اختر مشغّلاً</div>';
+    return;
+  }
+  
+  const o = store.operators.find(x => x.id === oid);
+  if(!o){
+    content.innerHTML = '<div class="empty">المشغّل غير موجود</div>';
+    return;
+  }
+  
+  // =========================================================
+  // جمع البيانات
+  // =========================================================
+  
+  // 1. الإنتاج
+  const myItems = (store.shift_items_flat || []).filter(s => s.operator_id === oid);
+  const totalProduced = sum(myItems, s => s.actual);
+  const totalWaste = sum(myItems, s => s.waste);
+  const totalDown = sum(myItems, s => s.down);
+  
+  // تفصيل حسب المنتج
+  const byProduct = {};
+  myItems.forEach(it => {
+    const pid = it.product_id;
+    if(!byProduct[pid]) {
+      byProduct[pid] = {
+        p: pOf(store, pid),
+        planned: 0, actual: 0, waste: 0, down: 0,
+        days: new Set(),
+        incentive: 0
+      };
+    }
+    byProduct[pid].planned += (it.planned || 0);
+    byProduct[pid].actual += (it.actual || 0);
+    byProduct[pid].waste += (it.waste || 0);
+    byProduct[pid].down += (it.down || 0);
+    byProduct[pid].days.add(it.date);
+    const prod = pOf(store, pid);
+    if(prod) {
+      byProduct[pid].incentive += (it.actual || 0) * (prod.incentive || 0);
+    }
+  });
+  const productList = Object.values(byProduct)
+    .map(x => Object.assign({}, x, { daysCount: x.days.size }))
+    .filter(x => x.p)
+    .sort((a, b) => b.actual - a.actual);
+  
+  // ✅ الأكثر إنتاجاً
+  const topProducts = productList.slice(0, 5);
+  
+  // ✅ التوقفات
+  const stops = myItems.filter(it => it.down > 0 && it.reason)
+    .map(it => ({
+      date: it.date,
+      product: pOf(store, it.product_id),
+      down: it.down,
+      reason: it.reason,
+      shift: it.shift
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  
+  const stopsByReason = {};
+  stops.forEach(s => {
+    if(!stopsByReason[s.reason]) stopsByReason[s.reason] = { count: 0, totalMin: 0 };
+    stopsByReason[s.reason].count++;
+    stopsByReason[s.reason].totalMin += s.down;
+  });
+  
+  // 2. المستحقات
+  const due = operatorDue(store, oid);
+  const earned = operatorEarned(store, oid);
+  const payments = (store.operator_payments || [])
+    .filter(p => p.operator_id === oid)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const totalPaid = sum(payments, p => p.amount);
+  
+  // 3. الخصومات
+  const discounts = (store.discounts || [])
+    .filter(x => x.kind === 'operator' && x.ref_id === oid && !x.cancelled)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const totalDiscounts = sum(discounts, d => d.amount);
+  
+  // 4. الورديات
+  const shifts = (store.operator_shifts || [])
+    .filter(s => s.operator_id === oid)
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.checkin_ts || 0) - (a.checkin_ts || 0));
+  const shiftStats = getShiftStats(oid, 'operator');
+  
+  // =========================================================
+  // بناء الواجهة
+  // =========================================================
+  
+  let html = '';
+  
+  // ✅ رأس الصفحة
+  html += '<div class="kgrid">' +
+    '<div class="kpi wide"><div class="lb">💰 المستحق له</div>' +
+      '<div class="val ' + (due > 0.009 ? 'dn' : 'up') + '">' +
+      fmt(Math.max(due, 0)) + ' ' + cur() + '</div>' +
+      '<div class="sub mut">إجمالي حوافزه: ' + fmt(earned) + ' ' + cur() + '</div>' +
+    '</div>' +
+    '<div class="kpi"><div class="lb">📦 إجمالي الإنتاج</div>' +
+      '<div class="val">' + fmt(totalProduced) + '</div></div>' +
+    '<div class="kpi"><div class="lb">⏰ ساعات العمل</div>' +
+      '<div class="val">' + shiftStats.totalHours + ' <small>س</small></div></div>' +
+  '</div>';
+  
+  // ✅ الشرائح
+  html += '<div class="pills" id="oops-tabs" style="margin:16px 0 12px">' +
+    '<button class="pill on" data-oopstab="overview">📊 نظرة عامة</button>' +
+    '<button class="pill" data-oopstab="earnings">💰 المستحقات</button>' +
+    '<button class="pill" data-oopstab="production">📦 الإنتاج</button>' +
+    '<button class="pill" data-oopstab="top">🔥 الأكثر إنتاجاً</button>' +
+    '<button class="pill" data-oopstab="stops">⚠️ التوقفات</button>' +
+    '<button class="pill" data-oopstab="discounts">💸 الخصومات</button>' +
+    '<button class="pill" data-oopstab="shifts">⏰ الورديات</button>' +
+    '<button class="pill" data-oopstab="payments">💵 التسديدات</button>' +
+  '</div>';
+  
+  html += '<div id="oops-body"></div>';
+  content.innerHTML = html;
+  
+  // ✅ احفظ البيانات
+  const data = {
+    o, myItems, totalProduced, totalWaste, totalDown,
+    productList, topProducts, stops, stopsByReason,
+    due, earned, payments, totalPaid,
+    discounts, totalDiscounts,
+    shifts, shiftStats
+  };
+  
+  const tabsEl = byId('oops-tabs');
+  if(tabsEl){
+    tabsEl._oopsData = data;
+  }
+  
+  renderOpOpsTab('overview', data);
+}
+
+function renderOpOpsTab(tab, data){
+  const body = byId('oops-body');
+  if(!body) return;
+  
+  const { o, myItems, totalProduced, totalWaste, totalDown,
+    productList, topProducts, stops, stopsByReason,
+    due, earned, payments, totalPaid,
+    discounts, totalDiscounts,
+    shifts, shiftStats } = data;
+  
+  let html = '';
+  
+  // =========================================================
+  // نظرة عامة
+  // =========================================================
+  if(tab === 'overview'){
+    html = '<div class="card">' +
+      '<h2 style="margin-bottom:10px">📊 ملخص شامل</h2>' +
+      '<div class="kv"><span>📦 إجمالي الإنتاج</span><b>' + fmt(totalProduced) + ' وحدة</b></div>' +
+      '<div class="kv"><span>💧 الهدر</span><b class="' + (totalWaste > 0 ? 'warn' : 'up') + '">' + fmt(totalWaste) + ' وحدة</b></div>' +
+      '<div class="kv"><span>⚠️ إجمالي التوقفات</span><b class="' + (totalDown > 0 ? 'warn' : 'up') + '">' + fmt(totalDown) + ' دقيقة</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<div class="kv"><span>⏰ أيام العمل</span><b>' + shiftStats.totalDays + ' يوم</b></div>' +
+      '<div class="kv"><span>⏱️ ساعات العمل</span><b>' + shiftStats.totalHours + ' ساعة</b></div>' +
+      '<div class="kv"><span>📊 متوسط يومي</span><b>' + shiftStats.avgHours + ' ساعة</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<div class="kv"><span>💰 إجمالي الحوافز</span><b class="up">' + fmt(earned) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>💵 إجمالي المسدَّد</span><b>' + fmt(totalPaid) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>💸 الخصومات</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+      '<div class="kv big"><span>' + (due > 0.009 ? '💰 المستحق له' : '✅ تم التسديد') + '</span>' +
+      '<b class="' + (due > 0.009 ? 'dn' : 'up') + '">' + fmt(Math.max(due, 0)) + ' ' + cur() + '</b></div>' +
+    '</div>';
+  }
+  
+  // =========================================================
+  // المستحقات
+  // =========================================================
+  else if(tab === 'earnings'){
+    html = '<div class="card">' +
+      '<h2 style="margin-bottom:10px">💰 حسابات المستحقات</h2>' +
+      '<div class="kv"><span>🎁 إجمالي الحوافز</span><b class="up">+' + fmt(earned) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>💵 إجمالي المسدَّد</span><b>-' + fmt(totalPaid) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>💸 الخصومات</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+      '<div class="kv big"><span>' + (due > 0.009 ? '💰 المتبقي له' : '✅ لا مستحقات') + '</span>' +
+      '<b class="' + (due > 0.009 ? 'dn' : 'up') + '">' + fmt(Math.max(due, 0)) + ' ' + cur() + '</b></div>' +
+    '</div>';
+    
+    // تفصيل الحوافز حسب المنتج
+    if(productList.length){
+      html += '<h2 style="margin:22px 0 10px">🎁 الحوافز حسب المنتج</h2>' +
+        table([
+          {h:'المنتج', f:r => escHtml(r.p.name)},
+          {h:'الكمية المنتجة', f:r => fmt(r.actual), cls:'nw'},
+          {h:'الحافز/وحدة', f:r => fmt(r.p.incentive || 0), cls:'nw'},
+          {h:'إجمالي الحافز', f:r => '<b class="up">' + fmt(r.incentive) + ' ' + cur() + '</b>', cls:'nw'}
+        ], productList.filter(x => x.incentive > 0), 'oops_incentive', 'لا حوافز');
+    }
+  }
+  
+  // =========================================================
+  // الإنتاج
+  // =========================================================
+  else if(tab === 'production'){
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">📦 إجمالي الإنتاج</div><div class="val">' + fmt(totalProduced) + '</div></div>' +
+      '<div class="kpi"><div class="lb">💧 الهدر</div><div class="val warn">' + fmt(totalWaste) + '</div></div>' +
+      '<div class="kpi"><div class="lb">⚠️ التوقفات (د)</div><div class="val warn">' + fmt(totalDown) + '</div></div>' +
+      '<div class="kpi"><div class="lb">📊 الكفاءة %</div>' +
+        '<div class="val ' + (totalProduced > totalWaste * 10 ? 'up' : 'warn') + '">' +
+        (totalProduced > 0 ? ((totalProduced / (totalProduced + totalWaste)) * 100).toFixed(1) : '—') + '%' +
+        '</div></div>' +
+    '</div>';
+    
+    if(productList.length){
+      html += '<h2 style="margin:22px 0 10px">📦 تفصيل الإنتاج حسب المنتج</h2>' +
+        table([
+          {h:'المنتج', f:r => escHtml(r.p.name)},
+          {h:'مخطط', f:r => fmt(r.planned), cls:'nw'},
+          {h:'منتج', f:r => '<b>' + fmt(r.actual) + '</b>', cls:'nw'},
+          {h:'هدر', f:r => '<span class="warn">' + fmt(r.waste) + '</span>', cls:'nw'},
+          {h:'توقف (د)', f:r => '<span class="warn">' + fmt(r.down) + '</span>', cls:'nw'},
+          {h:'الكفاءة', f:r => {
+            const eff = r.planned > 0 ? (r.actual / r.planned * 100).toFixed(1) + '%' : '—';
+            return '<b>' + eff + '</b>';
+          }, cls:'nw'},
+          {h:'أيام', f:r => r.daysCount, cls:'nw'}
+        ], productList, 'oops_prod');
+    } else {
+      html += '<div class="empty" style="margin-top:20px">لا إنتاج بعد</div>';
+    }
+  }
+  
+  // =========================================================
+  // 🔥 الأكثر إنتاجاً
+  // =========================================================
+  else if(tab === 'top'){
+    html = '<h2 style="margin:0 0 10px">🔥 الأكثر إنتاجاً</h2>';
+    
+    if(topProducts.length === 0){
+      html += '<div class="empty">لا إنتاج بعد</div>';
+    } else {
+      // أفضل 3 في kgrid
+      html += '<div class="kgrid">';
+      topProducts.slice(0, 3).forEach((p, i) => {
+        const medals = ['🥇', '🥈', '🥉'];
+        html += '<div class="kpi"><div class="lb">' + medals[i] + ' #' + (i+1) + '</div>' +
+          '<div class="val" style="font-size:18px">' + escHtml(p.p.name) + '</div>' +
+          '<div class="sub up">' + fmt(p.actual) + ' وحدة</div></div>';
+      });
+      html += '</div>';
+      
+      // الجدول الكامل
+      html += '<h2 style="margin:22px 0 10px">ترتيب كامل</h2>' +
+        table([
+          {h:'#', f:(r, i) => '#' + (productList.indexOf(r) + 1), cls:'nw'},
+          {h:'المنتج', f:r => escHtml(r.p.name)},
+          {h:'الكمية', f:r => '<b class="up">' + fmt(r.actual) + '</b>', cls:'nw'},
+          {h:'أيام العمل', f:r => r.daysCount + ' يوم', cls:'nw'},
+          {h:'متوسط يومي', f:r => fmt(r.daysCount > 0 ? r.actual / r.daysCount : 0), cls:'nw'},
+          {h:'حوافز', f:r => '<span class="up">' + fmt(r.incentive) + ' ' + cur() + '</span>', cls:'nw'}
+        ], productList, 'oops_top');
+    }
+  }
+  
+  // =========================================================
+  // التوقفات
+  // =========================================================
+  else if(tab === 'stops'){
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">⚠️ إجمالي التوقفات</div>' +
+        '<div class="val warn">' + fmt(totalDown) + ' <small>د</small></div></div>' +
+      '<div class="kpi"><div class="lb">🔢 عدد الحوادث</div>' +
+        '<div class="val">' + stops.length + '</div></div>' +
+    '</div>';
+    
+    // تحليل الأسباب
+    const reasons = Object.keys(stopsByReason).sort((a, b) => 
+      stopsByReason[b].totalMin - stopsByReason[a].totalMin
+    );
+    
+    if(reasons.length){
+      html += '<h2 style="margin:22px 0 10px">📊 تحليل الأسباب</h2>' +
+        table([
+          {h:'السبب', f:r => escHtml(r)},
+          {h:'عدد المرات', f:r => stopsByReason[r].count, cls:'nw'},
+          {h:'إجمالي الدقائق', f:r => '<b class="warn">' + fmt(stopsByReason[r].totalMin) + ' د</b>', cls:'nw'},
+          {h:'المتوسط', f:r => fmt(stopsByReason[r].totalMin / stopsByReason[r].count) + ' د', cls:'nw'},
+          {h:'النسبة %', f:r => totalDown > 0 ? ((stopsByReason[r].totalMin / totalDown) * 100).toFixed(1) + '%' : '—', cls:'nw'}
+        ], reasons, 'oops_reasons');
+    }
+    
+    // سجل التوقفات
+    html += '<h2 style="margin:22px 0 10px">سجل التوقفات</h2>';
+    if(stops.length){
+      html += '<div class="card">' +
+        stops.slice(0, 30).map(s => 
+          '<div class="disc-row">' +
+            '<div>' +
+              '<b>' + escHtml(s.reason) + '</b>' +
+              '<small>' + s.date + ' · ' + escHtml(s.product ? s.product.name : '—') + 
+              (s.shift ? ' · ' + (SHIFT_AR[s.shift] || s.shift) : '') + '</small>' +
+            '</div>' +
+            '<b class="warn">' + fmt(s.down) + ' د</b>' +
+          '</div>'
+        ).join('') +
+        '</div>';
+    } else {
+      html += '<div class="empty">لا توقفات</div>';
+    }
+  }
+  
+  // =========================================================
+  // الخصومات
+  // =========================================================
+  else if(tab === 'discounts'){
+    if(!discounts.length){
+      html = '<div class="empty">لا توجد خصومات</div>';
+    } else {
+      html = '<div class="card">' +
+        '<div class="kv big"><span>💸 إجمالي الخصومات</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+        '<div class="kv"><span>عدد الخصومات</span><b>' + discounts.length + '</b></div>' +
+      '</div>';
+      
+      html += '<h2 style="margin:22px 0 10px">تفاصيل الخصومات</h2>' +
+        '<div class="card">' +
+        discounts.slice(0, 30).map(disc => 
+          '<div class="disc-row">' +
+            '<div>' +
+              '<b>' + escHtml(disc.reason) + '</b>' +
+              '<small>' + disc.date + ' · بواسطة ' + escHtml(disc.by) + '</small>' +
+            '</div>' +
+            '<b class="dn">-' + fmt(disc.amount) + ' ' + cur() + '</b>' +
+          '</div>'
+        ).join('') +
+        '</div>';
+    }
+  }
+  
+  // =========================================================
+  // الورديات
+  // =========================================================
+  else if(tab === 'shifts'){
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">📅 أيام العمل</div><div class="val">' + shiftStats.totalDays + '</div></div>' +
+      '<div class="kpi"><div class="lb">⏱️ إجمالي الساعات</div><div class="val">' + shiftStats.totalHours + '</div></div>' +
+      '<div class="kpi"><div class="lb">📊 متوسط يومي</div><div class="val">' + shiftStats.avgHours + ' <small>س</small></div></div>' +
+      '<div class="kpi"><div class="lb">🔢 عدد الورديات</div><div class="val">' + shifts.length + '</div></div>' +
+    '</div>';
+    
+    // توزيع حسب النوع
+    const byShift = { Morning: [], Evening: [], Night: [] };
+    shifts.filter(s => s.closed).forEach(s => {
+      if(byShift[s.shift]) byShift[s.shift].push(s);
+    });
+    
+    html += '<h2 style="margin:22px 0 10px">⏰ توزيع الورديات</h2>' +
+      '<div class="card">' +
+      Object.keys(byShift).map(type => {
+        const arr = byShift[type];
+        const totalMin = sum(arr, s => calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts));
+        const hours = r2(totalMin / 60);
+        return '<div class="kv">' +
+          '<span>' + (SHIFT_AR[type] || type) + '</span>' +
+          '<b>' + arr.length + ' وردية · ' + hours + ' ساعة</b>' +
+        '</div>';
+      }).join('') +
+      '</div>';
+    
+    // آخر الورديات
+    html += '<h2 style="margin:22px 0 10px">آخر الورديات</h2>';
+    if(shifts.length){
+      html += '<div class="card">' +
+        shifts.slice(0, 30).map(s => {
+          const dur = s.checkout_ts ? calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts) : null;
+          const hours = dur ? r2(dur / 60) : null;
+          const checkin = new Date(s.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+          const checkout = s.checkout_ts ? new Date(s.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—';
+          
+          return '<div class="lrow">' +
+            '<div>' +
+              '<b>' + s.date + '</b> ' + tag('rec', SHIFT_AR[s.shift] || s.shift) +
+              '<small>' + checkin + ' → ' + checkout + (hours ? ' (' + hours + ' ساعة)' : '') + '</small>' +
+            '</div>' +
+            (s.closed ? '<span class="tag cash">مغلقة</span>' : '<span class="tag credit">مفتوحة</span>') +
+          '</div>';
+        }).join('') +
+        '</div>';
+    } else {
+      html += '<div class="empty">لا ورديات</div>';
+    }
+  }
+  
+  // =========================================================
+  // التسديدات
+  // =========================================================
+  else if(tab === 'payments'){
+    html = '<div class="card">' +
+      '<div class="kv big"><span>💵 إجمالي المسدَّد</span><b class="up">' + fmt(totalPaid) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>🔢 عدد الدفعات</span><b>' + payments.length + '</b></div>' +
+    '</div>';
+    
+    if(payments.length){
+      html += '<h2 style="margin:22px 0 10px">سجل التسديدات</h2>' +
+        table([
+          {h:'التاريخ', f:p => p.date, cls:'nw'},
+          {h:'المبلغ', f:p => money(p.amount), cls:'nw'},
+          {h:'ملاحظة', f:p => escHtml(p.note || '—')},
+          {h:'بواسطة', f:p => escHtml(p.by || '—')}
+        ], payments, 'oops_payments');
+    } else {
+      html += '<div class="empty" style="margin-top:20px">لا تسديدات بعد</div>';
+    }
+  }
+  
+  body.innerHTML = html;
 }
 /* =====================================================================
    🆕 عمليات الموزع
@@ -5153,7 +5640,8 @@ const MOUNT={
   sales:mountSales,
   production:mountProduction,
   withdrawals:mountWithdrawals,
-  dist_ops:mountDistOps,          // 🆕
+  dist_ops:mountDistOps,
+  op_ops:mountOpOps,
   purchases:mountPurchases,
   purchase_requests:mountPurchaseRequests,
   collections:mountCollections,
@@ -5166,7 +5654,8 @@ const RENDER={
   sales:renderSales,
   production:renderProduction,
   withdrawals:renderWithdrawals,
-  dist_ops:renderDistOps,          // 🆕
+  dist_ops:renderDistOps,
+  op_ops:renderOpOps,
   purchases:renderPurchases,
   purchase_requests:renderPurchaseRequests,
   collections:renderCollections,
@@ -5517,6 +6006,7 @@ const ICONS={
   production:'<path d="M3 21V11l6 4v-4l6 4V5h3.5v16z"/><path d="M7 18h.01M11 18h.01M15 18h.01"/>',
   withdrawals:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
   dist_ops:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/><path d="M16 3l2 2-2 2"/>',
+  op_ops:'<path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>',  
   purchases:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L20.5 7H6"/>',
   purchase_requests:'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/>',
   collections:'<rect x="2.5" y="6" width="19" height="12" rx="2.2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
@@ -6091,7 +6581,26 @@ document.addEventListener('click', function(e){
     renderDistOpsTab(btn.dataset.dopstab, tabsEl._dopsData);
   }
 }, true);  // ← useCapture = true
-
+/* =====================================================================
+   🆕 معالج نقر شرائح عمليات المشغّل
+   ===================================================================== */
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('[data-oopstab]');
+  if(!btn) return;
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const tabsEl = document.getElementById('oops-tabs');
+  if(!tabsEl) return;
+  
+  tabsEl.querySelectorAll('[data-oopstab]').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  
+  if(tabsEl._oopsData && typeof renderOpOpsTab === 'function'){
+    renderOpOpsTab(btn.dataset.oopstab, tabsEl._oopsData);
+  }
+}, true);
 boot();
 
 window.toast = toast;
