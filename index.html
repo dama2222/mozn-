@@ -6761,8 +6761,9 @@ function complaintSheet(){
     return false;
   }});
 }
- function userSheet(){
-  const pushEnabled=localStorage.getItem('muzn_push_enabled')==='1';
+function userSheet(){
+  const pushEnabled = localStorage.getItem('muzn_push_enabled') === '1';
+  const dailyEnabled = localStorage.getItem('muzn_daily_notify') !== '0';   // ✅ تعريف
   const queueLen = PushQueue.load().length;
   
   // 🆕 معلومات النسخة
@@ -6770,10 +6771,10 @@ function complaintSheet(){
   const buildDate = window.__muzn_build || '—';
   
   openSheet(
-    '<h3>'+escHtml(user.name)+'</h3>' +
-    '<p class="muted">'+(isA()?'مدير':'موظف')+' · @'+escHtml(user.username)+'</p>' +
+    '<h3>' + escHtml(user.name) + '</h3>' +
+    '<p class="muted">' + (isA() ? 'مدير' : 'موظف') + ' · @' + escHtml(user.username) + '</p>' +
     
-    // 🆕 معلومات النسخة
+    // معلومات النسخة
     '<div class="card" style="background:var(--card2);padding:8px 10px;margin-bottom:12px;font-size:12px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<span class="muted">📦 الإصدار:</span>' +
@@ -6785,47 +6786,73 @@ function complaintSheet(){
       '</div>' +
     '</div>' +
     
-    (queueLen>0?'<div class="notice info">📤 '+queueLen+' إشعار في قائمة الانتظار — سيُرسل تلقائياً عند عودة الاتصال</div>':'') +
+    (queueLen > 0 ? '<div class="notice info">📤 ' + queueLen + ' إشعار في قائمة الانتظار — سيُرسل تلقائياً عند عودة الاتصال</div>' : '') +
     
-    '<button class="opt" id="us-push">'+(pushEnabled?'🔔 إيقاف الإشعارات':'🔕 تفعيل الإشعارات')+'</button>' +
+    '<button class="opt" id="us-push">' + (pushEnabled ? '🔔 إيقاف الإشعارات' : '🔕 تفعيل الإشعارات') + '</button>' +
+    
+    '<button class="opt" id="us-daily">' + (dailyEnabled ? '📅 إيقاف التقرير اليومي' : '📅 تفعيل التقرير اليومي') + '</button>' +
+    
     '<button class="opt" id="us-pw">تغيير كلمة المرور</button>' +
+    
     '<button class="opt" id="us-theme">تبديل المظهر</button>' +
     
-    // 🆕 زر التحديث القوي
+    // 🆕 زر التحديث
     '<button class="opt" id="us-refresh" style="color:var(--blue)">' +
       '🔄 تحديث التطبيق (Hard Refresh)' +
       '<small>يمسح الكاش ويعيد تحميل أحدث نسخة</small>' +
     '</button>' +
     
-    (isA()?'':'<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>') +
+    (isA() ? '' : '<button class="opt" id="us-complain">شكوى / طلب سحب مال</button>') +
+    
     '<button class="opt" id="us-out" style="color:var(--red)">تسجيل الخروج</button>'
   );
   
-  // ربط الأزرار
-  byId('us-pw').onclick=pwSheet;
-  byId('us-theme').onclick=()=>{toggleTheme();closeSheet()};
-  byId('us-out').onclick=()=>{closeSheet();logout()};
+  // ✅ ربط الأزرار
   
-  byId('us-push').onclick=async()=>{
+  // كلمة المرور
+  byId('us-pw').onclick = pwSheet;
+  
+  // المظهر
+  byId('us-theme').onclick = () => { toggleTheme(); closeSheet(); };
+  
+  // الخروج
+  byId('us-out').onclick = () => { closeSheet(); logout(); };
+  
+  // الإشعارات
+  byId('us-push').onclick = async () => {
     if(pushEnabled){
       await unsubscribeFromPush();
       closeSheet();
-      setTimeout(userSheet,300);
-    }else{
-      const ok=await subscribeToPush();
+      setTimeout(userSheet, 300);
+    } else {
+      const ok = await subscribeToPush();
       if(ok){
         toast('✅ تم تفعيل الإشعارات','ok');
         closeSheet();
-        setTimeout(userSheet,300);
+        setTimeout(userSheet, 300);
       }
     }
   };
   
-  // 🆕 ربط زر التحديث
+  // 🆕 التقرير اليومي
+  byId('us-daily').onclick = () => {
+    if(dailyEnabled){
+      localStorage.setItem('muzn_daily_notify', '0');
+      toast('تم إيقاف التقرير اليومي','ok');
+    } else {
+      localStorage.setItem('muzn_daily_notify', '1');
+      toast('سيصلك التقرير اليومي','ok');
+    }
+    closeSheet();
+    setTimeout(userSheet, 300);
+  };
+  
+  // 🆕 التحديث القوي
   byId('us-refresh').onclick = hardRefresh;
   
-  const uc=byId('us-complain');
-  if(uc)uc.onclick=complaintSheet;
+  // الشكوى
+  const uc = byId('us-complain');
+  if(uc) uc.onclick = complaintSheet;
 }
 
 /* =====================================================================
@@ -6838,7 +6865,7 @@ async function hardRefresh(){
   const btn = byId('us-refresh');
   if(!btn) return;
   
-  // ✅ المرحلة 1: نقرة أولى
+  // ✅ المرحلة 1: نقرة أولى = تأكيد
   if(!_hardRefreshClicked){
     _hardRefreshClicked = true;
     btn.innerHTML = '⚠️ اضغط مرة أخرى للتأكيد<small>سيتم إعادة تحميل التطبيق</small>';
@@ -6847,7 +6874,6 @@ async function hardRefresh(){
     
     toast('اضغط مرة أخرى للتأكيد','err');
     
-    // إعادة الحالة بعد 3 ثوانٍ
     if(_hardRefreshTimer) clearTimeout(_hardRefreshTimer);
     _hardRefreshTimer = setTimeout(() => {
       _hardRefreshClicked = false;
@@ -6860,7 +6886,7 @@ async function hardRefresh(){
     return;
   }
   
-  // ✅ المرحلة 2: نقرة ثانية — تنفيذ
+  // ✅ المرحلة 2: نقرة ثانية = تنفيذ
   if(_hardRefreshTimer) clearTimeout(_hardRefreshTimer);
   _hardRefreshClicked = false;
   
@@ -6870,18 +6896,15 @@ async function hardRefresh(){
   try{
     console.log('🔄 بدء Hard Refresh...');
     
-    // 1. احفظ الجلسة الحالية
+    // احفظ الإعدادات
     const sess = localStorage.getItem(SESSKEY);
-    console.log('  - SESSKEY محفوظ:', !!sess);
-    
-    // 2. احفظ الإعدادات المهمة
     const cloudCfg = localStorage.getItem(CFGKEY);
     const theme = localStorage.getItem(THEME_KEY);
     const pushEnabled = localStorage.getItem('muzn_push_enabled');
     const dailyNotify = localStorage.getItem('muzn_daily_notify');
     const lastPushDay = localStorage.getItem('auto_push_v2_' + today());
     
-    // 3. ألغِ Service Workers
+    // ألغِ Service Workers
     if('serviceWorker' in navigator){
       try{
         const regs = await navigator.serviceWorker.getRegistrations();
@@ -6895,7 +6918,7 @@ async function hardRefresh(){
       }
     }
     
-    // 4. امسح كل Caches
+    // امسح Caches
     if('caches' in window){
       try{
         const keys = await caches.keys();
@@ -6909,7 +6932,7 @@ async function hardRefresh(){
       }
     }
     
-    // 5. أعد كتابة الإعدادات المهمة
+    // استعد الإعدادات
     try{
       if(sess) localStorage.setItem(SESSKEY, sess);
       if(cloudCfg) localStorage.setItem(CFGKEY, cloudCfg);
@@ -6921,12 +6944,11 @@ async function hardRefresh(){
       console.warn('  ⚠️ فشل استعادة الإعدادات:', e);
     }
     
-    // 6. احفظ علامة إعادة التحميل
+    // علامة إعادة التحميل
     try{
       sessionStorage.setItem('muzn_hard_refresh', '1');
     }catch(e){}
     
-    // 7. أعد التحميل بعد لحظة
     console.log('  ✅ جاهز — إعادة التحميل...');
     setTimeout(() => {
       location.reload(true);
@@ -6959,19 +6981,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }catch(e){}
 });
-  
-  // 🆕 تفعيل/إيقاف التقرير اليومي
-  byId('us-daily').onclick = () => {
-    if(dailyEnabled){
-      localStorage.setItem('muzn_daily_notify', '0');
-      toast('تم إيقاف التقرير اليومي','ok');
-    } else {
-      localStorage.setItem('muzn_daily_notify', '1');
-      toast('سيصلك التقرير اليومي','ok');
-    }
-    closeSheet();
-    setTimeout(userSheet, 300);
-}
 function pwSheet(){
   openSheet('<h3>تغيير كلمة المرور</h3><div id="pw-form"></div>');
   mountForm(byId('pw-form'),'pw',
