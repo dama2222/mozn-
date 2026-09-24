@@ -4753,7 +4753,6 @@ let _autoNotifyAttempted=false;
 async function autoNotify(){
   if(!store||!user)return;
   
-  / ✅ لا تشغّل autoNotify إذا كان المستخدم قد عطّلها
   const dailyEnabled = localStorage.getItem('muzn_daily_notify') !== '0';
   if(!dailyEnabled) return;
   const t=today();
