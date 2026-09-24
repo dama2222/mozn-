@@ -945,15 +945,48 @@ function SupabaseAdapter(url,key){
       return s;
     },
     subscribe(cb){
-      onRemote=cb;
-      chan=sb.channel('muzn-sync');
-      ['company','users','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
-       'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','attendance','checkins',
-        'dist_attendance','complaints','operator_payments','discounts','attendance_shifts','purchase_requests','scan_log','distributor_shifts','operator_shifts'].forEach(t=>{
-        chan.on('postgres_changes',{event:'*',schema:'public',table:t},()=>{clearTimeout(this._deb);this._deb=setTimeout(()=>onRemote&&onRemote(),700)});
-      });
-      chan.subscribe();
-    },
+  onRemote = cb;
+  chan = sb.channel('muzn-sync');
+  
+  const tables = [
+    'company', 'users', 'materials', 'products', 'operators',
+    'distributors', 'customers', 'suppliers', 'shifts', 'shift_items',
+    'withdrawals', 'sales', 'sale_items', 'purchases', 'purchase_items',
+    'payments', 'remittances', 'supplier_payments', 'notices', 'audit',
+    'attendance', 'checkins', 'dist_attendance', 'complaints',
+    'operator_payments', 'discounts', 'attendance_shifts',
+    'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts'
+  ];
+  
+  let syncTimer = null;
+  
+  tables.forEach(t => {
+    chan.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: t },
+      (payload) => {
+        console.log('[Realtime] 🔔 Change:', t, payload.eventType);
+        if (syncTimer) clearTimeout(syncTimer);
+        syncTimer = setTimeout(() => {
+          if (onRemote) onRemote();
+        }, 200);
+      }
+    );
+  });
+  
+  chan.subscribe((status, err) => {
+    console.log('[Realtime] Status:', status);
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      console.warn('[Realtime] ❌ Error — reconnecting in 5s');
+      setTimeout(() => {
+        try { chan.unsubscribe(); } catch(e) {}
+        if (window.__muzn && window.__muzn.adapter) {
+          window.__muzn.adapter.subscribe(cb);
+        }
+      }, 5000);
+    }
+  });
+}
     async login(u,p){
       const{data,error}=await sb.rpc('app_login',{p_username:u,p_password:p});
       if(error)throw error;
@@ -5174,30 +5207,60 @@ async function boot(){
     }catch(ex){console.error(ex)}
   });
   
-  // 🆕 مراقبة المزامنة السحابية كل 30 ثانية
+    // 🆕 مزامنة كل 10 ثوانٍ (بدلاً من 30)
   if(cfg){
     setInterval(async () => {
       if(document.hidden) return;
+      if(!navigator.onLine) return;
+      
       try{
         const newStore = await adapter.init();
-        const oldStr = JSON.stringify({
-          s: store.sales?.length, sh: store.shifts?.length,
-          w: store.withdrawals?.length, dsh: store.distributor_shifts?.length,
-          da: store.dist_attendance?.length, a: store.attendance?.length
+        
+        const oldHash = JSON.stringify({
+          s: store.sales?.length,
+          si: store.sale_items?.length,
+          sh: store.shifts?.length,
+          shi: store.shift_items?.length,
+          w: store.withdrawals?.length,
+          p: store.payments?.length,
+          r: store.remittances?.length,
+          dsh: store.distributor_shifts?.length,
+          osh: store.operator_shifts?.length,
+          da: store.dist_attendance?.length,
+          a: store.attendance?.length,
+          n: store.notices?.length,
+          c: store.customers?.length,
+          pr: store.products?.length
         });
-        const newStr = JSON.stringify({
-          s: newStore.sales?.length, sh: newStore.shifts?.length,
-          w: newStore.withdrawals?.length, dsh: newStore.distributor_shifts?.length,
-          da: newStore.dist_attendance?.length, a: newStore.attendance?.length
+        
+        const newHash = JSON.stringify({
+          s: newStore.sales?.length,
+          si: newStore.sale_items?.length,
+          sh: newStore.shifts?.length,
+          shi: newStore.shift_items?.length,
+          w: newStore.withdrawals?.length,
+          p: newStore.payments?.length,
+          r: newStore.remittances?.length,
+          dsh: newStore.distributor_shifts?.length,
+          osh: newStore.operator_shifts?.length,
+          da: newStore.dist_attendance?.length,
+          a: newStore.attendance?.length,
+          n: newStore.notices?.length,
+          c: newStore.customers?.length,
+          pr: newStore.products?.length
         });
-        if(oldStr !== newStr){
+        
+        if(oldHash !== newHash){
           store = newStore;
           renderAll();
-          console.log('[Sync] ✅ تحديث تلقائي');
+          console.log('[Sync] ✅ تحديث تلقائي في', new Date().toLocaleTimeString());
         }
-      }catch(ex){ console.warn('[Sync] فشل', ex); }
-    }, 30000);
+      }catch(ex){
+        console.warn('[Sync] فشل:', ex);
+      }
+    }, 10000);  // ← 10 ثوانٍ
   }
+  
 
   let sid=null;
   try{sid=JSON.parse(localStorage.getItem(SESSKEY)||'null')}catch(e){}
