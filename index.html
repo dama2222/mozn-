@@ -827,6 +827,7 @@ const MODS=[
   {id:'sales',t:'المبيعات',s:'المبيعات'},
   {id:'production',t:'الإنتاج',s:'الإنتاج'},
   {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},
+  {id:'dist_ops',t:'عمليات الموزع',s:'عمليات'},        // 🆕
   {id:'purchases',t:'المشتريات والموردون',s:'المشتريات'},
   {id:'purchase_requests',t:'طلبات النواقص',s:'النواقص'},
   {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},
@@ -2404,8 +2405,14 @@ const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
   sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
   production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
-  purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
+ dist_ops:'<h1>عمليات الموزع</h1>' +
+    '<div class="card" style="margin-bottom:12px">' +
+      '<label class="fl">اختر الموزع</label>' +
+      '<select class="in" id="dops-picker"></select>' +
+    '</div>' +
+    '<div id="dops-content"></div>',
+  purchases:'<h1>المشتريات والموردون</h1><div id="pu-stats"></div><div class="card form-card"><h2>فاتورة مشتريات</h2><div id="pu-head"></div><div id="pu-lines"></div><button class="btn-primary btn-block" id="pu-save">حفظ المشتريات</button></div><div id="pu-body"></div>',
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
@@ -3200,6 +3207,392 @@ function distAttendanceSheet(){
       renderAll();
     }catch(ex){console.error(ex);toast('تعذر: '+ex.message,'err');btn.disabled=false}
   };
+}
+/* =====================================================================
+   🆕 عمليات الموزع
+   ===================================================================== */
+function mountDistOps(){
+  const picker = byId('dops-picker');
+  if(!picker) return;
+  
+  // إذا كان المستخدم موزعاً — اقفل على نفسه
+  const myDist = user.distributor_id || 
+    (store.distributors.find(d => d.user_id === user.id) || {}).id;
+  
+  const ds = store.distributors;
+  picker.innerHTML = ds.map(d => 
+    '<option value="' + d.id + '">' + escHtml(d.name) + '</option>'
+  ).join('');
+  
+  // إذا كان موزعاً — اقفل الاختيار
+  if(myDist && !isA()){
+    picker.value = myDist;
+    picker.disabled = true;
+  }
+  
+  picker.onchange = () => renderDistOps();
+  renderDistOps();
+}
+
+function renderDistOps(){
+  const content = byId('dops-content');
+  if(!content) return;
+  
+  const picker = byId('dops-picker');
+  const did = picker ? picker.value : null;
+  if(!did){
+    content.innerHTML = '<div class="empty">اختر موزعاً</div>';
+    return;
+  }
+  
+  const d = store.distributors.find(x => x.id === did);
+  if(!d){
+    content.innerHTML = '<div class="empty">الموزع غير موجود</div>';
+    return;
+  }
+  
+  // جمع كل البيانات
+  const summary = dSummary(store, d);
+  const discounts = (store.discounts || [])
+    .filter(x => x.kind === 'distributor' && x.ref_id === did && !x.cancelled)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const totalDiscounts = sum(discounts, x => x.amount);
+  const profit = distributorProfit(store, did);
+  const shifts = (store.distributor_shifts || [])
+    .filter(s => s.distributor_id === did)
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.checkin_ts || 0) - (a.checkin_ts || 0));
+  const shiftStats = getShiftStats(did, 'distributor');
+  const withdrawals = (store.withdrawals || [])
+    .filter(w => w.distributor_id === did)
+    .sort(byDate);
+  const wdTotalQty = sum(withdrawals, w => w.qty);
+  const wdTotalValue = sum(withdrawals, w => r2(w.qty * (w.price || 0)));
+  const sales = (store.sales || [])
+    .filter(s => s.distributor_id === did)
+    .sort(byDate);
+  const salesTotal = sum(sales, saleTotal);
+  const remittances = (store.remittances || [])
+    .filter(r => r.distributor_id === did)
+    .sort(byDate);
+  const remitTotal = sum(remittances, r => r.amount);
+  const customers = store.customers.filter(c => c.distributor_id === did);
+  const customerBals = customers.map(c => ({c, b: custBal(store, c)}));
+  const overdueCustomers = customerBals.filter(x => x.b.bucket === 'overdue');
+  const totalOverdue = sum(overdueCustomers, x => x.b.remaining);
+  
+  // رأس الصفحة
+  let html = '<div class="kgrid">' +
+    '<div class="kpi wide"><div class="lb">💰 المطلوب منه الشركة</div>' +
+      '<div class="val ' + (summary.bal > 0.009 ? 'dn' : 'up') + '">' +
+      fmt(Math.abs(summary.bal)) + ' ' + cur() + '</div>' +
+      '<div class="sub mut">' + summary.per.label + ' · التسليم ' + summary.per.e + '</div>' +
+    '</div>' +
+    '<div class="kpi"><div class="lb">إجمالي المبيعات</div>' +
+      '<div class="val">' + fmt(profit.revenue) + '</div></div>' +
+    '<div class="kpi"><div class="lb">إجمالي ربحه</div>' +
+      '<div class="val up">' + fmt(profit.profit) + '</div></div>' +
+  '</div>';
+  
+  // الشرائح
+  html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
+    '<button class="pill on" data-dopstab="overview">📊 نظرة عامة</button>' +
+    '<button class="pill" data-dopstab="debts">💳 المطلوب منه</button>' +
+    '<button class="pill" data-dopstab="discounts">💸 الخصومات</button>' +
+    '<button class="pill" data-dopstab="profit">💰 الأرباح</button>' +
+    '<button class="pill" data-dopstab="shifts">⏰ ساعات العمل</button>' +
+    '<button class="pill" data-dopstab="withdrawals">📦 المسحوبات</button>' +
+    '<button class="pill" data-dopstab="sales">🛒 المبيعات</button>' +
+    '<button class="pill" data-dopstab="remittances">💵 التحصيلات</button>' +
+    '<button class="pill" data-dopstab="customers">👥 العملاء</button>' +
+  '</div>';
+  
+  html += '<div id="dops-body"></div>';
+  content.innerHTML = html;
+  
+  const data = { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
+    withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
+    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue };
+  
+  // ربط الشرائح
+  const tabsEl = byId('dops-tabs');
+  if(tabsEl){
+    tabsEl.querySelectorAll('[data-dopstab]').forEach(btn => {
+      btn.onclick = () => {
+        tabsEl.querySelectorAll('[data-dopstab]').forEach(b => b.classList.remove('on'));
+        btn.classList.add('on');
+        renderDistOpsTab(btn.dataset.dopstab, data);
+      };
+    });
+  }
+  
+  renderDistOpsTab('overview', data);
+}
+
+function renderDistOpsTab(tab, data){
+  const body = byId('dops-body');
+  if(!body) return;
+  
+  const { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
+    withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
+    remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue } = data;
+  
+  let html = '';
+  
+  if(tab === 'overview'){
+    html = '<div class="card">' +
+      '<h2 style="margin-bottom:10px">📊 ملخص شامل</h2>' +
+      '<div class="kv"><span>المطلوب منه</span><b class="' + (summary.bal > 0.009 ? 'dn' : 'up') + '">' + fmt(summary.bal) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>الخصومات عليه</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>إجمالي مبيعاته</span><b>' + fmt(profit.revenue) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>تكلفة الشراء منك</span><b>' + fmt(profit.cost) + ' ' + cur() + '</b></div>' +
+      '<div class="kv big"><span>💰 ربحه الصافي</span><b class="up">' + fmt(profit.profit) + ' ' + cur() + '</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<div class="kv"><span>⏰ أيام العمل</span><b>' + shiftStats.totalDays + '</b></div>' +
+      '<div class="kv"><span>⏱️ إجمالي ساعات العمل</span><b>' + shiftStats.totalHours + ' ساعة</b></div>' +
+      '<div class="kv"><span>📊 متوسط يومي</span><b>' + shiftStats.avgHours + ' ساعة</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<div class="kv"><span>📦 إجمالي المسحوبات</span><b>' + fmt(wdTotalQty) + ' وحدة</b></div>' +
+      '<div class="kv"><span>🛒 عدد فواتيره</span><b>' + sales.length + ' فاتورة</b></div>' +
+      '<div class="kv"><span>💵 إجمالي التحصيلات</span><b>' + fmt(remitTotal) + ' ' + cur() + '</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<div class="kv"><span>👥 عدد عملائه</span><b>' + customers.length + ' عميل</b></div>' +
+      '<div class="kv"><span>⚠️ عملاء متأخرون</span><b class="' + (overdueCustomers.length ? 'dn' : 'up') + '">' + overdueCustomers.length + ' عميل</b></div>' +
+      '<div class="kv"><span>💰 إجمالي المتأخرات</span><b class="dn">' + fmt(totalOverdue) + ' ' + cur() + '</b></div>' +
+    '</div>';
+  }
+  
+  else if(tab === 'debts'){
+    html = '<div class="card">' +
+      '<h2 style="margin-bottom:10px">💳 كم تريد منه الشركة</h2>' +
+      '<div class="kv"><span>المفترض تسليمه (' + summary.per.label + ')</span><b>' + fmt(summary.expP) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>المستلم منه (' + summary.per.label + ')</span><b>' + fmt(summary.recP) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>موعد التسليم</span><b>' + summary.per.e + ' ' + (summary.per.left === 0 ? '(اليوم)' : summary.per.left > 0 ? '(بعد ' + summary.per.left + ' يوم)' : '⚠️ متأخر') + '</b></div>' +
+      '<div class="kv"><span>الخصومات عليه</span><b class="dn">+' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+      '<div class="kv big"><span>' + (summary.bal < 0 ? '✅ دائن له' : '❌ المطلوب منه') + '</span>' +
+      '<b class="' + (summary.bal > 0.009 ? 'dn' : 'up') + '">' + fmt(Math.abs(summary.bal)) + ' ' + cur() + '</b></div>' +
+      '<hr style="border-color:var(--line);margin:12px 0">' +
+      '<h3 style="font-size:14px;margin-bottom:8px">📦 بضاعة بعهدته (لم يبعها)</h3>' +
+      '<div class="kv"><span>القيمة الإجمالية</span><b>' + fmt(summary.held) + ' ' + cur() + '</b></div>' +
+    '</div>';
+    
+    const cust = [];
+    store.products.forEach(p => {
+      const q = custody(store, d.id, p.id);
+      if(q > 0) cust.push({p, q});
+    });
+    
+    if(cust.length){
+      html += '<h2 style="margin:22px 0 10px">تفاصيل البضاعة بعهدته</h2>' +
+        table([
+          {h:'المنتج', f:r => escHtml(r.p.name)},
+          {h:'الكمية', f:r => fmt(r.q), cls:'nw'},
+          {h:'القيمة', f:r => money(r.q * (r.p.dist_price || r.p.price)), cls:'nw'}
+        ], cust, 'dops_cust');
+    }
+  }
+  
+  else if(tab === 'discounts'){
+    if(!discounts.length){
+      html = '<div class="empty">لا توجد خصومات</div>';
+    } else {
+      const byMonth = {};
+      discounts.forEach(disc => {
+        const m = disc.date.slice(0, 7);
+        if(!byMonth[m]) byMonth[m] = [];
+        byMonth[m].push(disc);
+      });
+      
+      html = '<div class="card">' +
+        '<div class="kv big"><span>💸 إجمالي الخصومات</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
+        '<div class="kv"><span>عدد الخصومات</span><b>' + discounts.length + '</b></div>' +
+      '</div>';
+      
+      const months = Object.keys(byMonth).sort().reverse();
+      html += '<h2 style="margin:22px 0 10px">تحليل شهري</h2>' +
+        table([
+          {h:'الشهر', f:m => m},
+          {h:'عدد الخصومات', f:m => byMonth[m].length, cls:'nw'},
+          {h:'الإجمالي', f:m => '<b class="dn">-' + fmt(sum(byMonth[m], x => x.amount)) + '</b>', cls:'nw'}
+        ], months, 'dops_disc_months');
+      
+      html += '<h2 style="margin:22px 0 10px">تفاصيل الخصومات</h2>' +
+        '<div class="card">' +
+        discounts.slice(0, 30).map(disc => 
+          '<div class="disc-row">' +
+            '<div>' +
+              '<b>' + escHtml(disc.reason) + '</b>' +
+              '<small>' + disc.date + ' · بواسطة ' + escHtml(disc.by) + '</small>' +
+            '</div>' +
+            '<b class="dn">-' + fmt(disc.amount) + '</b>' +
+          '</div>'
+        ).join('') +
+        '</div>';
+    }
+  }
+  
+  else if(tab === 'profit'){
+    html = '<div class="kgrid">' +
+      '<div class="kpi wide"><div class="lb">💰 الربح الصافي</div>' +
+        '<div class="val up">' + fmt(profit.profit) + ' ' + cur() + '</div>' +
+        '<div class="sub mut">من ' + profit.items.length + ' منتج</div>' +
+      '</div>' +
+      '<div class="kpi"><div class="lb">إجمالي المبيعات</div><div class="val">' + fmt(profit.revenue) + '</div></div>' +
+      '<div class="kpi"><div class="lb">تكلفة الشراء</div><div class="val">' + fmt(profit.cost) + '</div></div>' +
+    '</div>';
+    
+    html += '<h2 style="margin:22px 0 10px">تفصيل الربح لكل منتج</h2>' +
+      table([
+        {h:'المنتج', f:r => escHtml(r.p.name)},
+        {h:'الكمية المباعة', f:r => fmt(r.qty), cls:'nw'},
+        {h:'المبيعات', f:r => fmt(r.revenue) + ' ' + cur(), cls:'nw'},
+        {h:'تكلفة الشراء', f:r => fmt(r.cost) + ' ' + cur(), cls:'nw'},
+        {h:'الربح', f:r => '<b class="up">' + fmt(r.profit) + ' ' + cur() + '</b>', cls:'nw'},
+        {h:'هامش %', f:r => r.revenue > 0 ? ((r.profit / r.revenue * 100).toFixed(1) + '%') : '—', cls:'nw'}
+      ], profit.items.sort((a, b) => b.profit - a.profit), 'dops_profit');
+  }
+  
+  else if(tab === 'shifts'){
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">📅 أيام العمل</div><div class="val">' + shiftStats.totalDays + '</div></div>' +
+      '<div class="kpi"><div class="lb">⏱️ إجمالي الساعات</div><div class="val">' + shiftStats.totalHours + '</div></div>' +
+      '<div class="kpi"><div class="lb">📊 متوسط يومي</div><div class="val">' + shiftStats.avgHours + ' <small>س</small></div></div>' +
+      '<div class="kpi"><div class="lb">🔢 عدد الورديات</div><div class="val">' + shifts.length + '</div></div>' +
+    '</div>';
+    
+    const byShift = { Morning: [], Evening: [], Night: [] };
+    shifts.filter(s => s.closed).forEach(s => {
+      if(byShift[s.shift]) byShift[s.shift].push(s);
+    });
+    
+    html += '<h2 style="margin:22px 0 10px">⏰ توزيع الورديات حسب النوع</h2>' +
+      '<div class="card">' +
+      Object.keys(byShift).map(type => {
+        const arr = byShift[type];
+        const totalMin = sum(arr, s => calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts));
+        const hours = r2(totalMin / 60);
+        return '<div class="kv">' +
+          '<span>' + (SHIFT_AR[type] || type) + '</span>' +
+          '<b>' + arr.length + ' وردية · ' + hours + ' ساعة</b>' +
+        '</div>';
+      }).join('') +
+      '</div>';
+    
+    html += '<h2 style="margin:22px 0 10px">آخر الورديات</h2>';
+    
+    if(shifts.length === 0){
+      html += '<div class="empty">لا ورديات</div>';
+    } else {
+      html += '<div class="card">' +
+        shifts.slice(0, 30).map(s => {
+          const dur = s.checkout_ts ? calcShiftDurationMinutes(s.checkin_ts, s.checkout_ts) : null;
+          const hours = dur ? r2(dur / 60) : null;
+          const checkin = new Date(s.checkin_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+          const checkout = s.checkout_ts ? new Date(s.checkout_ts).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '—';
+          
+          return '<div class="lrow">' +
+            '<div>' +
+              '<b>' + s.date + '</b> ' + tag('rec', SHIFT_AR[s.shift] || s.shift) +
+              '<small>' + checkin + ' → ' + checkout + (hours ? ' (' + hours + ' ساعة)' : '') + '</small>' +
+            '</div>' +
+            (s.closed ? '<span class="tag cash">مغلقة</span>' : '<span class="tag credit">مفتوحة</span>') +
+          '</div>';
+        }).join('') +
+        '</div>';
+    }
+  }
+  
+  else if(tab === 'withdrawals'){
+    html = '<div class="card">' +
+      '<div class="kv"><span>📦 إجمالي الوحدات المسحوبة</span><b>' + fmt(wdTotalQty) + '</b></div>' +
+      '<div class="kv"><span>💰 إجمالي القيمة</span><b>' + fmt(wdTotalValue) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>🔢 عدد العمليات</span><b>' + withdrawals.length + '</b></div>' +
+    '</div>';
+    
+    if(withdrawals.length){
+      html += '<h2 style="margin:22px 0 10px">سجل المسحوبات</h2>' +
+        table([
+          {h:'التاريخ', f:r => r.date, cls:'nw'},
+          {h:'المنتج', f:r => escHtml(pn(r.product_id))},
+          {h:'الكمية', f:r => fmt(r.qty), cls:'nw'},
+          {h:'السعر', f:r => fmt(r.price), cls:'nw'},
+          {h:'القيمة', f:r => money(r.qty * r.price), cls:'nw'},
+          {h:'ملاحظة', f:r => escHtml(r.note || '—')}
+        ], withdrawals, 'dops_wd');
+    } else {
+      html += '<div class="empty" style="margin-top:20px">لا توجد مسحوبات</div>';
+    }
+  }
+  
+  else if(tab === 'sales'){
+    html = '<div class="card">' +
+      '<div class="kv"><span>🛒 عدد الفواتير</span><b>' + sales.length + '</b></div>' +
+      '<div class="kv big"><span>💰 إجمالي المبيعات</span><b>' + fmt(salesTotal) + ' ' + cur() + '</b></div>' +
+    '</div>';
+    
+    if(sales.length){
+      html += '<h2 style="margin:22px 0 10px">آخر الفواتير</h2>' +
+        sales.slice(0, 20).map(h => 
+          ticketCard('sales', h,
+            escHtml(cn(h.customer_id)),
+            h.date + ' · ' + (h.type === 'cash' ? 'كاش' : 'آجل') + (h.by ? ' · ' + h.by : ''),
+            it => escHtml(pn(it.product_id)) + ' <small>' + fmt(it.qty) + ' × ' + fmt(it.price) + '</small>',
+            '<span>الإجمالي</span><span>' + money(saleTotal(h)) + '</span>'
+          )
+        ).join('');
+    } else {
+      html += '<div class="empty" style="margin-top:20px">لا توجد مبيعات</div>';
+    }
+  }
+  
+  else if(tab === 'remittances'){
+    html = '<div class="card">' +
+      '<div class="kv big"><span>💵 إجمالي التحصيلات</span><b class="up">' + fmt(remitTotal) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>🔢 عدد الإيصالات</span><b>' + remittances.length + '</b></div>' +
+    '</div>';
+    
+    if(remittances.length){
+      html += '<h2 style="margin:22px 0 10px">سجل التحصيلات</h2>' +
+        table([
+          {h:'الرقم', f:r => escHtml(r.no), cls:'nw'},
+          {h:'التاريخ', f:r => r.date, cls:'nw'},
+          {h:'المبلغ', f:r => money(r.amount), cls:'nw'},
+          {h:'الطريقة', f:r => r.method === 'cash' ? 'نقداً' : 'تحويل'},
+          {h:'', f:r => '<button class="mini" data-rc="' + r.id + '">عرض</button>', cls:'nw'}
+        ], remittances, 'dops_rem');
+    } else {
+      html += '<div class="empty" style="margin-top:20px">لا توجد تحصيلات</div>';
+    }
+  }
+  
+  else if(tab === 'customers'){
+    html = '<div class="card">' +
+      '<div class="kv"><span>👥 إجمالي العملاء</span><b>' + customers.length + '</b></div>' +
+      '<div class="kv"><span>⚠️ عملاء متأخرون</span><b class="' + (overdueCustomers.length ? 'dn' : 'up') + '">' + overdueCustomers.length + '</b></div>' +
+      '<div class="kv"><span>💰 إجمالي المتأخرات</span><b class="dn">' + fmt(totalOverdue) + ' ' + cur() + '</b></div>' +
+    '</div>';
+    
+    if(customerBals.length){
+      html += '<h2 style="margin:22px 0 10px">قائمة العملاء</h2>' +
+        table([
+          {h:'العميل', f:x => escHtml(x.c.name)},
+          {h:'المنطقة', f:x => escHtml(x.c.region || '—')},
+          {h:'الهاتف', f:x => x.c.phone ? '<bdi>' + escHtml(x.c.phone) + '</bdi>' : '—'},
+          {h:'الحالة', f:x => {
+            const map = {
+              overdue: '<span class="tag disc">متأخر</span>',
+              week: '<span class="tag credit">قريب</span>',
+              later: '<span class="tag rec">لاحقاً</span>',
+              paid: '<span class="tag cash">مسدد</span>'
+            };
+            return map[x.b.bucket] || '—';
+          }, cls:'nw'},
+          {h:'المتبقي', f:x => '<b>' + fmt(x.b.remaining) + '</b>', cls:'nw'},
+          {h:'', f:x => '<button class="mini" data-wa-cust="' + x.c.id + '">📱</button>', cls:'nw'}
+        ], customerBals, 'dops_customers');
+    }
+  }
+  
+  body.innerHTML = html;
 }
 
 /* =====================================================================
@@ -4766,6 +5159,7 @@ const MOUNT={
   sales:mountSales,
   production:mountProduction,
   withdrawals:mountWithdrawals,
+  dist_ops:mountDistOps,          // 🆕
   purchases:mountPurchases,
   purchase_requests:mountPurchaseRequests,
   collections:mountCollections,
@@ -4778,6 +5172,7 @@ const RENDER={
   sales:renderSales,
   production:renderProduction,
   withdrawals:renderWithdrawals,
+  dist_ops:renderDistOps,          // 🆕
   purchases:renderPurchases,
   purchase_requests:renderPurchaseRequests,
   collections:renderCollections,
@@ -5127,6 +5522,7 @@ const ICONS={
   sales:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M12 7v10M14.4 9.4c-.6-.8-1.4-1.1-2.4-1.1-1.3 0-2.3.7-2.3 1.7 0 2.4 4.7 1.2 4.7 3.6 0 1-1 1.7-2.4 1.7-1 0-1.9-.4-2.5-1.1"/>',
   production:'<path d="M3 21V11l6 4v-4l6 4V5h3.5v16z"/><path d="M7 18h.01M11 18h.01M15 18h.01"/>',
   withdrawals:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
+  dist_ops:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/><path d="M16 3l2 2-2 2"/>',
   purchases:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L20.5 7H6"/>',
   purchase_requests:'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h6"/>',
   collections:'<rect x="2.5" y="6" width="19" height="12" rx="2.2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
