@@ -907,6 +907,7 @@ const LocalAdapter={
   },
   subscribe(){},
   unsubscribe(){},
+    sb: null,  // للتوافق مع الكود الجديد
   async login(u,p){
     const usr=store.users.find(x=>x.username===u.toLowerCase().trim()&&x.active);
     if(!usr)return null;
@@ -1096,24 +1097,96 @@ const sb=window.supabase.createClient(url,key,{
   
   return profile;
 },
-   async setPassword(id, curp, nw){
-  // 1. حدّث كلمة المرور في Supabase Auth
-  const { error: authErr } = await sb.auth.updateUser({ password: nw });
-  if(authErr) throw authErr;
+   async setPassword(id,curp,nw){
+  // 1. تحقق من كلمة المرور الحالية
+  const { data: { user: authUser } } = await sb.auth.getUser();
+  if(!authUser){
+    throw new Error('غير مسجل الدخول');
+  }
   
-  // 2. حدّث الحقل default_pw في جدول users
+  // 2. تحقق من كلمة المرور الحالية بمحاولة تسجيل دخول جديدة
+  const { error: verifyErr } = await sb.auth.signInWithPassword({
+    email: authUser.email,
+    password: curp
+  });
+  
+  if(verifyErr){
+    return false; // كلمة المرور الحالية خاطئة
+  }
+  
+  // 3. حدّث كلمة المرور
+  const { error: updErr } = await sb.auth.updateUser({ password: nw });
+  if(updErr) throw updErr;
+  
+  // 4. حدّث default_pw
   await sb.from('users').update({ default_pw: false }).eq('id', id);
   
   return true;
 },
     async upsertUser(u){
-      const{data,error}=await sb.rpc('app_upsert_user',{
-        p_id:u.id||null,p_name:u.name,p_username:u.username,p_password:u.password||null,
-        p_role:u.role,p_perms:u.perms,p_can_edit:u.can_edit,p_can_delete:u.can_delete,p_active:u.active
-      });
-      if(error)throw error;u.id=data;return data;
+  // احصل على التوكن الحالي
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session){
+    throw new Error('غير مسجل الدخول');
+  }
+  
+  const action = u.id ? 'update' : 'create';
+  
+  const payload = {
+    action: action,
+    id: u.id || null,
+    name: u.name,
+    username: u.username,
+    password: u.password || null,
+    role: u.role,
+    perms: u.perms,
+    can_edit: u.can_edit,
+    can_delete: u.can_delete,
+    active: u.active
+  };
+  
+  // استدعِ Edge Function
+  const resp = await fetch(url + '/functions/v1/manage-users', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
     },
-    async deleteUser(id){const{error}=await sb.rpc('app_delete_user',{p_id:id});if(error)throw error},
+    body: JSON.stringify(payload)
+  });
+  
+  const result = await resp.json();
+  
+  if(!resp.ok){
+    throw new Error(result.error || 'فشل حفظ المستخدم');
+  }
+  
+  return result.user?.id || u.id;
+},
+  async deleteUser(id){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session){
+    throw new Error('غير مسجل الدخول');
+  }
+  
+  const resp = await fetch(url + '/functions/v1/manage-users', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
+    },
+    body: JSON.stringify({
+      action: 'delete',
+      id: id
+    })
+  });
+  
+  const result = await resp.json();
+  
+  if(!resp.ok){
+    throw new Error(result.error || 'فشل حذف المستخدم');
+  }
+},
     async saveEntity(table,row){
       if(row.id){const{error}=await sb.from(table).update(omit(row,['id'])).eq('id',row.id);if(error)throw error}
       else{row.id=uuid();const{error}=await sb.from(table).insert(row);if(error)throw error}
@@ -7710,12 +7783,31 @@ function showLogin(){
 async function doLogin(){
   const un=byId('lg_user').value.trim().toLowerCase(),pw=byId('lg_pass').value;
   if(!un||!pw){byId('lgErr').textContent='أدخل البيانات';return}
+  
+  byId('lgBtn').disabled = true;
+  byId('lgErr').textContent = 'جارٍ الدخول...';
+  
   let u=null;
-  try{u=await adapter.login(un,pw)}catch(ex){console.error(ex);byId('lgErr').textContent='تعذر الاتصال';return}
-  if(!u){byId('lgErr').textContent='بيانات غير صحيحة';return}
-  try{localStorage.setItem(SESSKEY,JSON.stringify({id:u.id,username:u.username}))}catch(e){}
-  user=u;
+  try{
+    u=await adapter.login(un,pw);
+  }catch(ex){
+    console.error(ex);
+    byId('lgErr').textContent='تعذر الاتصال';
+    byId('lgBtn').disabled = false;
+    return;
+  }
+  
+  if(!u){
+    byId('lgErr').textContent='بيانات غير صحيحة';
+    byId('lgBtn').disabled = false;
+    return;
+  }
+  
+  // ✅ لا نحتاج SESSKEY — Supabase Auth يحفظ الجلسة تلقائياً
+  user = u;
   byId('lg_user').value='';
+  byId('lgErr').textContent='';
+  byId('lgBtn').disabled = false;
   startApp();
   logLoginLocation();
 }
@@ -7757,10 +7849,6 @@ function logout(){
     try{ adapter.unsubscribe(); }catch(e){}
   }
   
-  closeSheet();
-  forms=[];
-  showLogin();
-}
   closeSheet();
   forms=[];
   showLogin();
@@ -8037,32 +8125,34 @@ async function boot(){
     showSyncIndicator('📴 لا اتصال', 'err');
   });
 
- // ✅ استرجع الجلسة من Supabase Auth
-try{
-  const { data: sessData } = await adapter.sb.auth.getSession();
-  
-  if(sessData && sessData.session && sessData.session.user){
-    // جلب بيانات الموظف
-    const { data: profile } = await adapter.sb
-      .from('users')
-      .select('*')
-      .eq('auth_user_id', sessData.session.user.id)
-      .eq('active', true)
-      .single();
+  // ✅ استرجع الجلسة من Supabase Auth
+  try{
+    const { data: sessData } = await adapter.sb.auth.getSession();
     
-    if(profile){
-      user = omit(profile, ['salt', 'hash']);
-      startApp();
+    if(sessData && sessData.session && sessData.session.user){
+      // جلب بيانات الموظف
+      const { data: profile, error: profErr } = await adapter.sb
+        .from('users')
+        .select('id,name,username,role,perms,can_edit,can_delete,active,default_pw')
+        .eq('auth_user_id', sessData.session.user.id)
+        .eq('active', true)
+        .single();
+      
+      if(profile && !profErr){
+        user = profile;
+        startApp();
+      } else {
+        // حساب Auth موجود لكن لا سجل — سجّل خروج
+        await adapter.sb.auth.signOut();
+        showLogin();
+      }
     } else {
       showLogin();
     }
-  } else {
+  }catch(e){
+    console.error('Session restore failed:', e);
     showLogin();
   }
-}catch(e){
-  console.error('Session restore failed:', e);
-  showLogin();
-}
 
   window.__muzn={
     get store(){return store},
