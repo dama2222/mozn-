@@ -1080,13 +1080,10 @@ const sb=window.supabase.createClient(url,key,{
     return null;
   }
   
-  // 2. جلب بيانات الموظف من جدول users
-  const { data: profile, error: profErr } = await sb
-    .from('users')
-    .select('id,name,username,role,perms,can_edit,can_delete,active,default_pw')
-    .eq('auth_user_id', authData.user.id)
-    .eq('active', true)
-    .single();
+  // 2. جلب بيانات الموظف عبر الدالة الآمنة (جدول users مقفول تماماً بـ RLS،
+  //    فلازم نمر عبر app_current_user المسموح بها للمستخدم المسجّل دخول)
+  const { data: profileRows, error: profErr } = await sb.rpc('app_current_user');
+  const profile = profileRows && profileRows[0];
   
   if(profErr || !profile){
     console.warn('Profile error:', profErr?.message);
@@ -1118,8 +1115,8 @@ const sb=window.supabase.createClient(url,key,{
   const { error: updErr } = await sb.auth.updateUser({ password: nw });
   if(updErr) throw updErr;
   
-  // 4. حدّث default_pw
-  await sb.from('users').update({ default_pw: false }).eq('id', id);
+  // 4. حدّث default_pw عبر دالة آمنة (جدول users مقفول تماماً بـ RLS)
+  try{ await sb.rpc('app_clear_default_pw'); }catch(e){ console.warn('clear default_pw failed', e); }
   
   return true;
 },
@@ -8125,32 +8122,32 @@ async function boot(){
     showSyncIndicator('📴 لا اتصال', 'err');
   });
 
-  // ✅ استرجع الجلسة من Supabase Auth
-  try{
-    const { data: sessData } = await adapter.sb.auth.getSession();
-    
-    if(sessData && sessData.session && sessData.session.user){
-      // جلب بيانات الموظف
-      const { data: profile, error: profErr } = await adapter.sb
-        .from('users')
-        .select('id,name,username,role,perms,can_edit,can_delete,active,default_pw')
-        .eq('auth_user_id', sessData.session.user.id)
-        .eq('active', true)
-        .single();
-      
-      if(profile && !profErr){
-        user = profile;
-        startApp();
+  // ✅ استرجع الجلسة من Supabase Auth (فقط في الوضع السحابي)
+  if(adapter && adapter.mode === 'cloud' && adapter.sb){
+    try{
+      const { data: sessData } = await adapter.sb.auth.getSession();
+
+      if(sessData && sessData.session && sessData.session.user){
+        // جلب بيانات الموظف عبر الدالة الآمنة (users نفسه مقفول بالكامل)
+        const { data: profileRows, error: profErr } = await adapter.sb.rpc('app_current_user');
+        const profile = profileRows && profileRows[0];
+
+        if(profile && !profErr){
+          user = profile;
+          startApp();
+        } else {
+          // حساب Auth موجود لكن لا سجل مرتبط/غير نشط — سجّل خروج
+          await adapter.sb.auth.signOut();
+          showLogin();
+        }
       } else {
-        // حساب Auth موجود لكن لا سجل — سجّل خروج
-        await adapter.sb.auth.signOut();
         showLogin();
       }
-    } else {
+    }catch(e){
+      console.error('Session restore failed:', e);
       showLogin();
     }
-  }catch(e){
-    console.error('Session restore failed:', e);
+  } else {
     showLogin();
   }
 
