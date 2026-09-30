@@ -981,7 +981,13 @@ const LocalAdapter={
    SupabaseAdapter
    ===================================================================== */
 function SupabaseAdapter(url,key){
-  const sb=window.supabase.createClient(url,key,{auth:{persistSession:false}});
+const sb=window.supabase.createClient(url,key,{
+  auth:{
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false
+  }
+});
   let chan=null, onRemote=null;
   async function all(t){const{data,error}=await sb.from(t).select('*');if(error)throw error;return data||[]}
   async function safeAll(t){try{return await all(t)}catch(e){return []}}
@@ -1053,16 +1059,53 @@ function SupabaseAdapter(url,key){
       try{ if(chan){ chan.unsubscribe(); chan=null; } }catch(e){}
       onRemote=null;
     },
-    async login(u,p){
-      const{data,error}=await sb.rpc('app_login',{p_username:u,p_password:p});
-      if(error)throw error;
-      return (data&&data[0])||null;
-    },
-    async setPassword(id,curp,nw){
-      const{data,error}=await sb.rpc('app_set_password',{p_id:id,p_current:curp,p_new:nw});
-      if(error)throw error;
-      return !!data;
-    },
+   async login(u,p){
+  // u = اسم المستخدم (admin, sael, prod)
+  // نحوله إلى بريد إلكتروني
+  const email = u.toLowerCase().trim() + '@muzn.local';
+  
+  // 1. تسجيل الدخول عبر Supabase Auth
+  const { data: authData, error: authErr } = await sb.auth.signInWithPassword({
+    email: email,
+    password: p
+  });
+  
+  if(authErr){
+    console.warn('Auth error:', authErr.message);
+    return null;
+  }
+  
+  if(!authData || !authData.user){
+    return null;
+  }
+  
+  // 2. جلب بيانات الموظف من جدول users
+  const { data: profile, error: profErr } = await sb
+    .from('users')
+    .select('id,name,username,role,perms,can_edit,can_delete,active,default_pw')
+    .eq('auth_user_id', authData.user.id)
+    .eq('active', true)
+    .single();
+  
+  if(profErr || !profile){
+    console.warn('Profile error:', profErr?.message);
+    // إذا لم يوجد سجل — سجّل خروج
+    await sb.auth.signOut();
+    return null;
+  }
+  
+  return profile;
+},
+   async setPassword(id, curp, nw){
+  // 1. حدّث كلمة المرور في Supabase Auth
+  const { error: authErr } = await sb.auth.updateUser({ password: nw });
+  if(authErr) throw authErr;
+  
+  // 2. حدّث الحقل default_pw في جدول users
+  await sb.from('users').update({ default_pw: false }).eq('id', id);
+  
+  return true;
+},
     async upsertUser(u){
       const{data,error}=await sb.rpc('app_upsert_user',{
         p_id:u.id||null,p_name:u.name,p_username:u.username,p_password:u.password||null,
@@ -7703,10 +7746,21 @@ function logLoginLocation(){
 }
 function logout(){
   try{localStorage.removeItem(SESSKEY)}catch(e){}
-  // ✅ إلغاء الاشتراك في الـ Realtime
+  
+  // ✅ سجّل الخروج من Supabase Auth
+  if(adapter && adapter.sb && adapter.sb.auth){
+    adapter.sb.auth.signOut().catch(e => console.warn('signOut failed:', e));
+  }
+  
+  // إلغاء الاشتراك في الـ Realtime
   if(adapter && adapter.unsubscribe){
     try{ adapter.unsubscribe(); }catch(e){}
   }
+  
+  closeSheet();
+  forms=[];
+  showLogin();
+}
   closeSheet();
   forms=[];
   showLogin();
@@ -7983,15 +8037,32 @@ async function boot(){
     showSyncIndicator('📴 لا اتصال', 'err');
   });
 
-  let sid=null;
-  try{sid=JSON.parse(localStorage.getItem(SESSKEY)||'null')}catch(e){}
-  const u=sid&&store.users.find(x=>x.id===sid.id&&x.active);
-  if(u){
-    user=omit(u,['salt','hash']);
-    startApp();
-  }else{
+ // ✅ استرجع الجلسة من Supabase Auth
+try{
+  const { data: sessData } = await adapter.sb.auth.getSession();
+  
+  if(sessData && sessData.session && sessData.session.user){
+    // جلب بيانات الموظف
+    const { data: profile } = await adapter.sb
+      .from('users')
+      .select('*')
+      .eq('auth_user_id', sessData.session.user.id)
+      .eq('active', true)
+      .single();
+    
+    if(profile){
+      user = omit(profile, ['salt', 'hash']);
+      startApp();
+    } else {
+      showLogin();
+    }
+  } else {
     showLogin();
   }
+}catch(e){
+  console.error('Session restore failed:', e);
+  showLogin();
+}
 
   window.__muzn={
     get store(){return store},
