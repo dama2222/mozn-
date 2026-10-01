@@ -3836,7 +3836,6 @@ function renderOpOpsTab(tab, data){
 function mountWarehouse(){
   renderWarehouse();
 }
-
 function renderWarehouse(){
   const content = byId('wh-content');
   if(!content) return;
@@ -3914,7 +3913,7 @@ function renderWarehouse(){
   
   let html = '';
   
-    // ✅ الإحصائيات السريعة
+  // ✅ الإحصائيات السريعة
   html += '<div class="kgrid">';
   
   // 💰 القيمة الإجمالية — للمدير فقط
@@ -3925,11 +3924,10 @@ function renderWarehouse(){
     '</div>';
   }
   
-  html +=
-    '<div class="kpi"><div class="lb">📦 وحدات المنتجات</div>' +
-      '<div class="val">' + fmt(totalProductStock) + '</div>' +
-      '<div class="sub ' + (lowProducts.length ? 'dn' : 'up') + '">' + 
-      lowProducts.length + ' تحت الحد</div></div>' +
+  html += '<div class="kpi"><div class="lb">📦 وحدات المنتجات</div>' +
+    '<div class="val">' + fmt(totalProductStock) + '</div>' +
+    '<div class="sub ' + (lowProducts.length ? 'dn' : 'up') + '">' + 
+    lowProducts.length + ' تحت الحد</div></div>' +
     '<div class="kpi"><div class="lb">🌾 مواد خام</div>' +
       '<div class="val">' + fmt(totalMaterialStock) + '</div>' +
       '<div class="sub ' + (lowMaterials.length ? 'dn' : 'up') + '">' + 
@@ -3986,6 +3984,7 @@ function renderWarehouse(){
   // ✅ عرض التبويب الافتراضي
   renderWarehouseTab('overview', data);
 }
+
   function renderWarehouseTab(tab, data){
   const body = byId('wh-body');
   if(!body) return;
