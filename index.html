@@ -888,12 +888,20 @@ function calculateSalesBonuses(header, items){
     
     if(!matchingItems.length) continue;
     
-    // إجمالي الكمية
+        // إجمالي الكمية
     const totalQty = sum(matchingItems, it => it.qty);
-    if(totalQty < rule.threshold) continue;
     
     // إجمالي القيمة
     const totalValue = sum(matchingItems, it => r2(it.qty * it.price - (it.discount || 0)));
+    
+    // 🆕 التحقق حسب measure
+    if(rule.measure === 'amount'){
+      // الهدف مبلغ — تحقق من القيمة
+      if(totalValue < rule.threshold) continue;
+    } else {
+      // الهدف كمية — تحقق من الكمية
+      if(totalQty < rule.threshold) continue;
+    }
     
     // حساب المكافأة
     let rewardAmount = 0;
@@ -902,6 +910,9 @@ function calculateSalesBonuses(header, items){
     if(rule.reward_type === 'per_unit'){
       rewardAmount = r2(totalQty * rule.reward_value);
     } else if(rule.reward_type === 'percent'){
+      // 🆕 النسبة من:
+      // - القيمة الكلية (إذا measure='amount')
+      // - قيمة الأصناف المطابقة (إذا measure='units')
       rewardAmount = r2(totalValue * rule.reward_value / 100);
     } else if(rule.reward_type === 'multiplier'){
       // مضاعف على الحافز المعياري (إن وُجد)
@@ -989,9 +1000,21 @@ function calculateProductionBonuses(header, items){
     
     if(!matchingItems.length) continue;
     
-    // إجمالي الكمية المُنتجة
+        // إجمالي الكمية المُنتجة
     const totalQty = sum(matchingItems, it => it.actual);
-    if(totalQty < rule.threshold) continue;
+    
+    // 🆕 قيمة الإنتاج بالجملة
+    const totalValue = sum(matchingItems, it => {
+      const p = pOf(store, it.product_id);
+      return p ? r2(it.actual * (p.dist_price || p.price || 0)) : 0;
+    });
+    
+    // التحقق حسب measure
+    if(rule.measure === 'amount'){
+      if(totalValue < rule.threshold) continue;
+    } else {
+      if(totalQty < rule.threshold) continue;
+    }
     
     // حساب المكافأة
     let rewardAmount = 0;
@@ -1114,17 +1137,22 @@ function getBonusTargets(rule){
 
 // وصف المكافأة
 function describeBonusReward(rule){
+  const measureText = rule.measure === 'amount' ? ' المبلغ' : ' الكمية';
+  
   if(rule.reward_type === 'per_unit') 
     return 'مكافأة ' + fmt(rule.reward_value) + ' ' + cur() + ' لكل وحدة';
-  if(rule.reward_type === 'percent') 
-    return rule.reward_value + '% من قيمة البيع';
+  if(rule.reward_type === 'percent'){
+    if(rule.measure === 'amount'){
+      return rule.reward_value + '% من إجمالي المبيعات';
+    }
+    return rule.reward_value + '% من قيمة الأصناف';
+  }
   if(rule.reward_type === 'multiplier') 
     return '×' + rule.reward_value + ' من الحافز';
   if(rule.reward_type === 'fixed') 
     return fmt(rule.reward_value) + ' ' + cur() + ' مكافأة ثابتة';
   return '';
 }
-
 // حساب تقدم المستخدم نحو قاعدة
 function computeBonusProgress(rule, entityId, entityType){
   if(rule.scope === 'sales' && entityType !== 'distributor') return null;
@@ -1140,20 +1168,37 @@ function computeBonusProgress(rule, entityId, entityType){
   const from = rule.valid_from || '1900-01-01';
   const to = rule.valid_to || '2099-12-31';
   
-  if(rule.scope === 'sales'){
+    if(rule.scope === 'sales'){
     const items = store.sale_items_flat.filter(s => 
       s.distributor_id === entityId &&
       s.date >= from && s.date <= to &&
       (!rule.product_id || s.product_id === rule.product_id)
     );
-    achieved = sum(items, s => s.qty);
+    
+    // 🆕 حسب measure
+    if(rule.measure === 'amount'){
+      // إجمالي المبيعات (بالعملة)
+      achieved = sum(items, s => r2(s.qty * s.price - (s.discount || 0)));
+    } else {
+      // عدد الوحدات
+      achieved = sum(items, s => s.qty);
+    }
   } else {
     const items = store.shift_items_flat.filter(s => 
       s.operator_id === entityId &&
       s.date >= from && s.date <= to &&
       (!rule.product_id || s.product_id === rule.product_id)
     );
-    achieved = sum(items, s => s.actual);
+    
+    if(rule.measure === 'amount'){
+      // قيمة الإنتاج بالجملة
+      achieved = sum(items, s => {
+        const p = pOf(store, s.product_id);
+        return p ? r2(s.actual * (p.dist_price || p.price || 0)) : 0;
+      });
+    } else {
+      achieved = sum(items, s => s.actual);
+    }
   }
   
   const remaining = Math.max(rule.threshold - achieved, 0);
@@ -1249,10 +1294,11 @@ function renderBonusCountdown(entityId, entityType){
         '</div>' +
       '</div>' +
       
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
         '<div>' +
           '<b style="font-size:18px">' + fmt(p.achieved) + '</b>' +
-          '<small style="color:var(--muted)"> / ' + fmt(p.threshold) + ' وحدة</small>' +
+          '<small style="color:var(--muted)"> / ' + fmt(p.threshold) + 
+            (p.rule.measure === 'amount' ? ' ' + cur() : ' وحدة') + '</small>' +
         '</div>' +
         (p.achievedOK 
           ? '<span class="tag cash">✅ تم الإنجاز</span>'
@@ -1271,7 +1317,87 @@ function renderBonusCountdown(entityId, entityType){
   html += '</div>';
   return html;
 }
-
+/* =====================================================================
+   🆕 ملخص المكافآت للمدير
+   ===================================================================== */
+function renderAdminBonusOverview(entityType){
+  const rules = (store.bonus_rules || []).filter(r => {
+    if(!r.active) return false;
+    if(r.scope === 'production' && entityType !== 'operator') return false;
+    if(r.scope === 'sales' && entityType !== 'distributor') return false;
+    const t = today();
+    if(r.valid_from && t < r.valid_from) return false;
+    if(r.valid_to && t > r.valid_to) return false;
+    return true;
+  });
+  
+  if(!rules.length) return '';
+  
+  const entities = entityType === 'operator' ? store.operators : store.distributors;
+  
+  let html = '<div style="margin-bottom:12px">' +
+    '<div class="sec-head" style="margin:0 0 8px">' +
+      '<h2 style="font-size:14px">🎁 نسب تحقيق المكافآت — ' + 
+      (entityType === 'operator' ? 'المشغّلون' : 'الموزعون') + '</h2>' +
+    '</div>';
+  
+  for(const rule of rules){
+    const progressList = entities
+      .map(e => {
+        const p = computeBonusProgress(rule, e.id, entityType);
+        return p ? {entity: e, progress: p} : null;
+      })
+      .filter(Boolean);
+    
+    if(!progressList.length) continue;
+    
+    const time = formatTimeLeft(rule.valid_to);
+    
+    html += '<div class="card" style="margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<b style="font-size:15px">🎁 ' + escHtml(rule.name) + '</b>' +
+          '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' +
+            (rule.product_id ? escHtml(pn(rule.product_id)) : 'كل المنتجات') +
+            ' · الهدف ' + fmt(rule.threshold) + 
+            (rule.measure === 'amount' ? ' ' + cur() : ' وحدة') +
+          '</small>' +
+        '</div>' +
+        '<small style="color:var(--' + 
+          (time.cls === 'mut' ? 'muted' : time.cls === 'warn' ? 'orange' : 'red') + 
+          ');font-size:11.5px;font-weight:700">' + time.text + '</small>' +
+      '</div>';
+    
+    for(const item of progressList){
+      const achievedOK = item.progress.achievedOK;
+      const progressColor = achievedOK ? 'green' : item.progress.percent > 70 ? 'orange' : 'blue';
+      
+      html += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px">' +
+          '<b style="font-size:13.5px">' + escHtml(item.entity.name) + '</b>' +
+          (achievedOK 
+            ? '<span class="tag cash">✅ ' + item.progress.percent.toFixed(0) + '%</span>'
+            : '<b class="warn" style="font-size:12px">' + item.progress.percent.toFixed(0) + '%</b>'
+          ) +
+        '</div>' +
+        '<div style="background:var(--input);height:10px;border-radius:99px;overflow:hidden;margin-bottom:4px">' +
+          '<div style="background:var(--' + progressColor + ');height:100%;width:' + 
+            item.progress.percent.toFixed(1) + '%"></div>' +
+        '</div>' +
+        '<small style="color:var(--muted);font-size:11.5px">' + 
+          fmt(item.progress.achieved) + ' / ' + fmt(item.progress.threshold) + 
+          (rule.measure === 'amount' ? ' ' + cur() : ' وحدة') +
+          (achievedOK ? '' : ' · متبقي ' + fmt(item.progress.remaining)) +
+        '</small>' +
+      '</div>';
+    }
+    
+    html += '</div>';
+  }
+  
+  html += '</div>';
+  return html;
+}
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},
   {id:'sales',t:'المبيعات',s:'المبيعات'},
@@ -3083,7 +3209,7 @@ function operatorShiftCheckOutForm(opId){
 const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
   sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-bonus-countdown"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
-  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-bonus-countdown"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
+  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-bonus-countdown"></div><div id="prod-bonus-overview"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
  warehouse:'<h1>🏭 مخزون الشركة</h1>' +
     '<div id="wh-content"></div>',
@@ -3270,10 +3396,17 @@ function renderSales(){
   if(!byId('sales-body'))return;
   renderShiftChip();
   renderSalesAttendanceWarn();
-    // 🆕 عدّاد المكافآت
-  const myDist = store.distributors.find(d => d.user_id === user.id);
-  const bonusEl = byId('sales-bonus-countdown');
-  if(bonusEl) bonusEl.innerHTML = myDist ? renderBonusCountdown(myDist.id, 'distributor') : '';
+     // 🆕 عدّاد المكافآت (للمشغّل)
+  const myOp = store.operators.find(o => o.user_id === user.id);
+  const bonusEl = byId('prod-bonus-countdown');
+  if(bonusEl){
+    if(myOp){
+      bonusEl.innerHTML = renderBonusCountdown(myOp.id, 'operator');
+    } else {
+      // إذا لم يكن مشغّلاً (مدير مثلاً) — اعرض ملخص لكل المشغّلين
+      bonusEl.innerHTML = renderAdminBonusOverview('operator');
+    }
+  } 
   const all=store.sales,cash=all.filter(s=>s.type==='cash').length,cr=all.length-cash,f=ui.f.sales;
   byId('sales-stats').innerHTML=statsStrip(all,saleTotal,fmt,a=>fmt(sum(a,h=>sum(h.items,x=>x.qty)))+' وحدة');
   pills('#sales-pills',[['all','الكل ('+all.length+')'],['cash','كاش ('+cash+')'],['credit','آجل ('+cr+')']],f,'sales');
@@ -4162,6 +4295,7 @@ function renderOpOps(){
     '<button class="pill" data-oopstab="shifts">⏰ الورديات</button>' +
     '<button class="pill" data-oopstab="payments">💵 التسديدات</button>' +
     '<button class="pill" data-oopstab="bonuses">🎁 البونص</button>' +
+    '<button class="pill" data-oopstab="bonus_progress">📊 تقدم المكافآت</button>' +
   '</div>';
   
   html += '<div id="oops-body"></div>';
@@ -4505,6 +4639,14 @@ function renderOpOpsTab(tab, data){
           '</div>' +
         '</div>';
       }).join('');
+    }
+  }
+    else if(tab === 'bonus_progress'){
+    // 🆕 عرض العدّاد للمشغّل
+    html = renderBonusCountdown(o.id, 'operator');
+    
+    if(!html){
+      html = '<div class="empty">لا توجد مكافآت نشطة حالياً</div>';
     }
   }
   body.innerHTML = html;
@@ -5277,8 +5419,9 @@ function renderDistOps(){
     '<button class="pill" data-dopstab="withdrawals">📦 المسحوبات</button>' +
     '<button class="pill" data-dopstab="sales">🛒 المبيعات</button>' +
     '<button class="pill" data-dopstab="remittances">💵 التحصيلات</button>' +
-        '<button class="pill" data-dopstab="customers">👥 العملاء</button>' +
+    '<button class="pill" data-dopstab="customers">👥 العملاء</button>' +
     '<button class="pill" data-dopstab="bonuses">🎁 البونص</button>' +
+    '<button class="pill" data-dopstab="bonus_progress">📊 تقدم المكافآت</button>' +
   '</div>';
   
   html += '<div id="dops-body"></div>';
@@ -5699,7 +5842,14 @@ function renderDistOpsTab(tab, data){
         ], customerBals, 'dops_customers');
     }
   }
-  
+    else if(tab === 'bonus_progress'){
+    // 🆕 عرض العدّاد للموزع
+    html = renderBonusCountdown(d.id, 'distributor');
+    
+    if(!html){
+      html = '<div class="empty">لا توجد مكافآت نشطة حالياً</div>';
+    }
+  }
   body.innerHTML = html;
 }
 
@@ -7473,10 +7623,14 @@ function mountBonusRules(){
       return [['', '—']];
     }, value:''},
     {k:'product_id', label:'المنتج', type:'select', nophd:true, options:()=>[['', 'كل المنتجات']].concat(opt.products()), value:''},
-    {k:'threshold', label:'الحد الأدنى للكمية', type:'number', value:1, step:'0.001'},
+        {k:'measure', label:'وحدة القياس', type:'radio', options:[
+      ['units', '📦 الكمية (وحدات)'],
+      ['amount', '💰 المبلغ (' + cur() + ')']
+    ], value:'units'},
+    {k:'threshold', label:'الحد الأدنى (حسب الوحدة أعلاه)', type:'number', value:1, step:'0.001'},
     {k:'reward_type', label:'نوع المكافأة', type:'select', nophd:true, options:[
       ['per_unit', 'مبلغ لكل وحدة'],
-      ['percent', 'نسبة من القيمة'],
+      ['percent', 'نسبة مئوية'],
       ['multiplier', 'مضاعف الحافز (مثال: 2)'],
       ['fixed', 'مبلغ ثابت']
     ], value:'per_unit'},
@@ -7492,12 +7646,13 @@ function mountBonusRules(){
       if(!v.reward_value || v.reward_value <= 0){ toast('أدخل قيمة المكافأة','err'); return false; }
       if(v.target_type !== 'all' && !v.target_id){ toast('اختر الطرف المستفيد','err'); return false; }
       
-      const row = {
+            const row = {
         name: v.name.trim(),
         scope: v.scope,
         target_type: v.target_type,
         target_id: v.target_type === 'all' ? null : v.target_id,
         product_id: v.product_id || null,
+        measure: v.measure || 'units',
         threshold: Number(v.threshold) || 1,
         reward_type: v.reward_type,
         reward_value: Number(v.reward_value),
