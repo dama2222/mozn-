@@ -1608,13 +1608,14 @@ const sb=window.supabase.createClient(url,key,{
   let chan=null, onRemote=null;
   async function all(t){const{data,error}=await sb.from(t).select('*');if(error)throw error;return data||[]}
   async function safeAll(t){try{return await all(t)}catch(e){return []}}
+  async function listStaff(){const{data,error}=await sb.rpc('app_list_staff');if(error)throw error;return data||[]}
   return{
     mode:'cloud',url,key,sb,
     async init(){
       const [company,users,materials,products,operators,distributors,customers,suppliers,shifts,shift_items,withdrawals,
-        sales,sale_items,purchases,purchase_items,payments,remittances,supplier_payments,notices,audit,discounts]=await Promise.all(
-        ['company','users_public','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
-        'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','discounts'].map(all));
+        sales,sale_items,purchases,purchase_items,payments,remittances,supplier_payments,notices,audit,discounts]=await Promise.all([
+        all('company'),listStaff(),all('materials'),all('products'),all('operators'),all('distributors'),all('customers'),all('suppliers'),all('shifts'),all('shift_items'),all('withdrawals'),
+        all('sales'),all('sale_items'),all('purchases'),all('purchase_items'),all('payments'),all('remittances'),all('supplier_payments'),all('notices'),all('audit'),all('discounts')]);
       const group=(heads,items,fk)=>heads.map(h=>Object.assign({},h,{items:items.filter(i=>i[fk]===h.id)}));
       const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations,bonus_rules,bonus_awards]=await Promise.all([  
         safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),
