@@ -4336,7 +4336,7 @@ function openScannerForStock(){
           (canEditProduct() ? '<button class="btn-ghost" id="wh-edit-product">✏️ تعديل المنتج</button>' : '') +
           '<button class="btn-primary" id="wh-scan-again">📷 مسح آخر</button>' +
         '</div>'
-      
+       );
       // ✅ ربط أزرار الإجراءات
       const editBtn = byId('wh-edit-product');
       if(editBtn) editBtn.onclick = () => {
