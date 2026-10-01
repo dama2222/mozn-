@@ -5390,7 +5390,7 @@ function mountDistOps(){
   if(!picker) return;
   
   // إذا كان المستخدم موزعاً — اقفل على نفسه
-  c = user.distributor_id || 
+  const myDist = user.distributor_id || 
     (store.distributors.find(d => d.user_id === user.id) || {}).id;
   
   const ds = store.distributors;
@@ -8611,6 +8611,7 @@ function applyBrand(){
   }
 }
 function alertsList(){
+  if(!user) return {lowStock:[],lowMat:[],overdue:[],lateDist:[],notices:[],discounts:[],complaints:[]};
   const S=store;
   const lowStock=S.products.filter(p=>p.min_stock&&stockWH(S,p.id)<p.min_stock);
   const lowMat=S.materials.filter(m=>m.min_stock&&materialStock(S,m.id)<m.min_stock);
