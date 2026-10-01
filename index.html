@@ -843,6 +843,11 @@ const MODS=[
 const isA=()=>user&&user.role==='admin';
 const canE=()=>isA()||(user&&user.can_edit);
 const canD=()=>isA()||(user&&user.can_delete);
+  // 🆕 دوال صلاحيات المخزون
+const canViewCost = () => isA();
+const isWarehouseKeeper = () => user.perms && user.perms.indexOf('withdrawals') >= 0;
+const canEditProduct = () => isA() || isWarehouseKeeper();
+const canAddProduct = () => isA() || isWarehouseKeeper();
 const allowed=()=>{
   return MODS.filter(m=>{
     // ✅ المدير يرى الكل
@@ -864,12 +869,10 @@ const allowed=()=>{
       return user.perms.indexOf('distributors') >= 0 || 
              user.perms.indexOf('sales') >= 0;
     }
-        // 🆕 تبويب مخزون الشركة — يحتاج صلاحية withdrawals أو purchases
+          // 🆕 تبويب مخزون الشركة — لأمين المستودع فقط
     if(m.id === 'warehouse'){
-      return user.perms.indexOf('withdrawals') >= 0 || 
-             user.perms.indexOf('purchases') >= 0 ||
-             user.perms.indexOf('production') >= 0;
-    }
+      return user.perms.indexOf('withdrawals') >= 0;
+    } 
     // ✅ الأقسام العادية — حسب الصلاحيات
     return user.perms.indexOf(m.id) >= 0;
   });
@@ -3911,12 +3914,18 @@ function renderWarehouse(){
   
   let html = '';
   
-  // ✅ الإحصائيات السريعة
-  html += '<div class="kgrid">' +
-    '<div class="kpi wide"><div class="lb">💰 قيمة المخزون الإجمالية</div>' +
+    // ✅ الإحصائيات السريعة
+  html += '<div class="kgrid">';
+  
+  // 💰 القيمة الإجمالية — للمدير فقط
+  if(canViewCost()){
+    html += '<div class="kpi wide"><div class="lb">💰 قيمة المخزون الإجمالية</div>' +
       '<div class="val">' + fmt(totalProductValue + totalMaterialValue + totalCustodyValue) + ' ' + cur() + '</div>' +
       '<div class="sub mut">منتجات + مواد + عهد</div>' +
-    '</div>' +
+    '</div>';
+  }
+  
+  html +=
     '<div class="kpi"><div class="lb">📦 وحدات المنتجات</div>' +
       '<div class="val">' + fmt(totalProductStock) + '</div>' +
       '<div class="sub ' + (lowProducts.length ? 'dn' : 'up') + '">' + 
@@ -3995,21 +4004,35 @@ function renderWarehouse(){
   // =========================================================
   // نظرة عامة
   // =========================================================
-  if(tab === 'overview'){
+    if(tab === 'overview'){
+    // 🆕 أجزاء أساسية (يراها الجميع)
     html = '<div class="card">' +
       '<h2 style="margin-bottom:10px">📊 ملخص المخزون</h2>' +
-      '<div class="kv"><span>📦 إجمالي المنتجات</span><b>' + fmt(totalProductStock) + ' وحدة</b></div>' +
-      '<div class="kv"><span>💰 قيمة المنتجات (تكلفة)</span><b>' + fmt(totalProductValue) + ' ' + cur() + '</b></div>' +
-      '<hr style="border-color:var(--line);margin:10px 0">' +
-      '<div class="kv"><span>🌾 إجمالي المواد الخام</span><b>' + fmt(totalMaterialStock) + ' وحدة</b></div>' +
-      '<div class="kv"><span>💰 قيمة المواد الخام</span><b>' + fmt(totalMaterialValue) + ' ' + cur() + '</b></div>' +
-      '<hr style="border-color:var(--line);margin:10px 0">' +
-      '<div class="kv"><span>👥 عهدة الموزعين</span><b>' + fmt(totalCustodyQty) + ' وحدة</b></div>' +
-      '<div class="kv"><span>💰 قيمة العهدة</span><b>' + fmt(totalCustodyValue) + ' ' + cur() + '</b></div>' +
-      '<hr style="border-color:var(--line);margin:10px 0">' +
-      '<div class="kv big"><span>💎 إجمالي قيمة المخزون</span>' +
-      '<b class="up">' + fmt(totalProductValue + totalMaterialValue + totalCustodyValue) + ' ' + cur() + '</b></div>' +
-    '</div>';
+      '<div class="kv"><span>📦 إجمالي المنتجات</span><b>' + fmt(totalProductStock) + ' وحدة</b></div>';
+    
+    // 💰 القيم المالية — للمدير فقط
+    if(canViewCost()){
+      html += '<div class="kv"><span>💰 قيمة المنتجات (تكلفة)</span><b>' + fmt(totalProductValue) + ' ' + cur() + '</b></div>';
+    }
+    
+    html += '<hr style="border-color:var(--line);margin:10px 0">' +
+      '<div class="kv"><span>🌾 إجمالي المواد الخام</span><b>' + fmt(totalMaterialStock) + ' وحدة</b></div>';
+    
+    if(canViewCost()){
+      html += '<div class="kv"><span>💰 قيمة المواد الخام</span><b>' + fmt(totalMaterialValue) + ' ' + cur() + '</b></div>';
+    }
+    
+    html += '<hr style="border-color:var(--line);margin:10px 0">' +
+      '<div class="kv"><span>👥 عهدة الموزعين</span><b>' + fmt(totalCustodyQty) + ' وحدة</b></div>';
+    
+    if(canViewCost()){
+      html += '<div class="kv"><span>💰 قيمة العهدة</span><b>' + fmt(totalCustodyValue) + ' ' + cur() + '</b></div>';
+      html += '<hr style="border-color:var(--line);margin:10px 0">' +
+        '<div class="kv big"><span>💎 إجمالي قيمة المخزون</span>' +
+        '<b class="up">' + fmt(totalProductValue + totalMaterialValue + totalCustodyValue) + ' ' + cur() + '</b></div>';
+    }
+    
+    html += '</div>';
     
     // تنبيهات سريعة
     if(lowProducts.length + lowMaterials.length > 0){
@@ -4033,15 +4056,23 @@ function renderWarehouse(){
       '<div class="kv"><span>🔢 عدد المنتجات</span><b>' + productsStock.length + '</b></div>' +
     '</div>';
     
-    html += table([
+    // 🆕 الأعمدة الأساسية (يراها الجميع)
+    const productCols = [
       {h:'المنتج', f:x => escHtml(x.p.name) + (x.isLow ? ' <span class="tag disc">⚠️</span>' : '')},
       {h:'المخزون', f:x => '<b class="' + (x.isLow ? 'dn' : 'up') + '">' + fmt(x.stock) + '</b> ' + escHtml(x.p.unit || '')},
       {h:'حد التنبيه', f:x => fmt(x.p.min_stock || 0), cls:'nw'},
-      {h:'التكلفة', f:x => fmt(x.p.cost || 0) + ' ' + cur(), cls:'nw'},
-      {h:'سعر الجملة', f:x => fmt(x.dist_price) + ' ' + cur(), cls:'nw'},
-      {h:'القيمة', f:x => '<b>' + fmt(x.stock * (x.p.cost || 0)) + ' ' + cur() + '</b>', cls:'nw'},
-      {h:'', f:x => '<button class="mini" data-wh-product="' + x.p.id + '">تفاصيل</button>', cls:'nw'}
-    ], productsStock, 'wh_products');
+      {h:'سعر الجملة', f:x => fmt(x.dist_price) + ' ' + cur(), cls:'nw'}
+    ];
+    
+    // 💰 أعمدة إضافية — للمدير فقط
+    if(canViewCost()){
+      productCols.push({h:'التكلفة', f:x => fmt(x.p.cost || 0) + ' ' + cur(), cls:'nw'});
+      productCols.push({h:'القيمة', f:x => '<b>' + fmt(x.stock * (x.p.cost || 0)) + ' ' + cur() + '</b>', cls:'nw'});
+    }
+    
+    productCols.push({h:'', f:x => '<button class="mini" data-wh-product="' + x.p.id + '">تفاصيل</button>', cls:'nw'});
+    
+    html += table(productCols, productsStock, 'wh_products');
   }
   
   // =========================================================
@@ -4054,13 +4085,18 @@ function renderWarehouse(){
       '<div class="kv"><span>🔢 عدد المواد</span><b>' + materialsStock.length + '</b></div>' +
     '</div>';
     
-    html += table([
+     const materialCols = [
       {h:'المادة', f:x => escHtml(x.m.name) + (x.isLow ? ' <span class="tag disc">⚠️</span>' : '')},
       {h:'المخزون', f:x => '<b class="' + (x.isLow ? 'dn' : 'up') + '">' + fmt(x.stock) + '</b> ' + escHtml(x.m.unit || '')},
-      {h:'حد التنبيه', f:x => fmt(x.m.min_stock || 0), cls:'nw'},
-      {h:'التكلفة', f:x => fmt(x.m.cost || 0) + ' ' + cur(), cls:'nw'},
-      {h:'القيمة', f:x => '<b>' + fmt(x.stock * (x.m.cost || 0)) + ' ' + cur() + '</b>', cls:'nw'}
-    ], materialsStock, 'wh_materials', 'لا توجد مواد خام');
+      {h:'حد التنبيه', f:x => fmt(x.m.min_stock || 0), cls:'nw'}
+    ];
+    
+    if(canViewCost()){
+      materialCols.push({h:'التكلفة', f:x => fmt(x.m.cost || 0) + ' ' + cur(), cls:'nw'});
+      materialCols.push({h:'القيمة', f:x => '<b>' + fmt(x.stock * (x.m.cost || 0)) + ' ' + cur() + '</b>', cls:'nw'});
+    }
+    
+    html += table(materialCols, materialsStock, 'wh_materials', 'لا توجد مواد خام');
   }
   
   // =========================================================
@@ -4285,23 +4321,22 @@ function openScannerForStock(){
           ) +
         '</div>' +
         
-        // تفاصيل المنتج
+                // تفاصيل المنتج
         '<div class="card" style="margin-bottom:12px">' +
-          '<div class="kv"><span>💰 تكلفة التصنيع</span><b>' + fmt(product.cost || 0) + ' ' + cur() + '</b></div>' +
+          (canViewCost() ? '<div class="kv"><span>💰 تكلفة التصنيع</span><b>' + fmt(product.cost || 0) + ' ' + cur() + '</b></div>' : '') +
           '<div class="kv"><span>🏷️ سعر التجزئة</span><b>' + fmt(product.price || 0) + ' ' + cur() + '</b></div>' +
           '<div class="kv"><span>🚚 سعر الجملة</span><b>' + fmt(distPrice) + ' ' + cur() + '</b></div>' +
-          '<div class="kv"><span>💎 قيمة المخزون</span><b>' + fmt(stockValue) + ' ' + cur() + '</b></div>' +
+          (canViewCost() ? '<div class="kv"><span>💎 قيمة المخزون</span><b>' + fmt(stockValue) + ' ' + cur() + '</b></div>' : '') +
           '<div class="kv"><span>📅 الباركود</span><b><bdi>' + escHtml(product.barcode || '—') + '</bdi></b></div>' +
         '</div>' +
         
         materialInfo +
         
-        // أزرار الإجراءات
+              // أزرار الإجراءات
         '<div class="btnrow" style="margin-top:14px">' +
-          '<button class="btn-ghost" id="wh-edit-product">✏️ تعديل المنتج</button>' +
+          (canEditProduct() ? '<button class="btn-ghost" id="wh-edit-product">✏️ تعديل المنتج</button>' : '') +
           '<button class="btn-primary" id="wh-scan-again">📷 مسح آخر</button>' +
         '</div>'
-      );
       
       // ✅ ربط أزرار الإجراءات
       const editBtn = byId('wh-edit-product');
@@ -6491,7 +6526,23 @@ function quickAddCustomerSheet(prefillDistId){
   }});
 }
 function entSheet(ent,id){
-  if(!isA()){toast('الإدارة للمدير فقط','err');return}
+  // 🆕 التحقق من الصلاحيات حسب النوع
+  if(ent === 'products'){
+    // المنتجات: منع التعديل على منتج موجود لغير المدير/أمين المستودع
+    if(id && !canEditProduct()){
+      toast('ليس لديك صلاحية تعديل المنتج','err');
+      return;
+    }
+    // منع الوصول للجميع ما عدا المؤهلين
+    if(!canAddProduct()){
+      toast('ليس لديك صلاحية','err');
+      return;
+    }
+  } else {
+    // باقي الأنواع: للمدير فقط
+    if(!isA()){toast('الإدارة للمدير فقط','err');return}
+  }
+  
   const cfg=ENT[ent],rec=id?store[ent].find(x=>x.id===id):null;
   const fields=cfg.fields.map(f=>Object.assign({},f,{value:rec?(f.k==='password'?'':rec[f.k]):f.value}));
   openSheet('<h3>'+(rec?'تعديل':'إضافة')+' '+cfg.title+'</h3><div id="ent-form"></div>'+(rec?'<button class="btn-danger btn-block" id="ent-del">حذف</button>':''));
@@ -8252,6 +8303,21 @@ document.addEventListener('click', function(e){
   const distPrice = p.dist_price || p.price || 0;
   const isLow = p.min_stock && stock < p.min_stock;
   
+  // 🆕 تفاصيل المنتج — التكلفة للمدير فقط
+  let detailsHTML = '<div class="card" style="margin-bottom:12px">' +
+    (canViewCost() ? '<div class="kv"><span>💰 التكلفة</span><b>' + fmt(p.cost || 0) + ' ' + cur() + '</b></div>' : '') +
+    '<div class="kv"><span>🏷️ تجزئة</span><b>' + fmt(p.price || 0) + ' ' + cur() + '</b></div>' +
+    '<div class="kv"><span>🚚 جملة</span><b>' + fmt(distPrice) + ' ' + cur() + '</b></div>' +
+    (canViewCost() ? '<div class="kv"><span>💎 القيمة</span><b>' + fmt(stock * (p.cost || 0)) + ' ' + cur() + '</b></div>' : '') +
+  '</div>';
+  
+  // 🆕 زر التعديل — للمدير وأمين المستودع فقط
+  let buttonsHTML = '<div class="btnrow">';
+  if(canEditProduct()){
+    buttonsHTML += '<button class="btn-primary" id="wh-edit-from-details">✏️ تعديل</button>';
+  }
+  buttonsHTML += '<button class="btn-ghost" id="wh-close-details">إغلاق</button></div>';
+  
   openSheet(
     '<h3>📦 ' + escHtml(p.name) + '</h3>' +
     '<div class="card" style="margin-bottom:12px;' + 
@@ -8260,19 +8326,12 @@ document.addEventListener('click', function(e){
         '<b style="font-size:22px" class="' + (isLow ? 'dn' : 'up') + '">' + fmt(stock) + ' ' + escHtml(p.unit || '') + '</b></div>' +
       (isLow ? '<div class="kv"><span>⚠️ تحت الحد</span><b class="dn">' + fmt(p.min_stock - stock) + ' ناقص</b></div>' : '') +
     '</div>' +
-    '<div class="card" style="margin-bottom:12px">' +
-      '<div class="kv"><span>💰 التكلفة</span><b>' + fmt(p.cost || 0) + ' ' + cur() + '</b></div>' +
-      '<div class="kv"><span>🏷️ تجزئة</span><b>' + fmt(p.price || 0) + ' ' + cur() + '</b></div>' +
-      '<div class="kv"><span>🚚 جملة</span><b>' + fmt(distPrice) + ' ' + cur() + '</b></div>' +
-      '<div class="kv"><span>💎 القيمة</span><b>' + fmt(stock * (p.cost || 0)) + ' ' + cur() + '</b></div>' +
-    '</div>' +
-    '<div class="btnrow">' +
-      '<button class="btn-primary" id="wh-edit-from-details">✏️ تعديل</button>' +
-      '<button class="btn-ghost" id="wh-close-details">إغلاق</button>' +
-    '</div>'
+    detailsHTML +
+    buttonsHTML
   );
   
-  byId('wh-edit-from-details').onclick = () => {
+  const editBtn = byId('wh-edit-from-details');
+  if(editBtn) editBtn.onclick = () => {
     closeSheet();
     setTimeout(() => entSheet('products', p.id), 200);
   };
