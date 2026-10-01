@@ -1236,25 +1236,50 @@ function formatTimeLeft(validTo){
 
 // عرض بطاقة العدّاد
 function renderBonusCountdown(entityId, entityType){
-  if(!entityId) return '';
+  console.log('[Bonus] renderBonusCountdown called:', { entityId, entityType });
   
-  const rules = (store.bonus_rules || []).filter(r => {
+  if(!entityId) {
+    console.warn('[Bonus] entityId فارغ');
+    return '';
+  }
+  
+  const allRules = store.bonus_rules || [];
+  console.log('[Bonus] إجمالي القواعد:', allRules.length);
+  
+  const t = today();
+  
+  const rules = allRules.filter(r => {
     if(!r.active) return false;
     if(r.scope === 'sales' && entityType !== 'distributor') return false;
     if(r.scope === 'production' && entityType !== 'operator') return false;
+    
     if(r.target_type !== 'all'){
       if(r.target_type !== entityType) return false;
-      if(r.target_id !== entityId) return false;
+      if(String(r.target_id) !== String(entityId)) return false;
     }
-    const t = today();
+    
     if(r.valid_from && t < r.valid_from) return false;
     if(r.valid_to && t > r.valid_to) return false;
+    
     return true;
   });
   
+  console.log('[Bonus] قواعد مطابقة بعد الفلترة:', rules.length);
+  
   if(!rules.length) return '';
   
-  const progresses = rules.map(r => computeBonusProgress(r, entityId, entityType)).filter(Boolean);
+  const progresses = [];
+  for(const r of rules){
+    try{
+      const p = computeBonusProgress(r, entityId, entityType);
+      if(p) progresses.push(p);
+    }catch(e){
+      console.error('[Bonus] خطأ في computeBonusProgress:', r.name, e);
+    }
+  }
+  
+  console.log('[Bonus] تقدم محسوب:', progresses.length);
+  
   if(!progresses.length) return '';
   
   progresses.sort((a, b) => {
@@ -1262,18 +1287,17 @@ function renderBonusCountdown(entityId, entityType){
     return 0;
   });
   
-  let html = '<div style="margin-bottom:12px">' +
+  let html = '<div style="margin-bottom:14px">' +
     '<div class="sec-head" style="margin:0 0 8px"><h2 style="font-size:14px">🎁 مكافآتك النشطة</h2></div>';
   
   for(const p of progresses){
     const time = formatTimeLeft(p.rule.valid_to);
     const rewardText = describeBonusReward(p.rule);
     const progressColor = p.achievedOK ? 'green' : p.percent > 70 ? 'orange' : 'blue';
+    const rgb = p.achievedOK ? '61,220,132' : p.percent > 70 ? '255,176,74' : '108,184,255';
     
     html += '<div class="card" style="border-color:var(--' + progressColor + ');' +
-      'background:rgba(' + 
-      (p.achievedOK ? '61,220,132' : p.percent > 70 ? '255,176,74' : '108,184,255') + 
-      ',.08);margin-bottom:10px">' +
+      'background:rgba(' + rgb + ',.08);margin-bottom:10px">' +
       
       '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:6px">' +
         '<div style="flex:1;min-width:0">' +
@@ -1281,9 +1305,10 @@ function renderBonusCountdown(entityId, entityType){
           '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' + 
             (p.rule.product_id ? escHtml(pn(p.rule.product_id)) : 'كل المنتجات') +
           '</small>' +
-          '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">' + escHtml(rewardText) + '</small>' +
+          '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">' + 
+            escHtml(rewardText) + '</small>' +
         '</div>' +
-        '<div style="text-align:left;font-size:12px;font-weight:700;color:var(--' + 
+        '<div style="text-align:left;font-size:11.5px;font-weight:700;color:var(--' + 
           (time.cls === 'mut' ? 'muted' : time.cls === 'warn' ? 'orange' : 'red') + ')">' + time.text + '</div>' +
       '</div>' +
       
@@ -1294,7 +1319,7 @@ function renderBonusCountdown(entityId, entityType){
         '</div>' +
       '</div>' +
       
-            '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
         '<div>' +
           '<b style="font-size:18px">' + fmt(p.achieved) + '</b>' +
           '<small style="color:var(--muted)"> / ' + fmt(p.threshold) + 
@@ -1315,57 +1340,70 @@ function renderBonusCountdown(entityId, entityType){
   }
   
   html += '</div>';
+  
+  console.log('[Bonus] HTML الناتج — الطول:', html.length);
   return html;
 }
 /* =====================================================================
    🆕 ملخص المكافآت للمدير
    ===================================================================== */
 function renderAdminBonusOverview(entityType){
-  const rules = (store.bonus_rules || []).filter(r => {
+  console.log('[Bonus Admin] called for:', entityType);
+  
+  const allRules = store.bonus_rules || [];
+  const t = today();
+  
+  const rules = allRules.filter(r => {
     if(!r.active) return false;
     if(r.scope === 'production' && entityType !== 'operator') return false;
     if(r.scope === 'sales' && entityType !== 'distributor') return false;
-    const t = today();
     if(r.valid_from && t < r.valid_from) return false;
     if(r.valid_to && t > r.valid_to) return false;
     return true;
   });
   
+  console.log('[Bonus Admin] قواعد مطابقة:', rules.length);
+  
   if(!rules.length) return '';
   
   const entities = entityType === 'operator' ? store.operators : store.distributors;
   
-  let html = '<div style="margin-bottom:12px">' +
+  let html = '<div style="margin-bottom:14px">' +
     '<div class="sec-head" style="margin:0 0 8px">' +
       '<h2 style="font-size:14px">🎁 نسب تحقيق المكافآت — ' + 
       (entityType === 'operator' ? 'المشغّلون' : 'الموزعون') + '</h2>' +
     '</div>';
   
   for(const rule of rules){
-    const progressList = entities
-      .map(e => {
+    const progressList = [];
+    for(const e of entities){
+      try{
         const p = computeBonusProgress(rule, e.id, entityType);
-        return p ? {entity: e, progress: p} : null;
-      })
-      .filter(Boolean);
+        if(p) progressList.push({ entity: e, progress: p });
+      }catch(err){
+        console.error('[Bonus Admin] خطأ:', e.name, err);
+      }
+    }
     
     if(!progressList.length) continue;
     
     const time = formatTimeLeft(rule.valid_to);
+    const rewardText = describeBonusReward(rule);
     
     html += '<div class="card" style="margin-bottom:10px">' +
       '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">' +
         '<div style="flex:1;min-width:0">' +
           '<b style="font-size:15px">🎁 ' + escHtml(rule.name) + '</b>' +
-          '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' +
+          '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">' +
             (rule.product_id ? escHtml(pn(rule.product_id)) : 'كل المنتجات') +
             ' · الهدف ' + fmt(rule.threshold) + 
             (rule.measure === 'amount' ? ' ' + cur() : ' وحدة') +
           '</small>' +
+          '<small style="display:block;color:var(--muted);font-size:11px;margin-top:2px">' + escHtml(rewardText) + '</small>' +
         '</div>' +
         '<small style="color:var(--' + 
           (time.cls === 'mut' ? 'muted' : time.cls === 'warn' ? 'orange' : 'red') + 
-          ');font-size:11.5px;font-weight:700">' + time.text + '</small>' +
+          ');font-size:11px;font-weight:700;white-space:nowrap">' + time.text + '</small>' +
       '</div>';
     
     for(const item of progressList){
@@ -1387,7 +1425,7 @@ function renderAdminBonusOverview(entityType){
         '<small style="color:var(--muted);font-size:11.5px">' + 
           fmt(item.progress.achieved) + ' / ' + fmt(item.progress.threshold) + 
           (rule.measure === 'amount' ? ' ' + cur() : ' وحدة') +
-          (achievedOK ? '' : ' · متبقي ' + fmt(item.progress.remaining)) +
+          (achievedOK ? '' : ' · متبقّي ' + fmt(item.progress.remaining)) +
         '</small>' +
       '</div>';
     }
@@ -1960,8 +1998,8 @@ const PushQueue = {
         console.warn('[PushQueue] ❌ تجاوز الحد:', item.title);
         continue;
       }
-      try{
-        const authToken = getPushAuthToken();
+            try{
+        const authToken = await getPushAuthToken();
         if(!authToken){ remaining.push(item); continue; }
         const resp = await fetch(EDGE_FUNCTION_URL, {
           method: 'POST',
@@ -2340,16 +2378,27 @@ const NotificationCenter = {
 /* =====================================================================
    Push آمن مع Queue
    ===================================================================== */
-function getPushAuthToken(){
+async function getPushAuthToken(){
   try{
+    if(adapter && adapter.sb && adapter.sb.auth){
+      const { data: { session } } = await adapter.sb.auth.getSession();
+      if(session && session.access_token){
+        return session.access_token;
+      }
+    }
+    // Fallback للوضع المحلي
     const sess = JSON.parse(localStorage.getItem(SESSKEY) || 'null');
     return (sess && sess.id) ? sess.id : null;
-  }catch(e){ return null; }
+  }catch(e){ 
+    console.warn('[getPushAuthToken] فشل:', e);
+    return null; 
+  }
 }
 async function sendPush(userId, title, body, url, kind, refId){
   if(adapter.mode !== 'cloud') return;
-  const authToken = getPushAuthToken();
-  if(!authToken){ console.warn('sendPush: no auth token — queueing'); 
+  const authToken = await getPushAuthToken();
+  if(!authToken){ 
+    console.warn('sendPush: no auth token — queueing'); 
     PushQueue.add({ uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId, sender_id: (user && user.id) || null });
     return;
   }
@@ -3396,15 +3445,38 @@ function renderSales(){
   if(!byId('sales-body'))return;
   renderShiftChip();
   renderSalesAttendanceWarn();
-     // 🆕 عدّاد المكافآت (للمشغّل)
-  const myOp = store.operators.find(o => o.user_id === user.id);
+     // 🆕 عدّاد المكافآت (للمشغّل + للمدير)
   const bonusEl = byId('prod-bonus-countdown');
+  const adminEl = byId('prod-bonus-overview');
+  
   if(bonusEl){
-    if(myOp){
-      bonusEl.innerHTML = renderBonusCountdown(myOp.id, 'operator');
-    } else {
-      // إذا لم يكن مشغّلاً (مدير مثلاً) — اعرض ملخص لكل المشغّلين
-      bonusEl.innerHTML = renderAdminBonusOverview('operator');
+    try{
+      const myOp = store.operators.find(o => o.user_id === user.id);
+      if(myOp){
+        bonusEl.innerHTML = renderBonusCountdown(myOp.id, 'operator');
+      } else {
+        bonusEl.innerHTML = '';
+      }
+    }catch(e){
+      console.error('[Bonus Prod] فشل:', e);
+      bonusEl.innerHTML = '';
+    }
+          } else if(isA()){
+        // مدير — يعرض ملخص الموزعين
+        bonusEl.innerHTML = renderAdminBonusOverview('distributor');
+   }
+  }
+  
+  if(adminEl){
+    try{
+      if(isA()){
+        adminEl.innerHTML = renderAdminBonusOverview('operator');
+      } else {
+        adminEl.innerHTML = '';
+      }
+    }catch(e){
+      console.error('[Bonus Admin] فشل:', e);
+      adminEl.innerHTML = '';
     }
   } 
   const all=store.sales,cash=all.filter(s=>s.type==='cash').length,cr=all.length-cash,f=ui.f.sales;
@@ -5321,7 +5393,7 @@ function mountDistOps(){
   if(!picker) return;
   
   // إذا كان المستخدم موزعاً — اقفل على نفسه
-  const myDist = user.distributor_id || 
+  c = user.distributor_id || 
     (store.distributors.find(d => d.user_id === user.id) || {}).id;
   
   const ds = store.distributors;
