@@ -824,7 +824,243 @@ function distributorProfitInPeriod(st,did,from,to){
   });
   return {revenue,cost,profit};
 }
+/* =====================================================================
+   🎁 نظام البونص والمكافآت
+   ===================================================================== */
 
+// تحقق من صلاحية القاعدة اليوم
+function isBonusRuleActiveToday(rule){
+  if(!rule.active) return false;
+  const t = today();
+  if(rule.valid_from && t < rule.valid_from) return false;
+  if(rule.valid_to && t > rule.valid_to) return false;
+  return true;
+}
+
+// وصف القاعدة بشكل مقروء
+function describeBonusRule(rule){
+  const scopeAR = rule.scope === 'sales' ? 'مبيعات' : 'إنتاج';
+  const targetAR = 
+    rule.target_type === 'all' ? 'الجميع' :
+    rule.target_type === 'distributor' ? 'موزع محدد' :
+    rule.target_type === 'operator' ? 'مشغّل محدد' :
+    rule.target_type === 'user' ? 'مستخدم محدد' : '—';
+  
+  const productAR = rule.product_id ? pn(rule.product_id) : 'كل المنتجات';
+  
+  let rewardAR = '';
+  if(rule.reward_type === 'per_unit') rewardAR = fmt(rule.reward_value) + ' ' + cur() + ' لكل وحدة';
+  else if(rule.reward_type === 'percent') rewardAR = rule.reward_value + '% من القيمة';
+  else if(rule.reward_type === 'multiplier') rewardAR = '×' + rule.reward_value + ' الحافز';
+  else if(rule.reward_type === 'fixed') rewardAR = fmt(rule.reward_value) + ' ' + cur() + ' ثابت';
+  
+  return scopeAR + ' · ' + targetAR + ' · ' + productAR + ' · الحد ' + fmt(rule.threshold) + ' · ' + rewardAR;
+}
+
+// 🔥 الدالة الأساسية: حساب المكافآت لفاتورة بيع
+function calculateSalesBonuses(header, items){
+  const awards = [];
+  const rules = (store.bonus_rules || []).filter(r => 
+    r.scope === 'sales' && isBonusRuleActiveToday(r)
+  );
+  
+  for(const rule of rules){
+    // تحقق من الطرف المستفيد
+    let targetId = null;
+    if(rule.target_type === 'all'){
+      // لا شيء — يشمل الكل
+    } else if(rule.target_type === 'distributor'){
+      if(rule.target_id !== header.distributor_id) continue;
+      targetId = rule.target_id;
+    } else if(rule.target_type === 'user'){
+      // البونص لحساب مستخدم محدد
+      const distributor = store.distributors.find(d => d.user_id === rule.target_id);
+      if(!distributor || distributor.id !== header.distributor_id) continue;
+      targetId = distributor.id;
+    } else {
+      continue;
+    }
+    
+    // فلترة الأصناف المطابقة
+    const matchingItems = rule.product_id 
+      ? items.filter(it => it.product_id === rule.product_id)
+      : items;
+    
+    if(!matchingItems.length) continue;
+    
+    // إجمالي الكمية
+    const totalQty = sum(matchingItems, it => it.qty);
+    if(totalQty < rule.threshold) continue;
+    
+    // إجمالي القيمة
+    const totalValue = sum(matchingItems, it => r2(it.qty * it.price - (it.discount || 0)));
+    
+    // حساب المكافأة
+    let rewardAmount = 0;
+    let baseAmount = totalValue;
+    
+    if(rule.reward_type === 'per_unit'){
+      rewardAmount = r2(totalQty * rule.reward_value);
+    } else if(rule.reward_type === 'percent'){
+      rewardAmount = r2(totalValue * rule.reward_value / 100);
+    } else if(rule.reward_type === 'multiplier'){
+      // مضاعف على الحافز المعياري (إن وُجد)
+      // في المبيعات نستخدم الحافز المخزّن في المنتج
+      const incentiveTotal = sum(matchingItems, it => {
+        const p = pOf(store, it.product_id);
+        return p ? it.qty * (p.incentive || 0) : 0;
+      });
+      rewardAmount = r2(incentiveTotal * (rule.reward_value - 1));
+    } else if(rule.reward_type === 'fixed'){
+      rewardAmount = rule.reward_value;
+    }
+    
+    if(rewardAmount <= 0) continue;
+    
+    // اسم الطرف
+    let targetName = 'الجميع';
+    if(targetId) targetName = dn(targetId);
+    else if(header.distributor_id) targetName = dn(header.distributor_id);
+    
+    // اسم المنتج
+    let productName = 'كل المنتجات';
+    if(rule.product_id) productName = pn(rule.product_id);
+    else if(matchingItems.length === 1) productName = pn(matchingItems[0].product_id);
+    
+    awards.push({
+      id: uuid(),
+      rule_id: rule.id,
+      rule_name: rule.name,
+      scope: 'sales',
+      target_type: rule.target_type === 'all' ? 'distributor' : rule.target_type,
+      target_id: targetId || header.distributor_id,
+      target_name: targetName,
+      product_id: rule.product_id,
+      product_name: productName,
+      quantity: totalQty,
+      base_amount: baseAmount,
+      reward_amount: rewardAmount,
+      reference_id: header.id,
+      reference_type: 'sale',
+      date: header.date,
+      status: 'pending',
+      approved_by: null,
+      approved_at: null,
+      paid_at: null,
+      paid_amount: null,
+      rejected_by: null,
+      rejected_at: null,
+      rejection_reason: null,
+      notes: '',
+      ts: Date.now()
+    });
+  }
+  
+  return awards;
+}
+
+// 🔥 الدالة الأساسية: حساب المكافآت لوردية إنتاج
+function calculateProductionBonuses(header, items){
+  const awards = [];
+  const rules = (store.bonus_rules || []).filter(r => 
+    r.scope === 'production' && isBonusRuleActiveToday(r)
+  );
+  
+  for(const rule of rules){
+    // تحقق من الطرف المستفيد
+    let targetId = null;
+    if(rule.target_type === 'all'){
+      // الكل
+    } else if(rule.target_type === 'operator'){
+      if(rule.target_id !== header.operator_id) continue;
+      targetId = rule.target_id;
+    } else if(rule.target_type === 'user'){
+      const operator = store.operators.find(o => o.user_id === rule.target_id);
+      if(!operator || operator.id !== header.operator_id) continue;
+      targetId = operator.id;
+    } else {
+      continue;
+    }
+    
+    // فلترة الأصناف المطابقة
+    const matchingItems = rule.product_id 
+      ? items.filter(it => it.product_id === rule.product_id)
+      : items;
+    
+    if(!matchingItems.length) continue;
+    
+    // إجمالي الكمية المُنتجة
+    const totalQty = sum(matchingItems, it => it.actual);
+    if(totalQty < rule.threshold) continue;
+    
+    // حساب المكافأة
+    let rewardAmount = 0;
+    let baseAmount = 0;
+    
+    if(rule.reward_type === 'per_unit'){
+      rewardAmount = r2(totalQty * rule.reward_value);
+    } else if(rule.reward_type === 'multiplier'){
+      // مضاعف على الحافز المعياري للإنتاج
+      const incentiveTotal = sum(matchingItems, it => {
+        const p = pOf(store, it.product_id);
+        return p ? it.actual * (p.incentive || 0) : 0;
+      });
+      baseAmount = incentiveTotal;
+      rewardAmount = r2(incentiveTotal * (rule.reward_value - 1));
+    } else if(rule.reward_type === 'percent'){
+      // نسبة من قيمة الإنتاج (بالجملة)
+      const totalValue = sum(matchingItems, it => {
+        const p = pOf(store, it.product_id);
+        return p ? it.actual * (p.dist_price || p.price || 0) : 0;
+      });
+      baseAmount = totalValue;
+      rewardAmount = r2(totalValue * rule.reward_value / 100);
+    } else if(rule.reward_type === 'fixed'){
+      rewardAmount = rule.reward_value;
+    }
+    
+    if(rewardAmount <= 0) continue;
+    
+    // اسم الطرف
+    const targetName = targetId ? nm('operators', targetId) : nm('operators', header.operator_id);
+    
+    // اسم المنتج
+    let productName = 'كل المنتجات';
+    if(rule.product_id) productName = pn(rule.product_id);
+    else if(matchingItems.length === 1) productName = pn(matchingItems[0].product_id);
+    
+    awards.push({
+      id: uuid(),
+      rule_id: rule.id,
+      rule_name: rule.name,
+      scope: 'production',
+      target_type: rule.target_type === 'all' ? 'operator' : rule.target_type,
+      target_id: targetId || header.operator_id,
+      target_name: targetName,
+      product_id: rule.product_id,
+      product_name: productName,
+      quantity: totalQty,
+      base_amount: baseAmount,
+      reward_amount: rewardAmount,
+      reference_id: header.id,
+      reference_type: 'shift',
+      date: header.date,
+      status: 'pending',
+      approved_by: null,
+      approved_at: null,
+      paid_at: null,
+      paid_amount: null,
+      rejected_by: null,
+      rejected_at: null,
+      rejection_reason: null,
+      notes: '',
+      ts: Date.now()
+    });
+  }
+  
+  return awards;
+}
+  
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},
   {id:'sales',t:'المبيعات',s:'المبيعات'},
@@ -895,6 +1131,8 @@ const LocalAdapter={
     s.distributor_shifts=s.distributor_shifts||[];
     s.operator_shifts=s.operator_shifts||[]; 
     s.withdrawal_confirmations=s.withdrawal_confirmations||[];
+    s.bonus_rules=s.bonus_rules||[];
+    s.bonus_awards=s.bonus_awards||[];
     if(s.company.tax_enabled==null)s.company.tax_enabled=false;
     if(s.company.tax_grace_days==null)s.company.tax_grace_days=7;
     if(s.company.tax_monthly_rate==null)s.company.tax_monthly_rate=2;
@@ -1003,12 +1241,14 @@ const sb=window.supabase.createClient(url,key,{
         ['company','users_public','materials','products','operators','distributors','customers','suppliers','shifts','shift_items','withdrawals',
         'sales','sale_items','purchases','purchase_items','payments','remittances','supplier_payments','notices','audit','discounts'].map(all));
       const group=(heads,items,fk)=>heads.map(h=>Object.assign({},h,{items:items.filter(i=>i[fk]===h.id)}));
-          const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations]=await Promise.all([
+      const [attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations,bonus_rules,bonus_awards]=await Promise.all([  
         safeAll('attendance'),safeAll('checkins'),safeAll('dist_attendance'),
         safeAll('complaints'),safeAll('operator_payments'),safeAll('attendance_shifts'),
         safeAll('purchase_requests'),safeAll('push_subscriptions'),safeAll('scan_log'),
         safeAll('distributor_shifts'),safeAll('operator_shifts'),
-        safeAll('withdrawal_confirmations')  // 🆕
+        safeAll('withdrawal_confirmations'),
+        safeAll('bonus_rules'),
+        safeAll('bonus_awards')
       ]);
       const s={
         company:company[0]||{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:false,tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2,shift_early_threshold:5,shift_late_threshold:10},
@@ -1018,7 +1258,7 @@ const sb=window.supabase.createClient(url,key,{
         purchases:group(purchases,purchase_items,'purchase_id'),
         withdrawals,payments,remittances,supplier_payments,notices,audit,discounts,
         attendance,checkins,dist_attendance,complaints,operator_payments,attendance_shifts,
-        purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations, seq:{}
+        purchase_requests,push_subscriptions,scan_log,distributor_shifts,operator_shifts,withdrawal_confirmations,bonus_rules,bonus_awards, seq:{}
       };
       IndexManager.forceAll();
       index(s);
@@ -1035,7 +1275,8 @@ const sb=window.supabase.createClient(url,key,{
         'payments', 'remittances', 'supplier_payments', 'notices', 'audit',
         'attendance', 'checkins', 'dist_attendance', 'complaints',
         'operator_payments', 'discounts', 'attendance_shifts',
-        'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts', 'withdrawal_confirmations'
+        'purchase_requests', 'scan_log', 'distributor_shifts', 'operator_shifts', 'withdrawal_confirmations',
+        'bonus_rules', 'bonus_awards'
       ];
       let syncTimer = null;
       tables.forEach(t => {
@@ -2591,7 +2832,7 @@ const SKEL={
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
-  management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div>'
+  management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div><div class="card" style="margin-top:14px"><h2>🎁 قواعد البونص</h2><div id="mg-bonus-rules"></div></div><div class="card" style="margin-top:14px"><h2>🎁 المكافآت المحققة</h2><div id="mg-bonus-awards"></div></div>'
 };
 
 /* =====================================================================
@@ -2682,12 +2923,67 @@ function mountSales(){
       price:l.price||pOf(store,l.product_id).price,
       discount:l.discount,cost:pOf(store,l.product_id).cost
     }));
-    const ok=await tryCommit(
+        const ok=await tryCommit(
       draft=>{draft.sales.unshift(Object.assign({},header,{items}))},
       async()=>{await adapter.saveTicket('sales','sale_items','sale_id',header,items)},
       {rerender:['sales','overview','collections','withdrawals']}
     );
-    if(ok){toast('تم الحفظ','ok');hf.reset();salesLB.reset()}
+    if(ok){
+      toast('تم الحفظ','ok');
+      
+      // 🎁 حساب المكافآت
+      try{
+        const awards = calculateSalesBonuses(header, items);
+        if(awards.length){
+          const draft2 = clone(store);
+          draft2.bonus_awards = draft2.bonus_awards || [];
+          
+          for(const award of awards){
+            draft2.bonus_awards.unshift(award);
+            try{
+              await adapter.saveSimple('bonus_awards', award);
+            }catch(e){ console.warn('save award failed:', e); }
+          }
+          
+          draft2.audit.unshift({
+            id: uuid(),
+            ts: Date.now(),
+            by: user.name,
+            act: 'بونص',
+            text: 'تحقيق ' + awards.length + ' مكافأة بقيمة ' + 
+              fmt(sum(awards, a => a.reward_amount)) + ' ' + cur()
+          });
+          
+          store = draft2;
+          
+          // إشعار المستفيدين
+          for(const award of awards){
+            if(award.target_id){
+              const dist = store.distributors.find(d => d.id === award.target_id);
+              if(dist && dist.user_id){
+                sendPush(
+                  dist.user_id,
+                  '🎁 مكافأة جديدة — ' + award.rule_name,
+                  'ربحت ' + fmt(award.reward_amount) + ' ' + cur() + 
+                    ' من ' + award.product_name + ' (' + fmt(award.quantity) + ' وحدة)',
+                  '/#dist_ops',
+                  'bonus_award',
+                  award.id
+                ).catch(e => console.warn(e));
+              }
+            }
+          }
+          
+          toast('🎁 ' + awards.length + ' مكافأة جديدة!', 'ok');
+          renderAll();
+        }
+      }catch(ex){
+        console.error('[Bonuses] فشل:', ex);
+      }
+      
+      hf.reset();
+      salesLB.reset();
+    }
   };
 }
 function renderSalesAttendanceWarn(){
@@ -2900,12 +3196,68 @@ function mountProduction(){
     for(const l of lines)if(l.down>0&&!l.reason){toast('أدخل سبب التوقف','err');return}
     const header={id:uuid(),date:v.date||today(),shift:v.shift,operator_id:v.operator_id,notes:byId('prod-notes').value.trim(),by:user.name,ts:Date.now()};
     const items=lines.map(l=>({id:uuid(),product_id:l.product_id,planned:l.planned,actual:l.actual,waste:l.waste,down:l.down,reason:l.reason}));
-    const ok=await tryCommit(
+        const ok=await tryCommit(
       draft=>{draft.shifts.unshift(Object.assign({},header,{items}))},
       async()=>{await adapter.saveTicket('shifts','shift_items','shift_id',header,items)},
       {rerender:['production','overview','withdrawals']}
     );
-    if(ok){toast('تم','ok');hf.reset();prodLB.reset();byId('prod-notes').value=''}
+    if(ok){
+      toast('تم','ok');
+      
+      // 🎁 حساب المكافآت
+      try{
+        const awards = calculateProductionBonuses(header, items);
+        if(awards.length){
+          const draft2 = clone(store);
+          draft2.bonus_awards = draft2.bonus_awards || [];
+          
+          for(const award of awards){
+            draft2.bonus_awards.unshift(award);
+            try{
+              await adapter.saveSimple('bonus_awards', award);
+            }catch(e){ console.warn('save award failed:', e); }
+          }
+          
+          draft2.audit.unshift({
+            id: uuid(),
+            ts: Date.now(),
+            by: user.name,
+            act: 'بونص',
+            text: 'تحقيق ' + awards.length + ' مكافأة إنتاج بقيمة ' + 
+              fmt(sum(awards, a => a.reward_amount)) + ' ' + cur()
+          });
+          
+          store = draft2;
+          
+          // إشعار المشغّلين
+          for(const award of awards){
+            if(award.target_id){
+              const op = store.operators.find(o => o.id === award.target_id);
+              if(op && op.user_id){
+                sendPush(
+                  op.user_id,
+                  '🎁 مكافأة إنتاج — ' + award.rule_name,
+                  'ربحت ' + fmt(award.reward_amount) + ' ' + cur() + 
+                    ' من ' + award.product_name + ' (' + fmt(award.quantity) + ' وحدة)',
+                  '/#op_ops',
+                  'bonus_award',
+                  award.id
+                ).catch(e => console.warn(e));
+              }
+            }
+          }
+          
+          toast('🎁 ' + awards.length + ' مكافأة جديدة!', 'ok');
+          renderAll();
+        }
+      }catch(ex){
+        console.error('[Bonuses] فشل:', ex);
+      }
+      
+      hf.reset();
+      prodLB.reset();
+      byId('prod-notes').value='';
+    }
   };
 }
 
@@ -3532,6 +3884,7 @@ function renderOpOps(){
     '<button class="pill" data-oopstab="discounts">💸 الخصومات</button>' +
     '<button class="pill" data-oopstab="shifts">⏰ الورديات</button>' +
     '<button class="pill" data-oopstab="payments">💵 التسديدات</button>' +
+    '<button class="pill" data-oopstab="bonuses">🎁 البونص</button>' +
   '</div>';
   
   html += '<div id="oops-body"></div>';
@@ -3827,7 +4180,56 @@ function renderOpOpsTab(tab, data){
       html += '<div class="empty" style="margin-top:20px">لا تسديدات بعد</div>';
     }
   }
-  
+    else if(tab === 'bonuses'){
+    const opAwards = (store.bonus_awards || [])
+      .filter(a => a.target_type === 'operator' && a.target_id === o.id)
+      .sort((a,b) => (b.ts || 0) - (a.ts || 0));
+    
+    const pendingAwards = opAwards.filter(a => a.status === 'pending');
+    const approvedAwards = opAwards.filter(a => a.status === 'approved');
+    const paidAwards = opAwards.filter(a => a.status === 'paid');
+    
+    const totalPending = sum(pendingAwards, a => a.reward_amount);
+    const totalApproved = sum(approvedAwards, a => a.reward_amount);
+    const totalPaid = sum(paidAwards, a => a.reward_amount);
+    
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">⏳ معلّقة</div>' +
+        '<div class="val warn">' + fmt(totalPending) + '</div>' +
+        '<div class="sub mut">' + pendingAwards.length + '</div></div>' +
+      '<div class="kpi"><div class="lb">✅ معتمدة</div>' +
+        '<div class="val up">' + fmt(totalApproved) + '</div>' +
+        '<div class="sub mut">' + approvedAwards.length + '</div></div>' +
+      '<div class="kpi wide"><div class="lb">💵 مستلمة</div>' +
+        '<div class="val">' + fmt(totalPaid) + ' ' + cur() + '</div>' +
+        '<div class="sub mut">' + paidAwards.length + ' مكافأة</div></div>' +
+    '</div>';
+    
+    if(!opAwards.length){
+      html += '<div class="empty" style="margin-top:20px">لا توجد مكافآت بعد</div>';
+    } else {
+      html += '<h2 style="margin:22px 0 10px">سجل المكافآت</h2>';
+      html += opAwards.slice(0, 30).map(award => {
+        let statusTag;
+        if(award.status === 'pending') statusTag = '<span class="tag credit">⏳ معلّقة</span>';
+        else if(award.status === 'approved') statusTag = '<span class="tag rec">✅ معتمدة</span>';
+        else if(award.status === 'paid') statusTag = '<span class="tag cash">💵 مستلمة</span>';
+        else statusTag = '<span class="tag disc">❌ مرفوضة</span>';
+        
+        return '<div class="card" style="margin-bottom:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<b>' + escHtml(award.rule_name) + '</b> ' + statusTag +
+              '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' + award.date + '</small>' +
+              '<small style="display:block;color:var(--muted);font-size:12px">' + 
+                escHtml(award.product_name) + ' · ' + fmt(award.quantity) + ' وحدة</small>' +
+            '</div>' +
+            '<b class="up" style="font-size:16px">' + fmt(award.reward_amount) + '</b>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+  }
   body.innerHTML = html;
 }
   /* =====================================================================
@@ -4598,7 +5000,8 @@ function renderDistOps(){
     '<button class="pill" data-dopstab="withdrawals">📦 المسحوبات</button>' +
     '<button class="pill" data-dopstab="sales">🛒 المبيعات</button>' +
     '<button class="pill" data-dopstab="remittances">💵 التحصيلات</button>' +
-    '<button class="pill" data-dopstab="customers">👥 العملاء</button>' +
+        '<button class="pill" data-dopstab="customers">👥 العملاء</button>' +
+    '<button class="pill" data-dopstab="bonuses">🎁 البونص</button>' +
   '</div>';
   
   html += '<div id="dops-body"></div>';
@@ -4940,7 +5343,58 @@ function renderDistOpsTab(tab, data){
       html += '<div class="empty" style="margin-top:20px">لا توجد تحصيلات</div>';
     }
   }
-  
+
+    else if(tab === 'bonuses'){
+    // 🎁 مكافآت هذا الموزع
+    const distAwards = (store.bonus_awards || [])
+      .filter(a => a.target_type === 'distributor' && a.target_id === d.id)
+      .sort((a,b) => (b.ts || 0) - (a.ts || 0));
+    
+    const pendingAwards = distAwards.filter(a => a.status === 'pending');
+    const approvedAwards = distAwards.filter(a => a.status === 'approved');
+    const paidAwards = distAwards.filter(a => a.status === 'paid');
+    
+    const totalPending = sum(pendingAwards, a => a.reward_amount);
+    const totalApproved = sum(approvedAwards, a => a.reward_amount);
+    const totalPaid = sum(paidAwards, a => a.reward_amount);
+    
+    html = '<div class="kgrid">' +
+      '<div class="kpi"><div class="lb">⏳ معلّقة</div>' +
+        '<div class="val warn">' + fmt(totalPending) + '</div>' +
+        '<div class="sub mut">' + pendingAwards.length + '</div></div>' +
+      '<div class="kpi"><div class="lb">✅ معتمدة</div>' +
+        '<div class="val up">' + fmt(totalApproved) + '</div>' +
+        '<div class="sub mut">' + approvedAwards.length + '</div></div>' +
+      '<div class="kpi wide"><div class="lb">💵 مستلمة</div>' +
+        '<div class="val">' + fmt(totalPaid) + ' ' + cur() + '</div>' +
+        '<div class="sub mut">' + paidAwards.length + ' مكافأة</div></div>' +
+    '</div>';
+    
+    if(!distAwards.length){
+      html += '<div class="empty" style="margin-top:20px">لا توجد مكافآت بعد</div>';
+    } else {
+      html += '<h2 style="margin:22px 0 10px">سجل المكافآت</h2>';
+      html += distAwards.slice(0, 30).map(award => {
+        let statusTag;
+        if(award.status === 'pending') statusTag = '<span class="tag credit">⏳ معلّقة</span>';
+        else if(award.status === 'approved') statusTag = '<span class="tag rec">✅ معتمدة</span>';
+        else if(award.status === 'paid') statusTag = '<span class="tag cash">💵 مستلمة</span>';
+        else statusTag = '<span class="tag disc">❌ مرفوضة</span>';
+        
+        return '<div class="card" style="margin-bottom:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<b>' + escHtml(award.rule_name) + '</b> ' + statusTag +
+              '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' + award.date + '</small>' +
+              '<small style="display:block;color:var(--muted);font-size:12px">' + 
+                escHtml(award.product_name) + ' · ' + fmt(award.quantity) + ' وحدة</small>' +
+            '</div>' +
+            '<b class="up" style="font-size:16px">' + fmt(award.reward_amount) + '</b>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+  }
   else if(tab === 'customers'){
     html = '<div class="card">' +
       '<div class="kv"><span>👥 إجمالي العملاء</span><b>' + customers.length + '</b></div>' +
@@ -6701,7 +7155,426 @@ function mountManagement(){
     if(ok){toast('تم','ok');applyBrand()}
     return false;
   }});
-  mountDiscounts();
+    mountDiscounts();
+  mountBonusRules();
+  mountBonusAwards();
+}
+
+/* =====================================================================
+   🎁 إدارة قواعد البونص
+   ===================================================================== */
+function mountBonusRules(){
+  const el = byId('mg-bonus-rules');
+  if(!el) return;
+  
+  if(!isA()){
+    el.innerHTML = '<p class="muted">البونص للمدير فقط.</p>';
+    return;
+  }
+  
+  el.innerHTML =
+    '<p class="muted">القواعد تُطبَّق تلقائياً عند حفظ الفواتير والورديات.</p>' +
+    '<div id="br-form"></div>' +
+    '<div id="br-list"></div>';
+  
+  mountForm(byId('br-form'), 'br', [
+    {k:'name', label:'اسم القاعدة', type:'text', placeholder:'مثال: بونص بيع الكركم'},
+    {k:'scope', label:'النوع', type:'radio', options:[['sales','مبيعات'],['production','إنتاج']], value:'sales'},
+    {k:'target_type', label:'المستفيد', type:'select', nophd:true, options:[
+      ['all', 'الجميع'],
+      ['distributor', 'موزع محدد'],
+      ['operator', 'مشغّل محدد'],
+      ['user', 'حساب مستخدم محدد']
+    ], value:'all'},
+    {k:'target_id', label:'الطرف (للمحدد)', type:'select', nophd:true, options:()=>{
+      const kind = byId('br__target_type');
+      const k = kind ? kind.value : 'all';
+      if(k === 'all') return [['', '— يشمل الجميع —']];
+      if(k === 'distributor') return [['', '— اختر موزع —']].concat(opt.distributors());
+      if(k === 'operator') return [['', '— اختر مشغّل —']].concat(opt.operators());
+      if(k === 'user') return [['', '— اختر حساب —']].concat((store.users||[]).filter(u => u.active).map(u => [u.id, u.name + ' (@' + u.username + ')']));
+      return [['', '—']];
+    }, value:''},
+    {k:'product_id', label:'المنتج', type:'select', nophd:true, options:()=>[['', 'كل المنتجات']].concat(opt.products()), value:''},
+    {k:'threshold', label:'الحد الأدنى للكمية', type:'number', value:1, step:'0.001'},
+    {k:'reward_type', label:'نوع المكافأة', type:'select', nophd:true, options:[
+      ['per_unit', 'مبلغ لكل وحدة'],
+      ['percent', 'نسبة من القيمة'],
+      ['multiplier', 'مضاعف الحافز (مثال: 2)'],
+      ['fixed', 'مبلغ ثابت']
+    ], value:'per_unit'},
+    {k:'reward_value', label:'قيمة المكافأة', type:'number', value:0, step:'0.001'},
+    {k:'valid_from', label:'صالح من (اختياري)', type:'date', value:''},
+    {k:'valid_to', label:'صالح حتى (اختياري)', type:'date', value:''},
+    {k:'notes', label:'ملاحظات', type:'textarea'}
+  ], {
+    label:'🎁 إضافة قاعدة',
+    onChange:(k, api) => { if(k === 'target_type') api.refresh(); },
+    submit: async v => {
+      if(!v.name){ toast('أدخل اسم القاعدة','err'); return false; }
+      if(!v.reward_value || v.reward_value <= 0){ toast('أدخل قيمة المكافأة','err'); return false; }
+      if(v.target_type !== 'all' && !v.target_id){ toast('اختر الطرف المستفيد','err'); return false; }
+      
+      const row = {
+        name: v.name.trim(),
+        scope: v.scope,
+        target_type: v.target_type,
+        target_id: v.target_type === 'all' ? null : v.target_id,
+        product_id: v.product_id || null,
+        threshold: Number(v.threshold) || 1,
+        reward_type: v.reward_type,
+        reward_value: Number(v.reward_value),
+        valid_from: v.valid_from || null,
+        valid_to: v.valid_to || null,
+        active: true,
+        notes: v.notes || '',
+        created_by: user.name
+      };
+      
+      const ok = await tryCommit(
+        draft => {
+          draft.bonus_rules = draft.bonus_rules || [];
+          draft.bonus_rules.unshift(Object.assign({id:'__new__', ts:Date.now()}, row));
+          draft.audit.unshift(auditRow('إضافة','قاعدة بونص: ' + v.name));
+        },
+        async draft => {
+          const newId = await adapter.saveSimple('bonus_rules', row);
+          const x = draft.bonus_rules.find(y => y.id === '__new__');
+          if(x) x.id = newId;
+        },
+        {rerender:['management']}
+      );
+      
+      if(ok){
+        toast('✅ تم إضافة القاعدة','ok');
+        renderBonusRulesList();
+      }
+      return false;
+    }
+  });
+  
+  renderBonusRulesList();
+}
+
+function renderBonusRulesList(){
+  const el = byId('br-list');
+  if(!el) return;
+  
+  const rules = (store.bonus_rules || []).sort((a,b) => (b.ts || 0) - (a.ts || 0));
+  
+  if(!rules.length){
+    el.innerHTML = '<div class="sec-head" style="margin-top:16px"><h2 style="font-size:14px">القواعد</h2></div><div class="empty">لا توجد قواعد</div>';
+    return;
+  }
+  
+  el.innerHTML = '<div class="sec-head" style="margin-top:16px"><h2 style="font-size:14px">القواعد (' + rules.length + ')</h2></div>' +
+    rules.map(rule => {
+      const activeTag = rule.active ? '<span class="tag cash">مفعّلة</span>' : '<span class="tag credit">موقوفة</span>';
+      return '<div class="card" style="margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<b>' + escHtml(rule.name) + '</b> ' + activeTag +
+            '<small style="display:block;color:var(--muted);font-size:12px;margin-top:4px">' + escHtml(describeBonusRule(rule)) + '</small>' +
+            (rule.notes ? '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">📝 ' + escHtml(rule.notes) + '</small>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="btnrow" style="margin-top:8px">' +
+          '<button class="mini" data-br-toggle="' + rule.id + '">' + (rule.active ? '⏸️ إيقاف' : '▶️ تشغيل') + '</button>' +
+          '<button class="mini dng" data-br-delete="' + rule.id + '">🗑️ حذف</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+}
+
+// معالج قواعد البونص
+document.addEventListener('click', function(e){
+  const toggle = e.target.closest('[data-br-toggle]');
+  if(toggle){
+    const id = toggle.dataset.brToggle;
+    const rule = store.bonus_rules.find(r => r.id === id);
+    if(!rule) return;
+    
+    (async () => {
+      try{
+        await adapter.updateSimple('bonus_rules', id, {active: !rule.active});
+        const draft = clone(store);
+        const r = draft.bonus_rules.find(x => x.id === id);
+        if(r) r.active = !r.active;
+        store = draft;
+        toast(rule.active ? 'تم الإيقاف' : 'تم التشغيل', 'ok');
+        renderBonusRulesList();
+      }catch(ex){
+        console.error(ex);
+        toast('تعذر','err');
+      }
+    })();
+    return;
+  }
+  
+  const del = e.target.closest('[data-br-delete]');
+  if(del){
+    if(!isA()) return toast('للمدير فقط','err');
+    const id = del.dataset.brDelete;
+    const rule = store.bonus_rules.find(r => r.id === id);
+    if(!rule) return;
+    
+    confirmSheet('حذف القاعدة «' + rule.name + '»؟', 'حذف', async () => {
+      try{
+        await adapter.deleteSimple('bonus_rules', id);
+        const draft = clone(store);
+        draft.bonus_rules = draft.bonus_rules.filter(x => x.id !== id);
+        draft.audit.unshift(auditRow('حذف','قاعدة بونص: ' + rule.name));
+        store = draft;
+        toast('تم الحذف','ok');
+        renderBonusRulesList();
+      }catch(ex){
+        console.error(ex);
+        toast('تعذر','err');
+      }
+    });
+    return;
+  }
+}, true);
+
+/* =====================================================================
+   🎁 إدارة المكافآت المحققة
+   ===================================================================== */
+function mountBonusAwards(){
+  const el = byId('mg-bonus-awards');
+  if(!el) return;
+  
+  if(!isA()){
+    el.innerHTML = '<p class="muted">البونص للمدير فقط.</p>';
+    return;
+  }
+  
+  el.innerHTML = '<div id="ba-content"></div>';
+  renderBonusAwards();
+}
+
+let _baFilter = 'pending';
+
+function renderBonusAwards(){
+  const el = byId('ba-content');
+  if(!el) return;
+  
+  const all = store.bonus_awards || [];
+  const pending = all.filter(a => a.status === 'pending');
+  const approved = all.filter(a => a.status === 'approved');
+  const paid = all.filter(a => a.status === 'paid');
+  const rejected = all.filter(a => a.status === 'rejected');
+  
+  const filtered = 
+    _baFilter === 'pending' ? pending :
+    _baFilter === 'approved' ? approved :
+    _baFilter === 'paid' ? paid :
+    _baFilter === 'rejected' ? rejected : all;
+  
+  const totalPending = sum(pending, a => a.reward_amount);
+  const totalApproved = sum(approved, a => a.reward_amount);
+  const totalPaid = sum(paid, a => a.reward_amount);
+  
+  el.innerHTML = 
+    '<div class="kgrid" style="margin-bottom:12px">' +
+      '<div class="kpi"><div class="lb">⏳ معلّقة</div>' +
+        '<div class="val warn">' + fmt(totalPending) + '</div>' +
+        '<div class="sub mut">' + pending.length + ' مكافأة</div></div>' +
+      '<div class="kpi"><div class="lb">✅ معتمدة</div>' +
+        '<div class="val up">' + fmt(totalApproved) + '</div>' +
+        '<div class="sub mut">' + approved.length + ' مكافأة</div></div>' +
+      '<div class="kpi wide"><div class="lb">💵 مدفوعة</div>' +
+        '<div class="val">' + fmt(totalPaid) + ' ' + cur() + '</div>' +
+        '<div class="sub mut">' + paid.length + ' مكافأة</div></div>' +
+    '</div>' +
+    
+    '<div class="pills" style="margin:12px 0">' +
+      '<button class="pill' + (_baFilter === 'pending' ? ' on' : '') + '" data-ba-filter="pending">⏳ معلّقة (' + pending.length + ')</button>' +
+      '<button class="pill' + (_baFilter === 'approved' ? ' on' : '') + '" data-ba-filter="approved">✅ معتمدة (' + approved.length + ')</button>' +
+      '<button class="pill' + (_baFilter === 'paid' ? ' on' : '') + '" data-ba-filter="paid">💵 مدفوعة (' + paid.length + ')</button>' +
+      '<button class="pill' + (_baFilter === 'rejected' ? ' on' : '') + '" data-ba-filter="rejected">❌ مرفوضة (' + rejected.length + ')</button>' +
+      '<button class="pill' + (_baFilter === 'all' ? ' on' : '') + '" data-ba-filter="all">الكل (' + all.length + ')</button>' +
+    '</div>' +
+    
+    '<div id="ba-list"></div>';
+  
+  const list = byId('ba-list');
+  const sorted = [...filtered].sort((a,b) => (b.ts || 0) - (a.ts || 0));
+  
+  if(!sorted.length){
+    list.innerHTML = '<div class="empty">لا توجد مكافآت</div>';
+    return;
+  }
+  
+  list.innerHTML = sorted.slice(0, 50).map(award => {
+    let statusTag;
+    if(award.status === 'pending') statusTag = '<span class="tag credit">⏳ معلّقة</span>';
+    else if(award.status === 'approved') statusTag = '<span class="tag rec">✅ معتمدة</span>';
+    else if(award.status === 'paid') statusTag = '<span class="tag cash">💵 مدفوعة</span>';
+    else statusTag = '<span class="tag disc">❌ مرفوضة</span>';
+    
+    let actionsHTML = '';
+    if(award.status === 'pending'){
+      actionsHTML = 
+        '<div class="btnrow" style="margin-top:8px">' +
+          '<button class="btn-primary sm" data-ba-approve="' + award.id + '">✅ اعتماد</button>' +
+          '<button class="btn-danger sm" data-ba-reject="' + award.id + '">❌ رفض</button>' +
+        '</div>';
+    } else if(award.status === 'approved'){
+      actionsHTML = 
+        '<div class="btnrow" style="margin-top:8px">' +
+          '<button class="btn-primary sm" data-ba-pay="' + award.id + '">💵 تسجيل الدفع</button>' +
+        '</div>';
+    }
+    
+    return '<div class="card" style="margin-bottom:8px;border-color:' +
+      (award.status === 'pending' ? 'var(--orange)' : 
+       award.status === 'paid' ? 'var(--green)' : 
+       award.status === 'rejected' ? 'var(--red)' : 'var(--blue)') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<b>🎁 ' + escHtml(award.rule_name) + '</b> ' + statusTag +
+          '<small style="display:block;color:var(--muted);font-size:12px;margin-top:4px">' +
+            (award.scope === 'sales' ? '🛒 مبيعات' : '🏭 إنتاج') + ' · ' + 
+            escHtml(award.target_name || '—') + ' · ' + award.date +
+          '</small>' +
+          '<small style="display:block;color:var(--muted);font-size:12px">' +
+            escHtml(award.product_name || '—') + ' · ' + fmt(award.quantity) + ' وحدة' +
+          '</small>' +
+          '<div class="kv big" style="margin-top:8px"><span>المكافأة</span>' +
+            '<b class="up">' + fmt(award.reward_amount) + ' ' + cur() + '</b></div>' +
+        '</div>' +
+      '</div>' +
+      actionsHTML +
+    '</div>';
+  }).join('');
+}
+
+// معالج المكافآت
+document.addEventListener('click', function(e){
+  const f = e.target.closest('[data-ba-filter]');
+  if(f){
+    _baFilter = f.dataset.baFilter;
+    renderBonusAwards();
+    return;
+  }
+  
+  const approve = e.target.closest('[data-ba-approve]');
+  if(approve){
+    if(!isA()) return toast('للمدير فقط','err');
+    approveBonusAward(approve.dataset.baApprove);
+    return;
+  }
+  
+  const pay = e.target.closest('[data-ba-pay]');
+  if(pay){
+    if(!isA()) return toast('للمدير فقط','err');
+    payBonusAward(pay.dataset.baPay);
+    return;
+  }
+  
+  const reject = e.target.closest('[data-ba-reject]');
+  if(reject){
+    if(!isA()) return toast('للمدير فقط','err');
+    rejectBonusAward(reject.dataset.baReject);
+    return;
+  }
+}, true);
+
+async function approveBonusAward(id){
+  const award = store.bonus_awards.find(a => a.id === id);
+  if(!award) return;
+  
+  const patch = {
+    status: 'approved',
+    approved_by: user.name,
+    approved_at: Date.now()
+  };
+  
+  try{
+    await adapter.updateSimple('bonus_awards', id, patch);
+    const draft = clone(store);
+    const a = draft.bonus_awards.find(x => x.id === id);
+    if(a) Object.assign(a, patch);
+    draft.audit.unshift(auditRow('اعتماد','مكافأة: ' + award.rule_name + ' - ' + fmt(award.reward_amount)));
+    store = draft;
+    toast('✅ تم الاعتماد','ok');
+    renderBonusAwards();
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر','err');
+  }
+}
+
+async function payBonusAward(id){
+  const award = store.bonus_awards.find(a => a.id === id);
+  if(!award) return;
+  
+  const patch = {
+    status: 'paid',
+    paid_at: Date.now(),
+    paid_amount: award.reward_amount
+  };
+  
+  try{
+    await adapter.updateSimple('bonus_awards', id, patch);
+    const draft = clone(store);
+    const a = draft.bonus_awards.find(x => x.id === id);
+    if(a) Object.assign(a, patch);
+    draft.audit.unshift(auditRow('دفع','مكافأة: ' + award.rule_name + ' - ' + fmt(award.reward_amount)));
+    store = draft;
+    toast('💵 تم تسجيل الدفع','ok');
+    renderBonusAwards();
+  }catch(ex){
+    console.error(ex);
+    toast('تعذر','err');
+  }
+}
+
+function rejectBonusAward(id){
+  const award = store.bonus_awards.find(a => a.id === id);
+  if(!award) return;
+  
+  openSheet(
+    '<h3>❌ رفض المكافأة</h3>' +
+    '<div class="card" style="margin-bottom:12px">' +
+      '<div class="kv"><span>القاعدة</span><b>' + escHtml(award.rule_name) + '</b></div>' +
+      '<div class="kv"><span>المستفيد</span><b>' + escHtml(award.target_name) + '</b></div>' +
+      '<div class="kv"><span>المكافأة</span><b>' + fmt(award.reward_amount) + ' ' + cur() + '</b></div>' +
+    '</div>' +
+    '<div id="ba-reject-form"></div>'
+  );
+  
+  mountForm(byId('ba-reject-form'), 'bar', [
+    {k:'reason', label:'سبب الرفض', type:'textarea', placeholder:'مثال: البيانات غير صحيحة'}
+  ], {
+    label:'❌ تأكيد الرفض',
+    submit: async v => {
+      if(!v.reason){ toast('اذكر السبب','err'); return false; }
+      
+      const patch = {
+        status: 'rejected',
+        rejected_by: user.name,
+        rejected_at: Date.now(),
+        rejection_reason: v.reason
+      };
+      
+      try{
+        await adapter.updateSimple('bonus_awards', id, patch);
+        const draft = clone(store);
+        const a = draft.bonus_awards.find(x => x.id === id);
+        if(a) Object.assign(a, patch);
+        draft.audit.unshift(auditRow('رفض','مكافأة: ' + award.rule_name + ' - ' + v.reason));
+        store = draft;
+        toast('تم الرفض','ok');
+        closeSheet();
+        renderBonusAwards();
+      }catch(ex){
+        console.error(ex);
+        toast('تعذر','err');
+      }
+      return false;
+    }
+  });
 }
 function mountDiscounts(){
   const el=byId('mg-disc');if(!el)return;
@@ -8075,7 +8948,10 @@ function computeStoreHash(s){
     shiftState: shifts.map(x => x.id + ':' + (x.closed ? 'C' : 'O')).sort().join(','),
     compStatus: complaints.map(x => x.id + ':' + (x.done ? 'D' : 'P')).sort().join(','),
     noticeDone: (s.notices || []).map(x => x.id + ':' + (x.done ? '1' : '0')).sort().join(','),
-    wcStatus: wc.map(x => x.id + ':' + x.status).sort().join(',') 
+        wcStatus: wc.map(x => x.id + ':' + x.status).sort().join(','),
+    br: (s.bonus_rules || []).length,
+    ba: (s.bonus_awards || []).length,
+    baStatus: (s.bonus_awards || []).map(x => x.id + ':' + x.status).sort().join(',')
   });
 }
 
