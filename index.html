@@ -1060,7 +1060,218 @@ function calculateProductionBonuses(header, items){
   
   return awards;
 }
+/* =====================================================================
+   🎁 نظام البونص — الدوال المساعدة
+   ===================================================================== */
+
+// الحصول على المستهدفين بقاعدة بونص
+function getBonusTargets(rule){
+  const targets = [];
   
+  if(rule.scope === 'sales'){
+    if(rule.target_type === 'all'){
+      for(const d of store.distributors){
+        if(d.user_id){
+          targets.push({
+            entityId: d.id, entityType: 'distributor',
+            name: d.name, userId: d.user_id, url: '/#dist_ops'
+          });
+        }
+      }
+    } else if(rule.target_type === 'distributor'){
+      const d = store.distributors.find(x => x.id === rule.target_id);
+      if(d && d.user_id){
+        targets.push({entityId: d.id, entityType: 'distributor', name: d.name, userId: d.user_id, url: '/#dist_ops'});
+      }
+    } else if(rule.target_type === 'user'){
+      const d = store.distributors.find(x => x.user_id === rule.target_id);
+      if(d){
+        targets.push({entityId: d.id, entityType: 'distributor', name: d.name, userId: d.user_id, url: '/#dist_ops'});
+      }
+    }
+  } else if(rule.scope === 'production'){
+    if(rule.target_type === 'all'){
+      for(const o of store.operators){
+        if(o.user_id){
+          targets.push({entityId: o.id, entityType: 'operator', name: o.name, userId: o.user_id, url: '/#op_ops'});
+        }
+      }
+    } else if(rule.target_type === 'operator'){
+      const o = store.operators.find(x => x.id === rule.target_id);
+      if(o && o.user_id){
+        targets.push({entityId: o.id, entityType: 'operator', name: o.name, userId: o.user_id, url: '/#op_ops'});
+      }
+    } else if(rule.target_type === 'user'){
+      const o = store.operators.find(x => x.user_id === rule.target_id);
+      if(o){
+        targets.push({entityId: o.id, entityType: 'operator', name: o.name, userId: o.user_id, url: '/#op_ops'});
+      }
+    }
+  }
+  
+  return targets;
+}
+
+// وصف المكافأة
+function describeBonusReward(rule){
+  if(rule.reward_type === 'per_unit') 
+    return 'مكافأة ' + fmt(rule.reward_value) + ' ' + cur() + ' لكل وحدة';
+  if(rule.reward_type === 'percent') 
+    return rule.reward_value + '% من قيمة البيع';
+  if(rule.reward_type === 'multiplier') 
+    return '×' + rule.reward_value + ' من الحافز';
+  if(rule.reward_type === 'fixed') 
+    return fmt(rule.reward_value) + ' ' + cur() + ' مكافأة ثابتة';
+  return '';
+}
+
+// حساب تقدم المستخدم نحو قاعدة
+function computeBonusProgress(rule, entityId, entityType){
+  if(rule.scope === 'sales' && entityType !== 'distributor') return null;
+  if(rule.scope === 'production' && entityType !== 'operator') return null;
+  
+  if(rule.target_type !== 'all'){
+    if(rule.target_type !== entityType) return null;
+    if(rule.target_id !== entityId) return null;
+  }
+  
+  let achieved = 0;
+  const t = today();
+  const from = rule.valid_from || '1900-01-01';
+  const to = rule.valid_to || '2099-12-31';
+  
+  if(rule.scope === 'sales'){
+    const items = store.sale_items_flat.filter(s => 
+      s.distributor_id === entityId &&
+      s.date >= from && s.date <= to &&
+      (!rule.product_id || s.product_id === rule.product_id)
+    );
+    achieved = sum(items, s => s.qty);
+  } else {
+    const items = store.shift_items_flat.filter(s => 
+      s.operator_id === entityId &&
+      s.date >= from && s.date <= to &&
+      (!rule.product_id || s.product_id === rule.product_id)
+    );
+    achieved = sum(items, s => s.actual);
+  }
+  
+  const remaining = Math.max(rule.threshold - achieved, 0);
+  const percent = rule.threshold > 0 ? Math.min((achieved / rule.threshold) * 100, 100) : 0;
+  const achievedOK = achieved >= rule.threshold;
+  
+  return {
+    rule, achieved, threshold: rule.threshold,
+    remaining, percent, achievedOK
+  };
+}
+
+// تنسيق الوقت المتبقي
+function formatTimeLeft(validTo){
+  if(!validTo) return { text: '⏰ مفتوحة', cls: 'mut' };
+  
+  const now = new Date();
+  const end = parseD(validTo);
+  end.setHours(23, 59, 59, 999);
+  const diffMs = end - now;
+  
+  if(diffMs < 0) return { text: '❌ انتهت الصلاحية', cls: 'dn' };
+  
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(hours / 24);
+  
+  if(days === 0){
+    if(hours === 0) return { text: '⏳ أقل من ساعة!', cls: 'dn' };
+    return { text: '⏳ تنتهي خلال ' + hours + ' ساعة', cls: 'warn' };
+  }
+  if(days === 1) return { text: '⚠️ تنتهي غداً', cls: 'warn' };
+  if(days <= 3) return { text: '⏰ متبقي ' + days + ' أيام', cls: 'warn' };
+  return { text: '⏰ متبقي ' + days + ' يوم', cls: 'mut' };
+}
+
+// عرض بطاقة العدّاد
+function renderBonusCountdown(entityId, entityType){
+  if(!entityId) return '';
+  
+  const rules = (store.bonus_rules || []).filter(r => {
+    if(!r.active) return false;
+    if(r.scope === 'sales' && entityType !== 'distributor') return false;
+    if(r.scope === 'production' && entityType !== 'operator') return false;
+    if(r.target_type !== 'all'){
+      if(r.target_type !== entityType) return false;
+      if(r.target_id !== entityId) return false;
+    }
+    const t = today();
+    if(r.valid_from && t < r.valid_from) return false;
+    if(r.valid_to && t > r.valid_to) return false;
+    return true;
+  });
+  
+  if(!rules.length) return '';
+  
+  const progresses = rules.map(r => computeBonusProgress(r, entityId, entityType)).filter(Boolean);
+  if(!progresses.length) return '';
+  
+  progresses.sort((a, b) => {
+    if(a.achievedOK !== b.achievedOK) return a.achievedOK ? 1 : -1;
+    return 0;
+  });
+  
+  let html = '<div style="margin-bottom:12px">' +
+    '<div class="sec-head" style="margin:0 0 8px"><h2 style="font-size:14px">🎁 مكافآتك النشطة</h2></div>';
+  
+  for(const p of progresses){
+    const time = formatTimeLeft(p.rule.valid_to);
+    const rewardText = describeBonusReward(p.rule);
+    const progressColor = p.achievedOK ? 'green' : p.percent > 70 ? 'orange' : 'blue';
+    
+    html += '<div class="card" style="border-color:var(--' + progressColor + ');' +
+      'background:rgba(' + 
+      (p.achievedOK ? '61,220,132' : p.percent > 70 ? '255,176,74' : '108,184,255') + 
+      ',.08);margin-bottom:10px">' +
+      
+      '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:6px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<b style="font-size:15px">🎁 ' + escHtml(p.rule.name) + '</b>' +
+          '<small style="display:block;color:var(--muted);font-size:12px;margin-top:2px">' + 
+            (p.rule.product_id ? escHtml(pn(p.rule.product_id)) : 'كل المنتجات') +
+          '</small>' +
+          '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">' + escHtml(rewardText) + '</small>' +
+        '</div>' +
+        '<div style="text-align:left;font-size:12px;font-weight:700;color:var(--' + 
+          (time.cls === 'mut' ? 'muted' : time.cls === 'warn' ? 'orange' : 'red') + ')">' + time.text + '</div>' +
+      '</div>' +
+      
+      '<div style="background:var(--input);height:14px;border-radius:99px;overflow:hidden;margin:10px 0">' +
+        '<div style="background:var(--' + progressColor + ');height:100%;width:' + p.percent.toFixed(1) + 
+          '%;transition:width .3s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800">' + 
+          (p.percent > 20 ? p.percent.toFixed(0) + '%' : '') + 
+        '</div>' +
+      '</div>' +
+      
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+        '<div>' +
+          '<b style="font-size:18px">' + fmt(p.achieved) + '</b>' +
+          '<small style="color:var(--muted)"> / ' + fmt(p.threshold) + ' وحدة</small>' +
+        '</div>' +
+        (p.achievedOK 
+          ? '<span class="tag cash">✅ تم الإنجاز</span>'
+          : '<b class="warn" style="font-size:14px">متبقي ' + fmt(p.remaining) + '</b>'
+        ) +
+      '</div>' +
+      
+      (p.rule.valid_to ? 
+        '<small style="display:block;color:var(--muted);font-size:11.5px;margin-top:6px">' +
+        '⏰ صالح حتى ' + p.rule.valid_to + '</small>' : ''
+      ) +
+      
+    '</div>';
+  }
+  
+  html += '</div>';
+  return html;
+}
+
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},
   {id:'sales',t:'المبيعات',s:'المبيعات'},
@@ -1872,14 +2083,75 @@ const NotificationCenter = {
         url: '/#withdrawals'
       }
     }),
-    product_added: (ctx) => ({
+       product_added: (ctx) => ({
       admins: {
         title: '➕ منتج جديد',
         body: ctx.addedBy + ' أضاف: ' + ctx.productName,
         url: '/#warehouse'
       }
+    }),
+    // 🎁 إشعارات البونص
+    bonus_available: (ctx) => ({
+      target: {
+        title: '🎁 مكافأة جديدة متاحة',
+        body: ctx.ruleName + ' — ' + ctx.rewardDescription +
+          (ctx.validTo ? ' — صالحة حتى ' + ctx.validTo : ''),
+        url: ctx.url
+      }
+    }),
+    bonus_achieved: (ctx) => ({
+      admins: {
+        title: '🎁 مكافأة تحتاج اعتماد',
+        body: ctx.targetName + ' — ' + ctx.ruleName + ': ' + ctx.amount,
+        url: '/#management'
+      },
+      target: {
+        title: '🎉 حققت المكافأة!',
+        body: ctx.ruleName + ': ' + ctx.amount + ' — بانتظار اعتماد المدير',
+        url: ctx.url
+      }
+    }),
+    bonus_approved: (ctx) => ({
+      target: {
+        title: '✅ تم اعتماد مكافأتك',
+        body: ctx.ruleName + ': ' + ctx.amount + ' — جاهزة للاستلام',
+        url: ctx.url
+      }
+    }),
+    bonus_rejected: (ctx) => ({
+      target: {
+        title: '❌ تم رفض مكافأتك',
+        body: ctx.ruleName + ': ' + ctx.reason,
+        url: ctx.url
+      }
+    }),
+    bonus_paid: (ctx) => ({
+      target: {
+        title: '💵 تم استلام مكافأتك',
+        body: ctx.ruleName + ': ' + ctx.amount,
+        url: ctx.url
+      }
+    }),
+    bonus_expiring: (ctx) => ({
+      target: {
+        title: '⚠️ مكافأتك تنتهي قريباً',
+        body: ctx.ruleName + ' — متبقي ' + ctx.daysLeft + ' يوم. باقي ' + ctx.remaining + ' وحدة',
+        url: ctx.url
+      }
+    }),
+    bonus_expired: (ctx) => ({
+      target: {
+        title: '❌ انتهت صلاحية المكافأة',
+        body: ctx.ruleName + ' — لم تصل للهدف في الوقت المحدد',
+        url: ctx.url
+      },
+      admins: {
+        title: '📊 انتهت صلاحية مكافأة',
+        body: ctx.targetName + ' — ' + ctx.ruleName,
+        url: '/#management'
+      }
     })
-  },
+  }, 
   
   async fire(eventType, context){
     if(!store || !user) return;
@@ -2810,8 +3082,8 @@ function operatorShiftCheckOutForm(opId){
    ===================================================================== */
 const SKEL={
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
-  sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
-  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
+  sales:'<h1>المبيعات</h1><div id="sales-shift"></div><div id="sales-bonus-countdown"></div><div id="sales-att-warn"></div><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="sales-att-btn">📸 حضور الموزعين</button><button class="btn-ghost" id="sales-add-cust">+ إضافة عميل</button></div><div id="sales-stats"></div><div class="card form-card"><h2>تسجيل فاتورة بيع</h2><div id="sales-head"></div><div id="sales-lines"></div><button class="btn-primary btn-block" id="sales-save">حفظ الفاتورة</button></div><div class="pills" id="sales-pills"></div><div id="sales-body"></div>',
+  production:'<h1>الإنتاج</h1><div id="prod-shift"></div><div id="op-shift"></div><div id="prod-bonus-countdown"></div><div id="prod-warn"></div><div id="prod-stats"></div><div class="card form-card" id="att-card"></div><div class="card form-card" id="dist-att-card"></div><div id="prod-formwrap" hidden><div class="card form-card"><h2>تسجيل وردية إنتاج</h2><div id="prod-head"></div><div id="prod-lines"></div><label class="fl">ملاحظات الوردية</label><textarea class="in" id="prod-notes" placeholder="ملاحظات الفحص والوزن..."></textarea><button class="btn-primary btn-block" id="prod-save">حفظ سجل الوردية</button></div></div><div class="pills" id="prod-pills"></div><div id="prod-body"></div>',
   withdrawals:'<h1>المسحوبات والمخزون</h1><div id="wd-stats"></div><div class="card form-card"><h2>سحب بضاعة لموزع</h2><div id="wd-form"></div></div><div id="wd-body"></div>',
  warehouse:'<h1>🏭 مخزون الشركة</h1>' +
     '<div id="wh-content"></div>',
@@ -2956,20 +3228,19 @@ function mountSales(){
           
           store = draft2;
           
-          // إشعار المستفيدين
+                   // إشعارات: المستفيد + المدراء
           for(const award of awards){
+            // إشعار للمستفيد
             if(award.target_id){
               const dist = store.distributors.find(d => d.id === award.target_id);
               if(dist && dist.user_id){
-                sendPush(
-                  dist.user_id,
-                  '🎁 مكافأة جديدة — ' + award.rule_name,
-                  'ربحت ' + fmt(award.reward_amount) + ' ' + cur() + 
-                    ' من ' + award.product_name + ' (' + fmt(award.quantity) + ' وحدة)',
-                  '/#dist_ops',
-                  'bonus_award',
-                  award.id
-                ).catch(e => console.warn(e));
+                NotificationCenter.fire('bonus_achieved', {
+                  targetUserId: dist.user_id,
+                  targetName: dist.name,
+                  ruleName: award.rule_name,
+                  amount: fmt(award.reward_amount) + ' ' + cur(),
+                  url: '/#dist_ops'
+                }).catch(e => console.warn(e));
               }
             }
           }
@@ -2999,6 +3270,10 @@ function renderSales(){
   if(!byId('sales-body'))return;
   renderShiftChip();
   renderSalesAttendanceWarn();
+    // 🆕 عدّاد المكافآت
+  const myDist = store.distributors.find(d => d.user_id === user.id);
+  const bonusEl = byId('sales-bonus-countdown');
+  if(bonusEl) bonusEl.innerHTML = myDist ? renderBonusCountdown(myDist.id, 'distributor') : '';
   const all=store.sales,cash=all.filter(s=>s.type==='cash').length,cr=all.length-cash,f=ui.f.sales;
   byId('sales-stats').innerHTML=statsStrip(all,saleTotal,fmt,a=>fmt(sum(a,h=>sum(h.items,x=>x.qty)))+' وحدة');
   pills('#sales-pills',[['all','الكل ('+all.length+')'],['cash','كاش ('+cash+')'],['credit','آجل ('+cr+')']],f,'sales');
@@ -3229,20 +3504,18 @@ function mountProduction(){
           
           store = draft2;
           
-          // إشعار المشغّلين
+                // إشعارات: المشغّل + المدراء
           for(const award of awards){
             if(award.target_id){
               const op = store.operators.find(o => o.id === award.target_id);
               if(op && op.user_id){
-                sendPush(
-                  op.user_id,
-                  '🎁 مكافأة إنتاج — ' + award.rule_name,
-                  'ربحت ' + fmt(award.reward_amount) + ' ' + cur() + 
-                    ' من ' + award.product_name + ' (' + fmt(award.quantity) + ' وحدة)',
-                  '/#op_ops',
-                  'bonus_award',
-                  award.id
-                ).catch(e => console.warn(e));
+                NotificationCenter.fire('bonus_achieved', {
+                  targetUserId: op.user_id,
+                  targetName: op.name,
+                  ruleName: award.rule_name,
+                  amount: fmt(award.reward_amount) + ' ' + cur(),
+                  url: '/#op_ops'
+                }).catch(e => console.warn(e));
               }
             }
           }
@@ -3267,6 +3540,10 @@ function renderProduction(){
   renderOpShiftChip();
   renderAttendanceCard();
   renderDistAttendanceCard();
+    // 🆕 عدّاد المكافآت
+  const myOp = store.operators.find(o => o.user_id === user.id);
+  const bonusEl = byId('prod-bonus-countdown');
+  if(bonusEl) bonusEl.innerHTML = myOp ? renderBonusCountdown(myOp.id, 'operator') : '';
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -7497,6 +7774,25 @@ async function approveBonusAward(id){
     if(a) Object.assign(a, patch);
     draft.audit.unshift(auditRow('اعتماد','مكافأة: ' + award.rule_name + ' - ' + fmt(award.reward_amount)));
     store = draft;
+       // 🆕 إشعار للمستفيد
+    let targetUserId = null;
+    if(award.target_type === 'distributor'){
+      const d = store.distributors.find(x => x.id === award.target_id);
+      if(d && d.user_id) targetUserId = d.user_id;
+    } else if(award.target_type === 'operator'){
+      const o = store.operators.find(x => x.id === award.target_id);
+      if(o && o.user_id) targetUserId = o.user_id;
+    }
+    
+    if(targetUserId){
+      NotificationCenter.fire('bonus_approved', {
+        targetUserId: targetUserId,
+        ruleName: award.rule_name,
+        amount: fmt(award.reward_amount) + ' ' + cur(),
+        url: award.scope === 'sales' ? '/#dist_ops' : '/#op_ops'
+      }).catch(e => console.warn(e));
+    }
+    
     toast('✅ تم الاعتماد','ok');
     renderBonusAwards();
   }catch(ex){
@@ -7522,6 +7818,25 @@ async function payBonusAward(id){
     if(a) Object.assign(a, patch);
     draft.audit.unshift(auditRow('دفع','مكافأة: ' + award.rule_name + ' - ' + fmt(award.reward_amount)));
     store = draft;
+       // 🆕 إشعار للمستفيد
+    let targetUserId = null;
+    if(award.target_type === 'distributor'){
+      const d = store.distributors.find(x => x.id === award.target_id);
+      if(d && d.user_id) targetUserId = d.user_id;
+    } else if(award.target_type === 'operator'){
+      const o = store.operators.find(x => x.id === award.target_id);
+      if(o && o.user_id) targetUserId = o.user_id;
+    }
+    
+    if(targetUserId){
+      NotificationCenter.fire('bonus_paid', {
+        targetUserId: targetUserId,
+        ruleName: award.rule_name,
+        amount: fmt(award.reward_amount) + ' ' + cur(),
+        url: award.scope === 'sales' ? '/#dist_ops' : '/#op_ops'
+      }).catch(e => console.warn(e));
+    }
+    
     toast('💵 تم تسجيل الدفع','ok');
     renderBonusAwards();
   }catch(ex){
@@ -7564,7 +7879,27 @@ function rejectBonusAward(id){
         const a = draft.bonus_awards.find(x => x.id === id);
         if(a) Object.assign(a, patch);
         draft.audit.unshift(auditRow('رفض','مكافأة: ' + award.rule_name + ' - ' + v.reason));
-        store = draft;
+                store = draft;
+        
+        // 🆕 إشعار للمستفيد
+        let targetUserId = null;
+        if(award.target_type === 'distributor'){
+          const d = store.distributors.find(x => x.id === award.target_id);
+          if(d && d.user_id) targetUserId = d.user_id;
+        } else if(award.target_type === 'operator'){
+          const o = store.operators.find(x => x.id === award.target_id);
+          if(o && o.user_id) targetUserId = o.user_id;
+        }
+        
+        if(targetUserId){
+          NotificationCenter.fire('bonus_rejected', {
+            targetUserId: targetUserId,
+            ruleName: award.rule_name,
+            reason: v.reason,
+            url: award.scope === 'sales' ? '/#dist_ops' : '/#op_ops'
+          }).catch(e => console.warn(e));
+        }
+        
         toast('تم الرفض','ok');
         closeSheet();
         renderBonusAwards();
@@ -7951,7 +8286,75 @@ async function autoNotify(){
         ).catch(e=>console.warn(e));
       }
     }
+    
+    // =========================================================
+    // 6) 🎁 مكافآت: متاحة اليوم + تنتهي قريباً + منتهية
+    // =========================================================
+    try{
+      const activeRules = (store.bonus_rules || []).filter(r => r.active);
+      
+      for(const rule of activeRules){
+        // 1) بدأت اليوم
+        if(rule.valid_from === t){
+          const targets = getBonusTargets(rule);
+          for(const target of targets){
+            if(target.userId){
+              NotificationCenter.fire('bonus_available', {
+                targetUserId: target.userId,
+                ruleName: rule.name,
+                rewardDescription: describeBonusReward(rule),
+                validTo: rule.valid_to,
+                url: target.url
+              }).catch(e => console.warn(e));
+            }
+          }
+        }
+        
+        // 2) تنتهي غداً (تذكير)
+        if(rule.valid_to){
+          const daysLeft = diffDays(rule.valid_to, t);
+          if(daysLeft === 1){
+            const targets = getBonusTargets(rule);
+            for(const target of targets){
+              const progress = computeBonusProgress(rule, target.entityId, target.entityType);
+              if(!progress || progress.achievedOK) continue;
+              
+              if(target.userId){
+                NotificationCenter.fire('bonus_expiring', {
+                  targetUserId: target.userId,
+                  ruleName: rule.name,
+                  daysLeft: 1,
+                  remaining: fmt(progress.remaining),
+                  url: target.url
+                }).catch(e => console.warn(e));
+              }
+            }
+          }
+          
+          // 3) انتهت أمس (فشل)
+          if(daysLeft === -1){
+            const targets = getBonusTargets(rule);
+            for(const target of targets){
+              const progress = computeBonusProgress(rule, target.entityId, target.entityType);
+              if(!progress || progress.achievedOK) continue;
+              
+              if(target.userId){
+                NotificationCenter.fire('bonus_expired', {
+                  targetUserId: target.userId,
+                  targetName: target.name,
+                  ruleName: rule.name,
+                  url: target.url
+                }).catch(e => console.warn(e));
+              }
+            }
+          }
+        }
+      }
+    }catch(ex){
+      console.error('[Bonus Notify]', ex);
+    }
 
+    
     // =========================================================
     // حفظ علامة اليوم
     // =========================================================
