@@ -3745,7 +3745,15 @@ function renderProduction(){
     // 🆕 عدّاد المكافآت
   const myOp = store.operators.find(o => o.user_id === user.id);
   const bonusEl = byId('prod-bonus-countdown');
-  if(bonusEl) bonusEl.innerHTML = myOp ? renderBonusCountdown(myOp.id, 'operator') : '';
+  if(bonusEl){
+    if(myOp){
+      bonusEl.innerHTML = renderBonusCountdown(myOp.id, 'operator');
+    } else if(isA()){
+      bonusEl.innerHTML = renderAdminBonusOverview('operator');
+    } else {
+      bonusEl.innerHTML = '';
+    }
+  }
   const all=store.shifts,f=ui.f.prod,c=k=>all.filter(s=>s.shift===k).length;
   const flat=store.shift_items_flat;
   byId('prod-stats').innerHTML=statsStrip(flat,s=>s.actual,fmt,a=>'هدر '+fmt(sum(a,s=>s.waste)));
@@ -7794,18 +7802,21 @@ document.addEventListener('click', function(e){
     const id = toggle.dataset.brToggle;
     const rule = store.bonus_rules.find(r => r.id === id);
     if(!rule) return;
-    
+    const wasActive = rule.active;
+
     (async () => {
-      try{
-        await adapter.updateSimple('bonus_rules', id, {active: !rule.active});
-        const draft = clone(store);
-        const r = draft.bonus_rules.find(x => x.id === id);
-        if(r) r.active = !r.active;
-        store = draft;
-        toast(rule.active ? 'تم الإيقاف' : 'تم التشغيل', 'ok');
+      const ok = await tryCommit(
+        draft => {
+          const r = (draft.bonus_rules||[]).find(x => x.id === id);
+          if(r) r.active = !wasActive;
+        },
+        async () => { await adapter.updateSimple('bonus_rules', id, {active: !wasActive}); },
+        {rerender:['management']}
+      );
+      if(ok){
+        toast(wasActive ? 'تم الإيقاف' : 'تم التشغيل', 'ok');
         renderBonusRulesList();
-      }catch(ex){
-        console.error(ex);
+      } else {
         toast('تعذر','err');
       }
     })();
@@ -7820,16 +7831,18 @@ document.addEventListener('click', function(e){
     if(!rule) return;
     
     confirmSheet('حذف القاعدة «' + rule.name + '»؟', 'حذف', async () => {
-      try{
-        await adapter.deleteSimple('bonus_rules', id);
-        const draft = clone(store);
-        draft.bonus_rules = draft.bonus_rules.filter(x => x.id !== id);
-        draft.audit.unshift(auditRow('حذف','قاعدة بونص: ' + rule.name));
-        store = draft;
+      const ok = await tryCommit(
+        draft => {
+          draft.bonus_rules = (draft.bonus_rules||[]).filter(x => x.id !== id);
+          draft.audit.unshift(auditRow('حذف','قاعدة بونص: ' + rule.name));
+        },
+        async () => { await adapter.deleteSimple('bonus_rules', id); },
+        {rerender:['management']}
+      );
+      if(ok){
         toast('تم الحذف','ok');
         renderBonusRulesList();
-      }catch(ex){
-        console.error(ex);
+      } else {
         toast('تعذر','err');
       }
     });
