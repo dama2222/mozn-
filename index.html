@@ -10371,12 +10371,16 @@ window.closeSheet = closeSheet;
 <style>
 #mzn-fab{
   position:fixed;bottom:calc(150px + env(safe-area-inset-bottom,0px));left:12px;
-  z-index:36;width:76px;height:76px;border:0;background:transparent;padding:0;
-  cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.4));
+  z-index:99999 !important;width:80px;height:80px;
+  border:0;background:transparent;padding:0;
+  cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.55));
   animation:mznFloat 3s ease-in-out infinite;transition:transform .2s;
+  pointer-events:auto !important;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
 }
+#mzn-fab svg, #mzn-fab .mzn-badge{pointer-events:none}
 #mzn-fab:active{transform:scale(.92)}
-#mzn-fab .mzn-badge{
   position:absolute;top:0;right:0;background:#ff3b30;color:#fff;font-size:11px;
   font-weight:800;min-width:22px;height:22px;border-radius:99px;
   display:grid;place-items:center;padding:0 5px;border:2px solid var(--shell,#181b25);
@@ -10508,26 +10512,87 @@ window.closeSheet = closeSheet;
 </style>
 
 <button id="mzn-fab" aria-label="افتح المساعد الذكي">
-  <svg class="mzn-body" viewBox="0 0 100 120" width="76" height="76">
-    <ellipse cx="50" cy="113" rx="22" ry="3" fill="rgba(0,0,0,.25)"/>
-    <path d="M30 45 Q20 30 25 18 Q32 30 40 40 Z" fill="#58cc02" stroke="#3ea302" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M70 45 Q80 30 75 18 Q68 30 60 40 Z" fill="#58cc02" stroke="#3ea302" stroke-width="2" stroke-linejoin="round"/>
-    <ellipse cx="50" cy="75" rx="30" ry="36" fill="#58cc02" stroke="#3ea302" stroke-width="2.5"/>
-    <ellipse cx="50" cy="78" rx="20" ry="26" fill="#e8f5d5" opacity=".55"/>
-    <path d="M22 70 Q14 82 20 92 Q26 86 28 76 Z" fill="#58cc02" stroke="#3ea302" stroke-width="2"/>
-    <path d="M78 70 Q86 82 80 92 Q74 86 72 76 Z" fill="#58cc02" stroke="#3ea302" stroke-width="2"/>
-    <circle cx="50" cy="42" r="32" fill="#58cc02" stroke="#3ea302" stroke-width="2.5"/>
-    <ellipse cx="50" cy="46" rx="24" ry="20" fill="#e8f5d5"/>
-    <circle cx="37" cy="40" r="12" fill="#fff" stroke="#2e7d00" stroke-width="2"/>
-    <circle cx="63" cy="40" r="12" fill="#fff" stroke="#2e7d00" stroke-width="2"/>
-    <circle class="mzn-pupil" cx="37" cy="42" r="6" fill="#191a0c"/>
-    <circle class="mzn-pupil" cx="63" cy="42" r="6" fill="#191a0c"/>
-    <circle cx="38.5" cy="39" r="2" fill="#fff"/>
-    <circle cx="64.5" cy="39" r="2" fill="#fff"/>
-    <path d="M50 50 L42 62 Q50 66 58 62 Z" fill="#ff9600" stroke="#c76b00" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M42 62 Q50 66 58 62" stroke="#c76b00" stroke-width="1.5" fill="none"/>
-    <ellipse cx="50" cy="106" rx="7" ry="4" fill="#ff9600" stroke="#c76b00" stroke-width="1.5"/>
-    <ellipse cx="50" cy="106" rx="3" ry="1.5" fill="#c76b00"/>
+  <svg class="mzn-body" viewBox="0 0 100 120" width="80" height="80">
+    <defs>
+      <linearGradient id="mznGold" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#F8E08A"/>
+        <stop offset="0.45" stop-color="#D4AF37"/>
+        <stop offset="1" stop-color="#8B6914"/>
+      </linearGradient>
+      <linearGradient id="mznGoldLight" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#FFF3C4"/>
+        <stop offset="1" stop-color="#E5C158"/>
+      </linearGradient>
+      <linearGradient id="mznNavy" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#1a2a5e"/>
+        <stop offset="1" stop-color="#0a1128"/>
+      </linearGradient>
+      <radialGradient id="mznEyeGlow" cx="0.35" cy="0.35" r="0.7">
+        <stop offset="0" stop-color="#3a5aae"/>
+        <stop offset="1" stop-color="#0a1128"/>
+      </radialGradient>
+    </defs>
+
+    <!-- ظل -->
+    <ellipse cx="50" cy="115" rx="26" ry="3.5" fill="rgba(0,0,0,.4)"/>
+
+    <!-- الأجنحة كحلي -->
+    <path d="M16 60 Q6 82 16 102 Q26 92 28 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M84 60 Q94 82 84 102 Q74 92 72 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
+    <!-- ريش الأجنحة -->
+    <path d="M20 72 Q16 82 20 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
+    <path d="M80 72 Q84 82 80 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
+
+    <!-- الجسم -->
+    <ellipse cx="50" cy="80" rx="32" ry="37" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
+
+    <!-- الصدر فاتح -->
+    <ellipse cx="50" cy="84" rx="22" ry="27" fill="url(#mznGoldLight)" opacity=".85"/>
+
+    <!-- ريش الصدر -->
+    <path d="M36 74 Q40 80 36 86 Q40 92 36 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
+    <path d="M44 72 Q48 78 44 84 Q48 90 44 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
+    <path d="M50 71 Q54 77 50 83 Q54 89 50 95" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
+    <path d="M56 72 Q60 78 56 84 Q60 90 56 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
+    <path d="M64 74 Q60 80 64 86 Q60 92 64 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
+
+    <!-- الأذنين -->
+    <path d="M27 42 Q20 18 30 8 Q40 22 42 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M73 42 Q80 18 70 8 Q60 22 58 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
+
+    <!-- الرأس -->
+    <circle cx="50" cy="43" r="33" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
+
+    <!-- قناع الوجه قلب -->
+    <path d="M50 30 Q34 32 29 46 Q27 56 38 61 Q45 64 50 61 Q55 64 62 61 Q73 56 71 46 Q66 32 50 30 Z"
+          fill="url(#mznGoldLight)" stroke="#8B6914" stroke-width="1.5" stroke-linejoin="round"/>
+
+    <!-- حلقات ذهبية حول العينين -->
+    <circle cx="37" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
+    <circle cx="63" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
+
+    <!-- العيون -->
+    <circle cx="37" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
+    <circle cx="63" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
+    <circle cx="37" cy="43" r="10" fill="url(#mznEyeGlow)"/>
+    <circle cx="63" cy="43" r="10" fill="url(#mznEyeGlow)"/>
+    <circle cx="37" cy="43" r="5" fill="#0a1128"/>
+    <circle cx="63" cy="43" r="5" fill="#0a1128"/>
+    <!-- بريق العين -->
+    <circle cx="40" cy="39" r="2.8" fill="#fff"/>
+    <circle cx="66" cy="39" r="2.8" fill="#fff"/>
+    <circle cx="34.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
+    <circle cx="60.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
+
+    <!-- المنقار -->
+    <path d="M50 53 L43 63 Q50 67 57 63 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M43 63 Q50 66 57 63" stroke="#3a2a0a" stroke-width="1.3" fill="none"/>
+
+    <!-- الأقدام -->
+    <ellipse cx="43" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
+    <ellipse cx="57" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
+    <path d="M40 113 L46 113 M40 116 L46 116" stroke="#3a2a0a" stroke-width="1.1"/>
+    <path d="M54 113 L60 113 M54 116 L60 116" stroke="#3a2a0a" stroke-width="1.1"/>
   </svg>
   <span class="mzn-badge" id="mzn-badge" hidden>0</span>
 </button>
