@@ -10365,16 +10365,728 @@ window.closeSheet = closeSheet;
   }
 })();
 </script>
+<!-- ═══════════════════════════════════════════════════════════
+     🤖 MUZN BUDDY v2.1 — نسخة مُصحَّحة (بدون أخطاء Syntax)
+     ═══════════════════════════════════════════════════════════ -->
+<style>
+.mzn-buddy{
+  position:fixed;bottom:calc(150px + env(safe-area-inset-bottom,0px));inset-inline-start:12px;
+  z-index:35;display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+  max-width:min(260px,calc(100vw - 24px));font-family:'Cairo',Tahoma,sans-serif;
+  pointer-events:none;user-select:none;transition:opacity .25s;
+}
+.mzn-buddy.mzn-hidden{display:none}
+.mzn-buddy.mzn-dragging{transition:none}
+.mzn-buddy>*{pointer-events:auto}
+.mzn-bubble{
+  background:var(--card,#1d212d);color:var(--text,#f5f6f8);
+  border:2px solid var(--accent,#f3e02b);border-radius:16px;
+  padding:9px 13px;font-size:13px;font-weight:700;line-height:1.5;
+  box-shadow:0 6px 22px rgba(0,0,0,.45);position:relative;max-width:240px;
+  animation:mznPop .28s cubic-bezier(.34,1.56,.64,1);
+  white-space:pre-wrap;word-break:break-word;
+}
+.mzn-bubble::after{
+  content:'';position:absolute;bottom:-9px;inset-inline-start:22px;
+  border:8px solid transparent;border-top-color:var(--accent,#f3e02b);
+  border-bottom:0;
+}
+@keyframes mznPop{from{transform:scale(.85) translateY(-4px);opacity:0}to{transform:none;opacity:1}}
+.mzn-char-wrap{
+  position:relative;cursor:grab;display:inline-block;
+  filter:drop-shadow(0 8px 14px rgba(0,0,0,.4));
+  animation:mznBob 3s ease-in-out infinite;transition:transform .2s;
+}
+.mzn-char-wrap:active{cursor:grabbing;transform:scale(.94)}
+@keyframes mznBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.mzn-buddy.mzn-talking .mzn-char-wrap{animation:mznTalk .28s ease-in-out infinite}
+@keyframes mznTalk{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-3px) rotate(1deg)}}
+.mzn-buddy.mzn-dragging .mzn-char-wrap{animation:none}
+.mzn-badge{
+  position:absolute;top:-6px;inset-inline-end:-6px;
+  background:#ff3b30;color:#fff;font-size:10.5px;font-weight:800;
+  min-width:20px;height:20px;border-radius:99px;display:grid;place-items:center;
+  padding:0 5px;border:2px solid var(--shell,#181b25);
+  box-shadow:0 2px 6px rgba(0,0,0,.4);animation:mznPulse 2s ease-in-out infinite;
+}
+.mzn-badge[hidden]{display:none}
+@keyframes mznPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+.mzn-actions{display:flex;flex-wrap:wrap;gap:4px;max-width:240px;animation:mznFadeIn .3s ease-out}
+.mzn-actions[hidden]{display:none}
+@keyframes mznFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.mzn-actions button{
+  background:var(--card,#1d212d);color:var(--text,#f5f6f8);
+  border:1px solid var(--line,#3b4050);border-radius:99px;
+  padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;
+  font-family:inherit;transition:all .15s;white-space:nowrap;
+}
+.mzn-actions button:hover,.mzn-actions button:focus{
+  background:var(--accent,#f3e02b);color:var(--accent-ink,#191a0c);
+  border-color:var(--accent,#f3e02b);outline:none;
+}
+.mzn-mini-toggle{
+  position:fixed;bottom:calc(150px + env(safe-area-inset-bottom,0px));inset-inline-start:12px;
+  z-index:34;width:36px;height:36px;border-radius:50%;
+  background:var(--accent,#f3e02b);color:var(--accent-ink,#191a0c);
+  border:2px solid var(--shell,#181b25);cursor:pointer;display:grid;place-items:center;
+  font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,.35);
+}
+.mzn-mini-toggle[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){
+  .mzn-buddy,.mzn-char-wrap,.mzn-badge{animation:none!important}
+}
+</style>
+
+<div id="mzn-buddy" class="mzn-buddy" role="complementary" aria-label="مساعد MUZN">
+  <div class="mzn-bubble"><span id="mzn-text">مرحباً! 👋</span></div>
+  <div class="mzn-char-wrap" id="mzn-char" title="اضغطني — أو اسحبني">
+    <svg viewBox="0 0 100 125" width="88" height="110" aria-hidden="true">
+      <ellipse cx="50" cy="118" rx="26" ry="3.5" fill="rgba(0,0,0,.25)"/>
+      <path d="M30 82 Q19 92 22 104" stroke="#2a3a5c" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <path d="M70 82 Q81 92 78 104" stroke="#2a3a5c" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <path d="M30 76 Q30 70 36 68 L64 68 Q70 70 70 76 L72 114 Q50 119 28 114 Z"
+            fill="#2a3a5c" stroke="#191a0c" stroke-width="2.5" stroke-linejoin="round"/>
+      <rect x="42" y="88" width="16" height="14" rx="3" fill="#1d2842" stroke="#191a0c" stroke-width="1.5"/>
+      <path d="M45 92 L55 92" stroke="#4a90d9" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="50" cy="47" r="30" fill="#f5deb3" stroke="#191a0c" stroke-width="2.5"/>
+      <path d="M20 42 Q20 16 50 14 Q80 16 80 42 L80 44 Q50 47 20 44 Z"
+            fill="#f3e02b" stroke="#191a0c" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M20 43 Q50 46 80 43" stroke="#191a0c" stroke-width="2" fill="none"/>
+      <ellipse id="mzn-eye-l" cx="40" cy="54" rx="5.5" ry="6.5" fill="#fff" stroke="#191a0c" stroke-width="1.8"/>
+      <ellipse id="mzn-eye-r" cx="60" cy="54" rx="5.5" ry="6.5" fill="#fff" stroke="#191a0c" stroke-width="1.8"/>
+      <circle id="mzn-pupil-l" cx="40" cy="55" r="2.8" fill="#191a0c"/>
+      <circle id="mzn-pupil-r" cx="60" cy="55" r="2.8" fill="#191a0c"/>
+      <circle cx="41" cy="53.5" r="1" fill="#fff"/>
+      <circle cx="61" cy="53.5" r="1" fill="#fff"/>
+      <circle cx="31" cy="62" r="4.5" fill="#ff6f61" opacity=".45"/>
+      <circle cx="69" cy="62" r="4.5" fill="#ff6f61" opacity=".45"/>
+      <path id="mzn-mouth" d="M42 65 Q50 73 58 65" fill="none" stroke="#191a0c" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <span class="mzn-badge" id="mzn-badge" hidden>0</span>
+  </div>
+  <div class="mzn-actions" id="mzn-actions" hidden></div>
+</div>
+
+<button class="mzn-mini-toggle" id="mzn-mini" hidden aria-label="إظهار المساعد">🤖</button>
+
 <script>
-/* autoUpdater */
+/* ═══ MUZN BUDDY v2.1 — نسخة مُصحَّحة ═══ */
+(function () {
+'use strict';
+
+var KEY = 'muzn_buddy_v2';
+
+function TODAY() {
+  var d = new Date();
+  return d.getFullYear() + '-' +
+         String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+
+function defaults() {
+  return {
+    pos: null,
+    hidden: false,
+    salesToday: 0,
+    shiftOpen: false,
+    shiftStart: null,
+    complaints: 0,
+    lastSeen: null
+  };
+}
+
+var state = (function () {
+  try {
+    var raw = localStorage.getItem(KEY);
+    if (raw) return Object.assign(defaults(), JSON.parse(raw));
+  } catch (e) {}
+  return defaults();
+})();
+
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+var el = {};
+function $(id) { return document.getElementById(id); }
+
+var speakTimer = null;
+var resetFaceTimer = null;
+
+function setFace(kind) {
+  if (!el.mouth) return;
+  var faces = {
+    happy:    { d: 'M42 65 Q50 73 58 65', eye: 1 },
+    excited:  { d: 'M40 63 Q50 79 60 63', eye: 1.15 },
+    sad:      { d: 'M42 72 Q50 63 58 72', eye: 0.85 },
+    thinking: { d: 'M44 68 L56 68',        eye: 0.85 },
+    wink:     { d: 'M42 65 Q50 74 58 65', eye: 1, eyeL: 0.15 },
+    sleepy:   { d: 'M44 66 Q50 69 56 66', eye: 0.5 },
+    alert:    { d: 'M43 68 Q50 65 57 68', eye: 1.1 }
+  };
+  var f = faces[kind] || faces.happy;
+  el.mouth.setAttribute('d', f.d);
+  if (el.eyeL) el.eyeL.setAttribute('ry', 6.5 * (f.eyeL != null ? f.eyeL : f.eye));
+  if (el.eyeR) el.eyeR.setAttribute('ry', 6.5 * (f.eyeR != null ? f.eyeR : f.eye));
+}
+
+function speak(text, opts) {
+  opts = opts || {};
+  if (!el.text || !el.root) return;
+  clearInterval(speakTimer);
+  el.text.textContent = '';
+  el.root.classList.add('mzn-talking');
+  var i = 0;
+  speakTimer = setInterval(function () {
+    el.text.textContent = text.slice(0, ++i);
+    if (i >= text.length) {
+      clearInterval(speakTimer);
+      el.root.classList.remove('mzn-talking');
+    }
+  }, 18);
+  clearTimeout(resetFaceTimer);
+  resetFaceTimer = setTimeout(function () { setFace('happy'); }, opts.hold || 5000);
+  if (opts.face) setFace(opts.face);
+}
+
+function MZ() { return window.__muzn || null; }
+
+function safe(fn, fallback) {
+  try { var r = fn(); return r == null ? fallback : r; }
+  catch (e) { return fallback; }
+}
+
+function currency() {
+  var m = MZ();
+  return safe(function () { return m.store.company.currency_symbol || ''; }, '');
+}
+
+function getRole() {
+  var m = MZ();
+  var u = m && m.user;
+  if (!u) return 'guest';
+  if (u.role === 'admin') return 'admin';
+  var p = u.perms || [];
+  if (p.indexOf('sales') >= 0)       return 'sales';
+  if (p.indexOf('production') >= 0)  return 'production';
+  if (p.indexOf('withdrawals') >= 0) return 'warehouse';
+  if (p.indexOf('purchases') >= 0)   return 'purchases';
+  if (p.indexOf('collections') >= 0) return 'collections';
+  if (p.indexOf('distributors') >= 0) return 'distributors';
+  return 'staff';
+}
+
+function getStats() {
+  var m = MZ();
+  if (!m || !m.store) return null;
+  var s = m.store;
+  var u = m.user;
+  var t = TODAY();
+
+  var mySales = (s.sales || []).filter(function (x) {
+    return x.date === t && (!u || x.by === u.name);
+  });
+
+  var mySalesTotal = mySales.reduce(function (sum, h) {
+    return sum + (h.items || []).reduce(function (a, it) {
+      return a + (it.qty * it.price - (it.discount || 0));
+    }, 0);
+  }, 0);
+
+  var lowStock = safe(function () {
+    return (s.products || []).filter(function (p) {
+      if (!p.min_stock) return false;
+      var q = m.stockWH ? m.stockWH(s, p.id) : 0;
+      return q < p.min_stock;
+    }).length;
+  }, 0);
+
+  var lowMat = safe(function () {
+    return (s.materials || []).filter(function (mat) {
+      if (!mat.min_stock) return false;
+      var q = m.materialStock ? m.materialStock(s, mat.id) : 0;
+      return q < mat.min_stock;
+    }).length;
+  }, 0);
+
+  var overdue = safe(function () {
+    return (s.customers || []).filter(function (c) {
+      var b = m.custBal ? m.custBal(s, c) : null;
+      return b && b.bucket === 'overdue';
+    }).length;
+  }, 0);
+
+  var pendingPR = (s.purchase_requests || []).filter(function (r) {
+    return r.status === 'pending';
+  }).length;
+
+  var activeBonus = (s.bonus_rules || []).filter(function (r) {
+    return r.active;
+  }).length;
+
+  var myShift = safe(function () {
+    if (!s.attendance_shifts) return null;
+    return s.attendance_shifts.filter(function (x) {
+      return x.date === t && u && x.user_id === u.id && !x.closed;
+    })[0] || null;
+  }, null);
+
+  return {
+    mySalesCount: mySales.length,
+    mySalesTotal: mySalesTotal,
+    lowStock: lowStock,
+    lowMat: lowMat,
+    overdue: overdue,
+    pendingPR: pendingPR,
+    activeBonus: activeBonus,
+    myShift: myShift,
+    userName: (u && u.name) ? u.name.split(' ')[0] : ''
+  };
+}
+
+function computeBadge() {
+  var st = getStats();
+  if (!st) return 0;
+  var role = getRole();
+  if (role === 'admin')      return st.lowStock + st.lowMat + st.overdue + st.pendingPR;
+  if (role === 'warehouse')  return st.lowStock + st.lowMat;
+  if (role === 'purchases')  return st.pendingPR + st.lowMat;
+  if (role === 'sales' || role === 'collections') return st.overdue;
+  return 0;
+}
+
+function getActions() {
+  var role = getRole();
+  var map = {
+    sales: [
+      { id: 'sale',     label: '💰 بيع جديد' },
+      { id: 'today',    label: '📊 مبيعاتي' },
+      { id: 'shift',    label: '🕐 مناوبتي' },
+      { id: 'complain', label: '📢 شكوى' }
+    ],
+    production: [
+      { id: 'production', label: '🏭 إنتاجي' },
+      { id: 'shift',      label: '🕐 ورديتي' },
+      { id: 'complain',   label: '📢 شكوى' }
+    ],
+    warehouse: [
+      { id: 'stock',    label: '📦 المخزون' },
+      { id: 'alerts',   label: '⚠️ النواقص' },
+      { id: 'complain', label: '📢 شكوى' }
+    ],
+    purchases: [
+      { id: 'requests', label: '📋 الطلبات' },
+      { id: 'alerts',   label: '⚠️ النواقص' },
+      { id: 'stock',    label: '📦 المخزون' }
+    ],
+    collections: [
+      { id: 'overdue',  label: '💳 المتأخرون' },
+      { id: 'today',    label: '📊 مبيعاتي' },
+      { id: 'complain', label: '📢 شكوى' }
+    ],
+    distributors: [
+      { id: 'overdue',  label: '💳 المتأخرون' },
+      { id: 'complain', label: '📢 شكوى' }
+    ],
+    admin: [
+      { id: 'overview', label: '📊 نظرة عامة' },
+      { id: 'alerts',   label: '⚠️ التنبيهات' },
+      { id: 'bonus',    label: '🎁 المكافآت' }
+    ],
+    staff: [
+      { id: 'shift',    label: '🕐 ورديتي' },
+      { id: 'complain', label: '📢 شكوى' }
+    ],
+    guest: [
+      { id: 'hello',    label: '👋 مرحباً' }
+    ]
+  };
+  var list = (map[role] || map.staff).slice();
+  list.push({ id: 'hide', label: '✕' });
+  return list;
+}
+
+function renderActions() {
+  if (!el.actions) return;
+  var list = getActions();
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    html += '<button data-mzn="' + list[i].id + '">' + list[i].label + '</button>';
+  }
+  el.actions.innerHTML = html;
+}
+
+function handle(action) {
+  var m = MZ();
+  var st = getStats();
+  var cur = currency();
+
+  switch (action) {
+
+    case 'sale': {
+      state.salesToday = (state.salesToday || 0) + 1;
+      persist();
+      var cnt = st ? st.mySalesCount : state.salesToday;
+      var tot = st ? st.mySalesTotal : 0;
+      setFace('excited');
+      speak('✅ تم تسجيل بيع!\nاليوم: ' + cnt + ' فاتورة' +
+            (tot ? ' — ' + tot.toFixed(3) + ' ' + cur : ''));
+      break;
+    }
+
+    case 'today': {
+      if (!st) { speak('لا توجد بيانات بعد'); break; }
+      setFace('happy');
+      speak('📊 ملخص اليوم:\n• عدد الفواتير: ' + st.mySalesCount +
+            '\n• إجمالي المبيعات: ' + st.mySalesTotal.toFixed(3) + ' ' + cur);
+      break;
+    }
+
+    case 'shift': {
+      if (st && st.myShift) {
+        var dur = Math.round((Date.now() - st.myShift.checkin_ts) / 60000);
+        setFace('excited');
+        speak('🟢 ورديتك مفتوحة منذ ' + dur + ' دقيقة');
+      } else if (state.shiftOpen) {
+        var dur2 = state.shiftStart ? Math.round((Date.now() - state.shiftStart) / 60000) : 0;
+        state.shiftOpen = false;
+        state.shiftStart = null;
+        persist();
+        setFace('sad');
+        speak('🔴 تم إغلاق ورديتك (كانت ' + dur2 + ' دقيقة)');
+      } else {
+        state.shiftOpen = true;
+        state.shiftStart = Date.now();
+        persist();
+        setFace('excited');
+        speak('🟢 بدأت ورديتك — يوم موفق!');
+      }
+      break;
+    }
+
+    case 'target': {
+      var goal = 10;
+      var have = st ? st.mySalesCount : state.salesToday;
+      var pct = Math.min(Math.round(have / goal * 100), 100);
+      setFace('thinking');
+      speak('🎯 هدفك: ' + goal + ' فاتورة\nأنجزت: ' + have + ' (' + pct + '%)');
+      break;
+    }
+
+    case 'production': {
+      var shifts = safe(function () {
+        return (m.store.shifts || []).filter(function (x) { return x.date === TODAY(); });
+      }, []);
+      var units = 0;
+      for (var i = 0; i < shifts.length; i++) {
+        var items = shifts[i].items || [];
+        for (var j = 0; j < items.length; j++) {
+          units += items[j].actual || 0;
+        }
+      }
+      setFace(units > 0 ? 'excited' : 'thinking');
+      speak('🏭 إنتاج اليوم:\n' + shifts.length + ' وردية · ' + units.toFixed(0) + ' وحدة');
+      break;
+    }
+
+    case 'stock': {
+      if (!st) { speak('لا توجد بيانات'); break; }
+      setFace('thinking');
+      speak('📦 حالة المخزون:\n• منتجات تحت الحد: ' + st.lowStock +
+            '\n• مواد خام تحت الحد: ' + st.lowMat);
+      break;
+    }
+
+    case 'alerts': {
+      if (!st) { speak('لا تنبيهات'); break; }
+      var all = st.lowStock + st.lowMat + st.overdue + st.pendingPR;
+      setFace(all > 0 ? 'alert' : 'happy');
+      if (all > 0) {
+        var parts = [];
+        if (st.lowStock)  parts.push('• ' + st.lowStock + ' منتج ناقص');
+        if (st.lowMat)    parts.push('• ' + st.lowMat + ' مادة خام ناقصة');
+        if (st.overdue)   parts.push('• ' + st.overdue + ' عميل متأخر');
+        if (st.pendingPR) parts.push('• ' + st.pendingPR + ' طلب نواقص');
+        speak('⚠️ تنبيهات نشطة:\n' + parts.join('\n'));
+      } else {
+        speak('✅ كل شيء تحت السيطرة!');
+      }
+      break;
+    }
+
+    case 'requests': {
+      if (!st) { speak('لا توجد طلبات'); break; }
+      setFace(st.pendingPR > 0 ? 'thinking' : 'happy');
+      speak('📋 طلبات النواقص المعلّقة: ' + st.pendingPR);
+      break;
+    }
+
+    case 'overdue': {
+      if (!st) { speak('لا توجد بيانات'); break; }
+      setFace(st.overdue > 0 ? 'sad' : 'happy');
+      speak(st.overdue > 0
+        ? '💳 ' + st.overdue + ' عميل متأخر عن السداد'
+        : '✅ لا عملاء متأخرين');
+      break;
+    }
+
+    case 'overview': {
+      if (!st) { speak('لا توجد بيانات'); break; }
+      setFace('happy');
+      speak('📊 نظرة سريعة:\n• نواقص: ' + (st.lowStock + st.lowMat) +
+            '\n• متأخرون: ' + st.overdue +
+            '\n• طلبات: ' + st.pendingPR);
+      break;
+    }
+
+    case 'bonus': {
+      if (!st) { speak('لا توجد مكافآت'); break; }
+      setFace('excited');
+      speak('🎁 قواعد المكافآت النشطة: ' + st.activeBonus);
+      break;
+    }
+
+    case 'complain': {
+      state.complaints = (state.complaints || 0) + 1;
+      persist();
+      setFace('thinking');
+      speak('📢 تم تسجيل شكوتك رقم ' + state.complaints + '\nسيتم إبلاغ المدير.');
+      try {
+        if (m && m.sendPushToAdmins && m.user) {
+          m.sendPushToAdmins(
+            '📢 شكوى من ' + m.user.name,
+            'المساعد الذكي سجّل شكوى جديدة',
+            '/#overview', 'buddy_complaint', null
+          ).catch(function () {});
+        }
+      } catch (e) {}
+      break;
+    }
+
+    case 'hello': {
+      setFace('excited');
+      speak('أهلاً! سجّل دخولك لأخدمك بشكل أفضل 😊');
+      break;
+    }
+
+    case 'hide': {
+      state.hidden = true;
+      persist();
+      hide();
+      return;
+    }
+  }
+
+  setTimeout(updateBadge, 400);
+}
+
+function hide() {
+  el.root.classList.add('mzn-hidden');
+  el.mini.hidden = false;
+}
+function show() {
+  el.root.classList.remove('mzn-hidden');
+  el.mini.hidden = true;
+  state.hidden = false;
+  persist();
+  setTimeout(updateBadge, 100);
+}
+
+function enableDrag() {
+  if (!el.char) return;
+  var startX, startY, startL, startB, dragging = false, moved = false;
+
+  function onDown(e) {
+    if (e.target.closest('[data-mzn]')) return;
+    var r = el.root.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startL = r.left;
+    startB = window.innerHeight - r.bottom;
+    dragging = true;
+    moved = false;
+    el.root.classList.add('mzn-dragging');
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+    if (Math.abs(dx) + Math.abs(dy) > 5) moved = true;
+    if (!moved) return;
+    var nl = Math.max(4, Math.min(window.innerWidth - 90, startL + dx));
+    var nb = Math.max(4, Math.min(window.innerHeight - 90, startB - dy));
+    el.root.style.insetInlineStart = 'auto';
+    el.root.style.left = nl + 'px';
+    el.root.style.bottom = nb + 'px';
+    state.pos = { left: nl, bottom: nb };
+  }
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    el.root.classList.remove('mzn-dragging');
+    if (moved) persist();
+    else casualTalk();
+  }
+  el.char.addEventListener('pointerdown', onDown);
+  document.addEventListener('pointermove', onMove, { passive: true });
+  document.addEventListener('pointerup', onUp);
+}
+
+function applySavedPos() {
+  if (state.pos && typeof state.pos.left === 'number') {
+    el.root.style.insetInlineStart = 'auto';
+    el.root.style.left = state.pos.left + 'px';
+    el.root.style.bottom = state.pos.bottom + 'px';
+  }
+}
+
+var CASUAL = [
+  'أنا هنا معك! 💪',
+  'يومك سعيد ☀️',
+  'لا تنس تسجيل ورديتك 🕐',
+  'بالتوفيق! ✨',
+  'أنا أراقب الأرقام 👀',
+  'كيف حالك؟ 😊',
+  'هل تبي مساعدة؟',
+  'أنت رائع! 🌟'
+];
+function casualTalk() {
+  var r = Math.random();
+  if (r < 0.15) { setFace('wink');    speak('مرحباً! 😉'); }
+  else if (r < 0.3) { setFace('excited'); speak('جاهز؟ 💪'); }
+  else {
+    setFace('happy');
+    speak(CASUAL[Math.floor(Math.random() * CASUAL.length)]);
+  }
+}
+
+function greet() {
+  var h = new Date().getHours();
+  var m = MZ();
+  var name = (m && m.user && m.user.name) ? m.user.name.split(' ')[0] : '';
+  var p = name ? name + '، ' : '';
+
+  if (state.lastSeen !== TODAY()) {
+    state.lastSeen = TODAY();
+    state.salesToday = 0;
+    persist();
+  }
+
+  var msg;
+  if (state.shiftOpen) msg = 'ورديتك مفتوحة 🟢 — استمر!';
+  else if (h < 5)  msg = p + 'ليلة سعيدة 🌙';
+  else if (h < 12) msg = p + 'صباح الخير ☀️';
+  else if (h < 18) msg = p + 'مساء الخير 🌤️';
+  else msg = p + 'مساء النجاح 🌆';
+
+  setFace(h < 5 ? 'sleepy' : 'happy');
+  speak(msg);
+}
+
+function updateBadge() {
+  var n = computeBadge();
+  if (n > 0) {
+    el.badge.hidden = false;
+    el.badge.textContent = n > 9 ? '9+' : String(n);
+  } else {
+    el.badge.hidden = true;
+  }
+}
+
+function startBlinking() {
+  function loop() {
+    if (!el.eyeL || !el.eyeR) return;
+    el.eyeL.setAttribute('ry', 0.5);
+    el.eyeR.setAttribute('ry', 0.5);
+    setTimeout(function () {
+      if (el.eyeL) el.eyeL.setAttribute('ry', 6.5);
+      if (el.eyeR) el.eyeR.setAttribute('ry', 6.5);
+    }, 130);
+    setTimeout(loop, 2800 + Math.random() * 3200);
+  }
+  setTimeout(loop, 2500);
+}
+
+function bindEvents() {
+  el.root.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mzn]');
+    if (b) {
+      e.preventDefault();
+      e.stopPropagation();
+      handle(b.dataset.mzn);
+    }
+  });
+  el.mini.addEventListener('click', show);
+  window.addEventListener('resize', function () {
+    if (!state.pos) return;
+    var maxL = window.innerWidth - 100;
+    var maxB = window.innerHeight - 100;
+    var changed = false;
+    if (state.pos.left > maxL) { state.pos.left = maxL; changed = true; }
+    if (state.pos.bottom > maxB) { state.pos.bottom = maxB; changed = true; }
+    if (changed) { applySavedPos(); persist(); }
+  });
+}
+
+function waitForApp(maxMs) {
+  return new Promise(function (resolve) {
+    var start = Date.now();
+    function tick() {
+      if (window.__muzn && window.__muzn.store && window.__muzn.user) return resolve(true);
+      if (Date.now() - start > (maxMs || 30000)) return resolve(false);
+      setTimeout(tick, 500);
+    }
+    tick();
+  });
+}
+
+async function boot() {
+  el.root    = $('mzn-buddy');
+  el.text    = $('mzn-text');
+  el.char    = $('mzn-char');
+  el.mouth   = $('mzn-mouth');
+  el.eyeL    = $('mzn-eye-l');
+  el.eyeR    = $('mzn-eye-r');
+  el.pupilL  = $('mzn-pupil-l');
+  el.pupilR  = $('mzn-pupil-r');
+  el.badge   = $('mzn-badge');
+  el.actions = $('mzn-actions');
+  el.mini    = $('mzn-mini');
+
+  if (!el.root) return;
+
+  if (state.hidden) hide();
+  applySavedPos();
+  bindEvents();
+  enableDrag();
+  startBlinking();
+
+  await waitForApp();
+
+  renderActions();
+  el.actions.hidden = false;
+  setTimeout(greet, 800);
+
+  updateBadge();
+  setInterval(updateBadge, 20000);
+
+  setInterval(function () {
+    if (state.lastSeen !== TODAY()) {
+      state.lastSeen = TODAY();
+      state.salesToday = 0;
+      persist();
+      greet();
+    }
+  }, 5 * 60 * 1000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+
 })();
 </script>
-
-<!-- ═══ الشخصية الجديدة ═══ -->
-<style>...</style>
-<div id="mzn-buddy">...</div>
-<button id="mzn-mini">...</button>
-<script>(function(){...كود الشخصية...})();</script>
-
 </body>
-</html>  
+</html>
