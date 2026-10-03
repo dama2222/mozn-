@@ -10819,8 +10819,8 @@ function build(intent,raw){
       var tt=sumS(salesToday(u.name));
       var pc2=Math.min(Math.round(tt/ct*100),100),rm2=Math.max(ct-tt,0);
       var L9=['🎯 هدفك اليومي','• الهدف: '+fmt(ct)+' '+cn,'• انجزت: '+fmt(tt)+' '+cn,'• التقدم: '+pc2+'%'];
-      if(rm2<=0)L9.push('');L9.push('🎉 حققت هدفك!');
-      else{L9.push('');L9.push('باقي: '+fmt(rm2)+' '+cn+' 💪');}
+      if(rm2<=0){L9.push('');L9.push('🎉 حققت هدفك!');}
+     else{L9.push('');L9.push('باقي: '+fmt(rm2)+' '+cn+' 💪');}
       return{text:L9.join('\n'),progress:pc2};
     }
     case'stock':{
