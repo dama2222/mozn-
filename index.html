@@ -10711,6 +10711,21 @@ function detect(raw){
   if(has(t,'شكوى')||has(t,'شكوه')||has(t,'اشتكي'))add('complaint',100);
   if(has(t,'من انت')||has(t,'اسمك')||has(t,'who'))add('who',80);
   if(has(t,'شكرا')||has(t,'مشكور')||has(t,'thanks'))add('thanks',60);
+    /* ═══ مبيعات سنة ═══ */
+  if (has(t, 'السنه') || has(t, 'سنه') || has(t, 'هذي السنه')) add('sales_year', 80);
+
+  /* ═══ أرباح ═══ */
+  if (has(t, 'ربح') || has(t, 'ارباح') || has(t, 'ربحت')) add('profit', 90);
+
+  /* ═══ تاريخ محدد ═══ */
+  if (/\d{1,2}[\/\-]\d{1,2}/.test(t)) add('specific_date', 85);
+  if (/(يناير|فبراير|مارس|ابريل|مايو|يونيو|يوليو|اغسطس|سبتمبر|اكتوبر|نوفمبر|ديسمبر)/.test(t)) add('specific_date', 60);
+
+  /* ═══ أمس ═══ */
+  if (has(t, 'امس') || has(t, 'البارح')) add('sales_yesterday', 85);
+
+  /* ═══ كم بعت ═══ */
+  if (has(t, 'كم بعت') || has(t, 'كم فاتوره') || has(t, 'كم باع')) add('sales_today', 40);
   var best=null,bs=0;
   for(var k in sc)if(sc[k]>bs){bs=sc[k];best=k;}
   return{intent:best,score:bs};
@@ -10859,6 +10874,146 @@ function build(intent,raw){
     }
     case'who':return{text:'🦉 أنا مُزن — مساعدك الذكي في MUZN Operations.'};
     case'thanks':return{text:'العفو 🌟 — أنا هنا دائما!'};
+        case 'sales_year': {
+      if (!canAccess('sales')) return { text: denyMsg('sales') };
+      var year = TODAY().slice(0,4);
+      var s3 = store();
+      if (!s3) return { text: 'لا توجد بيانات.' };
+      var isA3 = u && u.role === 'admin';
+      var salesY = (s3.sales||[]).filter(function(h){
+        if (h.date.slice(0,4) !== year) return false;
+        if (!isA3 && u && h.by !== u.name) return false;
+        return true;
+      });
+      if (!salesY.length) return { text: 'لا توجد مبيعات مسجّلة في ' + year };
+      var totalY = sumSales(salesY);
+      var itemsY = (s3.sale_items_flat||[]).filter(function(x){
+        if (x.date.slice(0,4) !== year) return false;
+        if (!isA3 && u && x.by !== u.name) return false;
+        return true;
+      });
+      var revY = itemsY.reduce(function(t,x){ return t + (x.qty*x.price - (x.discount||0)); }, 0);
+      var coY = itemsY.reduce(function(t,x){
+        var p = s3.products.find(function(y){ return y.id === x.product_id; }) || {};
+        var w = p.dist_price || p.price || 0;
+        return t + x.qty * w;
+      }, 0);
+      var byMonth = {};
+      salesY.forEach(function(h){
+        var m = h.date.slice(0,7);
+        byMonth[m] = (byMonth[m]||0) + saleTotal(h);
+      });
+      var bestMonth = Object.keys(byMonth).sort(function(a,b){ return byMonth[b]-byMonth[a]; })[0];
+      var lines = [
+        '📊 *مبيعات سنة ' + year + '*',
+        '• عدد الفواتير: ' + salesY.length,
+        '• الإجمالي: ' + fmt(totalY) + ' ' + cn
+      ];
+      if (isA3) {
+        lines.push('• الربح الصافي: ' + fmt(revY - coY) + ' ' + cn);
+        lines.push('• هامش الربح: ' + (revY > 0 ? ((revY-coY)/revY*100).toFixed(1) + '%' : '—'));
+      }
+      if (bestMonth) {
+        var monthName = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'][parseInt(bestMonth.slice(5,7),10)-1];
+        lines.push('• أفضل شهر: ' + monthName + ' (' + fmt(byMonth[bestMonth]) + ' ' + cn + ')');
+      }
+      return { text: lines.join('\n') };
+    }
+
+    case 'profit': {
+      if (!u || u.role !== 'admin') return { text: '🔒 الأرباح للمدير فقط.' };
+      var s4 = store(); if (!s4) return { text: 'لا توجد بيانات.' };
+      var itemsP = (s4.sale_items_flat||[]);
+      var allRev = itemsP.reduce(function(t,x){ return t + (x.qty*x.price - (x.discount||0)); }, 0);
+      var allCo = itemsP.reduce(function(t,x){
+        var p = s4.products.find(function(y){ return y.id === x.product_id; }) || {};
+        var w = p.dist_price || p.price || 0;
+        return t + x.qty * w;
+      }, 0);
+      return {
+        text: '💰 *الأرباح الإجمالية*\n' +
+              '• الإيراد: ' + fmt(allRev) + ' ' + cn + '\n' +
+              '• التكلفة: ' + fmt(allCo) + ' ' + cn + '\n' +
+              '• الربح الصافي: *' + fmt(allRev - allCo) + ' ' + cn + '*\n' +
+              '• الهامش: ' + (allRev > 0 ? ((allRev-allCo)/allRev*100).toFixed(1) + '%' : '—')
+      };
+    }
+
+    case 'sales_yesterday': {
+      if (!canAccess('sales')) return { text: denyMsg('sales') };
+      var yest = new Date(); yest.setDate(yest.getDate() - 1);
+      var yStr = yest.getFullYear()+'-'+String(yest.getMonth()+1).padStart(2,'0')+'-'+String(yest.getDate()).padStart(2,'0');
+      var isA4 = u && u.role === 'admin';
+      var arrY = (store().sales||[]).filter(function(h){
+        if (h.date !== yStr) return false;
+        if (!isA4 && u && h.by !== u.name) return false;
+        return true;
+      });
+      if (!arrY.length) return { text: 'أمس ما فيه مبيعات مسجّلة.' };
+      var totalYest = sumSales(arrY);
+      return {
+        text: '📊 *مبيعات أمس (' + yStr + ')*\n' +
+              '• الفواتير: ' + arrY.length + '\n' +
+              '• الإجمالي: ' + fmt(totalYest) + ' ' + cn
+      };
+    }
+
+    case 'specific_date': {
+      if (!canAccess('sales')) return { text: denyMsg('sales') };
+      var s5 = store();
+      var mDate = rawText.match(/(\d{1,2})[\/\-](\d{1,2})/);
+      var year = TODAY().slice(0,4);
+      var dateStr = null;
+      if (mDate) {
+        var d1 = parseInt(mDate[1],10), d2 = parseInt(mDate[2],10);
+        var day, month;
+        if (d1 <= 31 && d2 <= 12) { day = d1; month = d2; }
+        else { day = d2; month = d1; }
+        dateStr = year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+      } else {
+        var months = ['يناير','فبراير','مارس','ابريل','مايو','يونيو','يوليو','اغسطس','سبتمبر','اكتوبر','نوفمبر','ديسمبر'];
+        for (var mi=0; mi<months.length; mi++) {
+          if (has(t, months[mi])) {
+            var dayM = rawText.match(/(\d{1,2})/);
+            if (dayM) {
+              dateStr = year + '-' + String(mi+1).padStart(2,'0') + '-' + String(parseInt(dayM[1],10)).padStart(2,'0');
+            }
+            break;
+          }
+        }
+      }
+      if (!dateStr) return { text: 'حدّد التاريخ بصيغة: 10/3 أو 10 مارس' };
+      var isA5 = u && u.role === 'admin';
+      var arrD = (s5.sales||[]).filter(function(h){
+        if (h.date !== dateStr) return false;
+        if (!isA5 && u && h.by !== u.name) return false;
+        return true;
+      });
+      if (!arrD.length) return { text: 'ما فيه مبيعات مسجّلة بتاريخ ' + dateStr };
+      var totalD = sumSales(arrD);
+      var linesD = ['📊 *مبيعات ' + dateStr + '*',
+                    '• عدد الفواتير: ' + arrD.length,
+                    '• الإجمالي: ' + fmt(totalD) + ' ' + cn];
+      var byDistD = {};
+      arrD.forEach(function(h){
+        var key = h.distributor_id || '__direct__';
+        if (!byDistD[key]) byDistD[key] = { total: 0, count: 0 };
+        byDistD[key].total += saleTotal(h);
+        byDistD[key].count += 1;
+      });
+      var distKeys = Object.keys(byDistD);
+      if (distKeys.length) {
+        linesD.push('\n*التفصيل حسب الطرف:*');
+        distKeys.forEach(function(k){
+          var dName = k === '__direct__' ? 'بيع مباشر' :
+            ((s5.distributors||[]).find(function(x){ return x.id === k; }) || {}).name || '؟';
+          linesD.push('• ' + dName + ': ' + fmt(byDistD[k].total) + ' ' + cn +
+                      ' (' + byDistD[k].count + ' فاتورة)');
+        });
+      }
+      return { text: linesD.join('\n') };
+    }
+
     default:return{text:'ما فهمت قصدك بالضبط.\nجرب:\n• "مبيعاتي اليوم"\n• "مبيعات الشهر"\n• "من دفع اليوم"\n• "الديون"\n• "هدفي"\n• "المخزون"\nاو اكتب "اشرح لي".'};
   }
 }
@@ -10890,17 +11045,86 @@ function sysPrompt(){
     '- لا تختلق ارقاما. اعتمد على السياق.\n'+
     '- العملة: '+cn+'\n';
 }
+function askGemini(userMsg, history) {
+  if (!C.geminiKey) return Promise.reject(new Error('لا يوجد مفتاح API'));
 
-function askGemini(msg,hist){
-  if(!C.geminiKey)return Promise.reject(new Error('no-key'));
-  var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(C.geminiKey);
-  var contents=[];
-  (hist||[]).slice(-6).forEach(function(h){contents.push({role:h.role==='user'?'user':'model',parts:[{text:h.text}]});});
-  contents.push({role:'user',parts:[{text:msg}]});
-  return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sysPrompt()}]},contents:contents,generationConfig:{temperature:0.75,maxOutputTokens:500,topP:0.95}})})
-    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-    .then(function(d){var t=d&&d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text;if(!t)throw new Error('no-response');return t.trim();});
+  var models = [
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro-latest'
+  ];
+
+  var contents = [];
+  (history || []).slice(-8).forEach(function(h){
+    contents.push({
+      role: h.role === 'user' ? 'user' : 'model',
+      parts: [{ text: String(h.text||'').slice(0, 500) }]
+    });
+  });
+  // أضف السياق داخل رسالة المستخدم لضمان الفهم
+  var sysPrompt = buildSystemPrompt();
+  contents.push({
+    role: 'user',
+    parts: [{ text: sysPrompt + '\n\n---\n\nسؤال المستخدم: ' + userMsg }]
+  });
+
+  var body = {
+    contents: contents,
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 800,
+      topP: 0.95
+    },
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+    ]
+  };
+
+  function tryModel(idx) {
+    if (idx >= models.length) {
+      return Promise.reject(new Error('كل الموديلات فشلت — تحقق من المفتاح'));
+    }
+    var model = models[idx];
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+              model + ':generateContent?key=' + encodeURIComponent(C.geminiKey);
+
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r){
+      return r.json().then(function(data){
+        if (!r.ok) {
+          var msg = (data && data.error && data.error.message) || ('HTTP ' + r.status);
+          throw new Error('[' + model + '] ' + msg);
+        }
+        return data;
+      });
+    }).then(function(data){
+      var c0 = data && data.candidates && data.candidates[0];
+      var t = c0 && c0.content && c0.content.parts &&
+              c0.content.parts.map(function(p){ return p.text || ''; }).join('');
+      if (!t || !t.trim()) {
+        var reason = (c0 && c0.finishReason) || 'فارغ';
+        throw new Error('[' + model + '] ' + reason);
+      }
+      console.log('[Gemini ✅]', model);
+      return t.trim();
+    }).catch(function(err){
+      console.warn('[Gemini ❌]', err.message);
+      if (idx < models.length - 1) return tryModel(idx + 1);
+      throw err;
+    });
+  }
+
+  return tryModel(0);
 }
+
 
 function addMsg(text,from){
   var d=document.createElement('div');
