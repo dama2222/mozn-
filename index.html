@@ -10567,156 +10567,7 @@ window.closeSheet = closeSheet;
 </style>
 
 <button id="mzn-fab" aria-label="افتح المساعد الذكي">
-  <svg class="mzn-body" viewBox="0 0 120 145" width="85" height="100">
-    <defs>
-      <radialGradient id="mzn3dHead" cx="0.35" cy="0.28" r="0.9">
-        <stop offset="0" stop-color="#FFF4B8"/>
-        <stop offset="0.3" stop-color="#E8C257"/>
-        <stop offset="0.65" stop-color="#B58823"/>
-        <stop offset="1" stop-color="#5A3A06"/>
-      </radialGradient>
-      <radialGradient id="mzn3dBody" cx="0.4" cy="0.25" r="1.05">
-        <stop offset="0" stop-color="#FFE9A0"/>
-        <stop offset="0.4" stop-color="#D4AF37"/>
-        <stop offset="1" stop-color="#3A2A08"/>
-      </radialGradient>
-      <radialGradient id="mzn3dBelly" cx="0.4" cy="0.35" r="0.85">
-        <stop offset="0" stop-color="#FFF9DD"/>
-        <stop offset="0.55" stop-color="#EDD79A"/>
-        <stop offset="1" stop-color="#A8852F"/>
-      </radialGradient>
-      <radialGradient id="mzn3dEye" cx="0.35" cy="0.3" r="0.85">
-        <stop offset="0" stop-color="#5A8AC8"/>
-        <stop offset="0.45" stop-color="#1a2a5e"/>
-        <stop offset="1" stop-color="#030514"/>
-      </radialGradient>
-      <radialGradient id="mzn3dWing" cx="0.5" cy="0.3" r="0.9">
-        <stop offset="0" stop-color="#2A3D6E"/>
-        <stop offset="1" stop-color="#050a1c"/>
-      </radialGradient>
-      <linearGradient id="mzn3dBeak" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#F5C657"/>
-        <stop offset="0.5" stop-color="#B8860B"/>
-        <stop offset="1" stop-color="#6B4A08"/>
-      </linearGradient>
-      <filter id="mzn3dShadow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur in="SourceAlpha" stdDeviation="2.2"/>
-        <feOffset dx="1" dy="3.5"/>
-        <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
-        <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-      <filter id="mzn3dInner">
-        <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
-        <feOffset dx="0" dy="1"/>
-        <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
-        <feComposite operator="out" in2="SourceGraphic"/>
-        <feComposite in2="SourceGraphic" operator="over"/>
-      </filter>
-    </defs>
-
-    <!-- ظل تحت -->
-    <ellipse cx="60" cy="140" rx="30" ry="4" fill="rgba(0,0,0,.5)"/>
-
-    <!-- الأجنحة اليمنى واليسرى (كحلي) -->
-    <path d="M22 68 Q8 92 20 122 Q34 108 34 78 Z"
-          fill="url(#mzn3dWing)" stroke="#0a1128" stroke-width="1.8"
-          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
-    <path d="M98 68 Q112 92 100 122 Q86 108 86 78 Z"
-          fill="url(#mzn3dWing)" stroke="#0a1128" stroke-width="1.8"
-          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
-
-    <!-- ريش الأجنحة (خطوط ذهبية) -->
-    <path d="M28 80 Q24 92 28 106" stroke="#D4AF37" stroke-width="1.3" fill="none" opacity=".8"/>
-    <path d="M32 84 Q30 96 33 110" stroke="#D4AF37" stroke-width="1.1" fill="none" opacity=".6"/>
-    <path d="M92 80 Q96 92 92 106" stroke="#D4AF37" stroke-width="1.3" fill="none" opacity=".8"/>
-    <path d="M88 84 Q90 96 87 110" stroke="#D4AF37" stroke-width="1.1" fill="none" opacity=".6"/>
-
-    <!-- الجسم الرئيسي (كرة 3D) -->
-    <ellipse cx="60" cy="98" rx="36" ry="42"
-             fill="url(#mzn3dBody)" stroke="#3a2a08" stroke-width="2.2"
-             filter="url(#mzn3dShadow)"/>
-
-    <!-- البطن الفاتح -->
-    <ellipse cx="60" cy="102" rx="26" ry="32"
-             fill="url(#mzn3dBelly)" opacity=".9"/>
-
-    <!-- ريش الصدر (5 خطوط) -->
-    <path d="M44 88 Q48 96 44 104 Q48 112 44 120" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
-    <path d="M52 86 Q56 94 52 102 Q56 110 52 118" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
-    <path d="M60 85 Q64 93 60 101 Q64 109 60 117" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
-    <path d="M68 86 Q72 94 68 102 Q72 110 68 118" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
-    <path d="M76 88 Q80 96 76 104 Q80 112 76 120" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
-
-    <!-- آذان / قرون البومة -->
-    <path d="M32 48 Q24 20 34 8 Q46 22 48 42 Z"
-          fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2"
-          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
-    <path d="M88 48 Q96 20 86 8 Q74 22 72 42 Z"
-          fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2"
-          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
-
-    <!-- داخل الآذان -->
-    <path d="M36 44 Q32 24 36 16 Q42 26 44 40 Z" fill="#5A3A06" opacity=".6"/>
-    <path d="M84 44 Q88 24 84 16 Q78 26 76 40 Z" fill="#5A3A06" opacity=".6"/>
-
-    <!-- الرأس (كرة 3D) -->
-    <circle cx="60" cy="52" r="38"
-            fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2.2"
-            filter="url(#mzn3dShadow)"/>
-
-    <!-- تاج الرأس (بروز خفيف) -->
-    <path d="M60 20 Q70 22 76 30 Q65 28 60 28 Q55 28 44 30 Q50 22 60 20 Z"
-          fill="url(#mzn3dHead)" opacity=".5"/>
-
-    <!-- وجه/قناع الوجه -->
-    <path d="M60 34 Q42 36 36 52 Q33 66 46 72 Q53 76 60 73 Q67 76 74 72 Q87 66 84 52 Q78 36 60 34 Z"
-          fill="url(#mzn3dBelly)" stroke="#8B6914" stroke-width="1.4"
-          stroke-linejoin="round" opacity=".95"/>
-
-    <!-- حلقات ذهبية حول العينين -->
-    <circle cx="44" cy="52" r="16" fill="none" stroke="#FFF4B8" stroke-width="1.8" opacity=".7"/>
-    <circle cx="76" cy="52" r="16" fill="none" stroke="#FFF4B8" stroke-width="1.8" opacity=".7"/>
-
-    <!-- العيون (كرة 3D) -->
-    <circle cx="44" cy="52" r="15.5"
-            fill="#fff" stroke="#0a1128" stroke-width="2.2"/>
-    <circle cx="76" cy="52" r="15.5"
-            fill="#fff" stroke="#0a1128" stroke-width="2.2"/>
-
-    <!-- قزحية -->
-    <circle cx="44" cy="52" r="11.5" fill="url(#mzn3dEye)"/>
-    <circle cx="76" cy="52" r="11.5" fill="url(#mzn3dEye)"/>
-
-    <!-- بؤبؤ -->
-    <circle cx="44" cy="52" r="5.5" fill="#030510"/>
-    <circle cx="76" cy="52" r="5.5" fill="#030510"/>
-
-    <!-- بريق العين الكبير -->
-    <circle cx="48" cy="47" r="3.4" fill="#fff"/>
-    <circle cx="80" cy="47" r="3.4" fill="#fff"/>
-    <!-- بريق العين الصغير -->
-    <circle cx="41" cy="56" r="1.6" fill="#fff" opacity=".85"/>
-    <circle cx="73" cy="56" r="1.6" fill="#fff" opacity=".85"/>
-
-    <!-- ظل داخلي للعيون (يعمق المظهر) -->
-    <circle cx="44" cy="52" r="15.5" fill="url(#mzn3dEye)" opacity=".15"/>
-    <circle cx="76" cy="52" r="15.5" fill="url(#mzn3dEye)" opacity=".15"/>
-
-    <!-- المنقار 3D -->
-    <path d="M60 65 L50 79 Q60 85 70 79 Z"
-          fill="url(#mzn3dBeak)" stroke="#3a2a08" stroke-width="1.8"
-          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
-    <!-- خط المنتصف -->
-    <path d="M50 79 Q60 82 70 79" stroke="#3a2a08" stroke-width="1.3" fill="none"/>
-
-    <!-- الأقدام -->
-    <ellipse cx="52" cy="139" rx="7.5" ry="4"
-             fill="#B8860B" stroke="#3a2a08" stroke-width="1.4"/>
-    <ellipse cx="68" cy="139" rx="7.5" ry="4"
-             fill="#B8860B" stroke="#3a2a08" stroke-width="1.4"/>
-    <path d="M48 137 L56 137 M48 141 L56 141" stroke="#3a2a08" stroke-width="1"/>
-    <path d="M64 137 L72 137 M64 141 L72 141" stroke="#3a2a08" stroke-width="1"/>
-  </svg>
+  <span class="owl-fallback" style="font-size:44px;line-height:80px;display:block;text-align:center">🦉</span>
   <span class="mzn-badge" id="mzn-badge" hidden>0</span>
 </button>
 <div id="mzn-chat" class="mzn-chat" role="dialog" aria-modal="true">
@@ -10724,31 +10575,7 @@ window.closeSheet = closeSheet;
   <div class="mzn-panel">
     <div class="mzn-head">
       <div class="av">
-        <svg viewBox="0 0 100 100" width="42" height="42">
-          <defs>
-            <linearGradient id="mznGoldH" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#F8E08A"/>
-              <stop offset="1" stop-color="#D4AF37"/>
-            </linearGradient>
-            <linearGradient id="mznNavyH" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#1a2a5e"/>
-              <stop offset="1" stop-color="#0a1128"/>
-            </linearGradient>
-          </defs>
-          <path d="M28 42 Q22 22 30 12 Q38 24 42 38 Z" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2"/>
-          <path d="M72 42 Q78 22 70 12 Q62 24 58 38 Z" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2"/>
-          <circle cx="50" cy="55" r="32" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2.5"/>
-          <ellipse cx="50" cy="58" rx="24" ry="20" fill="#FFF3C4"/>
-          <circle cx="37" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-          <circle cx="63" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-          <circle cx="37" cy="52" r="9" fill="url(#mznNavyH)"/>
-          <circle cx="63" cy="52" r="9" fill="url(#mznNavyH)"/>
-          <circle cx="37" cy="52" r="4.5" fill="#0a1128"/>
-          <circle cx="63" cy="52" r="4.5" fill="#0a1128"/>
-          <circle cx="39.5" cy="49" r="2.2" fill="#fff"/>
-          <circle cx="65.5" cy="49" r="2.2" fill="#fff"/>
-          <path d="M50 62 L44 71 Q50 75 56 71 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-        </svg>
+        <span class="owl-fallback">🦉</span>
       </div>
       <div class="info">
         <b>مُزن</b>
@@ -10777,7 +10604,7 @@ window.closeSheet = closeSheet;
 
       <label>🎙️ الصوت</label>
       <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الأصوات الأفضل تظهر في Edge (Neural).</div>
+      <div class="hint">الأصوات الطبيعية (🌟) تحتاج مفتاح Groq؛ وإن تعذّرت يرجع الصوت لصوت المتصفح تلقائياً.</div>
 
       <label>🎚️ سرعة الصوت</label>
       <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
@@ -12900,6 +12727,460 @@ function updateBadge() {
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
+
+/* ═══ MUZN AI+ v1: تعلّم + صلاحيات + أسلوب الموظفين + استيراد فواتير (صورة/صوت) ═══ */
+var AIP_K='muzn_aip_v1',PERMS={},PROFILES={},LASTQ='';
+function nz(s){return String(s||'').replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').toLowerCase().trim()}
+function sbc(){var m=M();return (m&&m.adapter&&m.adapter.sb)||null}
+function isAdm(){var u=me();return !!u&&u.role==='admin'}
+function hasMod(m){var u=me();return !!u&&(u.role==='admin'||(u.perms||[]).indexOf(m)>=0)}
+function can(cap,u){u=u||me();if(!u)return false;if(u.role==='admin')return true;var p=PERMS[u.name];if(p&&p[cap]!=null)return !!p[cap];
+  if(cap==='import')return (u.perms||[]).indexOf('purchases')>=0||(u.perms||[]).indexOf('withdrawals')>=0;return cap==='prices'}
+function keepLocal(){try{localStorage.setItem(AIP_K,JSON.stringify({p:PERMS,s:PROFILES}))}catch(e){}}
+try{var _l=JSON.parse(localStorage.getItem(AIP_K)||'{}');PERMS=_l.p||{};PROFILES=_l.s||{}}catch(e){}
+async function loadAIP(){var c=sbc();if(!c)return;try{
+  var a=await c.from('buddy_perms').select('*');if(a.data)a.data.forEach(function(r){PERMS[r.user_name]=r.perms||{}});
+  var b=await c.from('buddy_profiles').select('*');if(b.data)b.data.forEach(function(r){PROFILES[r.user_name]=r.style||''});keepLocal()}catch(e){console.warn('[AIP]',e.message)}}
+setTimeout(loadAIP,4000);setInterval(loadAIP,120000);
+
+/* ── LLM نصي بسيط + Gemini متعدد الوسائط ── */
+async function gem(parts,json){
+  if(!GEMINI_KEY)throw new Error('no gemini key');
+  var ms=['gemini-2.5-flash','gemini-2.0-flash-001'],err;
+  for(var i=0;i<ms.length;i++){try{
+    var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+ms[i]+':generateContent?key='+GEMINI_KEY,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{role:'user',parts:parts}],generationConfig:Object.assign({temperature:0.1},json?{responseMimeType:'application/json'}:{})})});
+    if(!r.ok)throw new Error('HTTP '+r.status);var j=await r.json();
+    return j.candidates[0].content.parts.map(function(x){return x.text||''}).join('')}catch(e){err=e}}
+  throw err}
+async function llm(p){
+  if(GROQ_KEY){try{var r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
+    body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'user',content:p}],temperature:0.2})});
+    if(r.ok){var j=await r.json();return j.choices[0].message.content}}catch(e){}}
+  return gem([{text:p}],false)}
+
+/* ── صلاحيات المساعد (للمدير فقط) ── */
+var CAPS={import:['استيراد','الفواتير','فواتير','فاتوره'],learn:['التعلم','تعليم','التعليم','تعلم'],prices:['الاسعار','اسعار']};
+var CAPN={import:'استيراد الفواتير',learn:'تعليم المساعد',prices:'رؤية الأسعار'};
+var GR=['امنح','اعطي','اعط','فعل','اسمح','اضف','ضيف'],RV=['اسحب','امنع','الغ','الغي','عطل','انزع','شيل'];
+function setPerm(name,cap,val){PERMS[name]=Object.assign({},PERMS[name],(function(o){o[cap]=val;return o})({}));keepLocal();
+  var c=sbc();if(c)c.from('buddy_perms').upsert({user_name:name,perms:PERMS[name],updated_by:uname(),updated_at:new Date().toISOString()}).then(function(r){if(r.error)console.warn('[perm]',r.error.message)})}
+function uname(){var u=me();return u?u.name:''}
+function permCmd(t){
+  var n=nz(t),w=n.split(/\s+/),us=(store().users||[]).filter(function(u){return u.active!==false&&u.role!=='admin'}),tu=null;
+  us.forEach(function(u){var f=nz(u.name).split(/\s+/)[0];if(f.length>1&&w.indexOf(f)>=0)tu=u});
+  var sm=n.match(/^صلاحيات\s+/);
+  if(sm){if(!tu)return 'ما لقيت هذا الموظف 🤔';return '🔐 *صلاحيات المساعد لـ '+tu.name+'*\n'+Object.keys(CAPN).map(function(k){return '• '+CAPN[k]+': '+(can(k,tu)?'✅':'⛔')}).join('\n')}
+  var g=GR.some(function(x){return w.indexOf(x)>=0}),r=RV.some(function(x){return w.indexOf(x)>=0});
+  if(!(g||r)||!tu)return null;
+  var cap=null;Object.keys(CAPS).forEach(function(k){if(CAPS[k].some(function(x){return n.indexOf(x)>=0}))cap=k});
+  if(!cap)return null;
+  setPerm(tu.name,cap,!r);
+  return (r?'⛔ سحبت':'✅ منحت')+' صلاحية *'+CAPN[cap]+'* '+(r?'من ':'لـ ')+tu.name}
+
+/* ── التعلّم من المدير ── */
+function autoCat(t){return /سعر|دينار|د\.ل|\d/.test(t)?'أسعار':/طريق|خطو|اذا|إذا|لما|عند|قبل|بعد/.test(t)?'طريقة عمل':'عام'}
+var LV=/^(?:تعلم|تعلّم|علمتك|علمني|احفظ|تذكر)[\s:،\-]+/;
+function aipCmd(t){
+  var s=store();if(!s||!me())return null;var n=nz(t);
+  if(LV.test(t.replace(/[\u064B-\u0652]/g,''))||/^(?:تعلم|علمتك|علمني|احفظ|تذكر)\s/.test(n)){
+    var body=t.replace(/^\S+[\s:،\-]+/,'').trim();if(body.length<4)return null;
+    if(!can('learn'))return '🔒 ما عندك صلاحية تعليمي — اطلبها من المدير.';
+    return addLearnedFact(body,autoCat(body)).then(function(){return '✅ *تعلمت!*\n📝 "'+body+'"\nتقدر تتأكد بـ: "ماذا تعلمت؟"'})}
+  if(/ايقاف التفاعلات|اوقف التفاعلات|اسكت/.test(n)){try{localStorage.setItem('muzn_owl_off','1')}catch(e){}return '🤐 أوقفت تفاعلات البومة. اكتب "تشغيل التفاعلات" لتعيدها.'}
+  if(/تشغيل التفاعلات|شغل التفاعلات/.test(n)){try{localStorage.removeItem('muzn_owl_off')}catch(e){}return '🦉 رجعت تفاعلات البومة!'}
+  var fg=n.match(/^(?:انسي|انسى)\s+(.+)$/);
+  if(fg){if(!can('learn'))return '🔒 ما عندك صلاحية.';var q=fg[1],fs=getLearnedFacts(),hit=fs.filter(function(f){return nz(f.text).indexOf(q)>=0});
+    if(!hit.length)return 'ما لقيت معلومة بهذا الوصف 🤔';
+    saveLearnedFactsLocal(fs.filter(function(f){return hit.indexOf(f)<0}));var c=sbc();
+    if(c)hit.forEach(function(f){c.from('buddy_learned').delete().eq('id',f.id).then(function(){})});
+    return '🗑️ نسيت '+hit.length+' معلومة'}
+  if(isAdm()&&!LV.test(t)){var r=permCmd(t);if(r)return r}
+  return null}
+getLearnedContext=function(){
+  var f=getLearnedFacts().filter(function(x){return can('prices')||x.category!=='أسعار'});if(!f.length)return '';
+  var q=nz(LASTQ).split(/\s+/).filter(function(x){return x.length>2});
+  var sc=f.map(function(x,i){var tx=nz(x.text);return{x:x,s:q.reduce(function(a,w){return a+(tx.indexOf(w)>=0?10:0)},0)-i*0.05}}).sort(function(a,b){return b.s-a.s}).slice(0,30);
+  return '\n\n📚 معلومات تعلمتها من المدير (أجب منها أولاً والتزم بها):\n'+sc.map(function(o){return '• ['+o.x.category+'] '+o.x.text}).join('\n')};
+
+/* ── حفظ أسلوب كل موظف ── */
+function trackStyle(t){var u=me();if(!u||t.length<6)return;var k='muzn_sb_'+u.name,b=[];
+  try{b=JSON.parse(localStorage.getItem(k)||'[]')}catch(e){}
+  b.push(t.slice(0,160));
+  if(b.length>=8){localStorage.removeItem(k);updStyle(u.name,b)}else{try{localStorage.setItem(k,JSON.stringify(b))}catch(e){}}}
+async function updStyle(name,msgs){try{
+  var r=await llm('أنت تحلل أسلوب كلام موظف في شركة أغذية في ليبيا. اكتب ملخصاً من 3 أسطر كحد أقصى بدون مقدمات عن: لهجته، كلماته ومصطلحاته المتكررة (أسماء المنتجات/العملاء/الأعمال كما ينطقها)، طول جمله ودرجة رسميته. ادمج الملخص السابق مع الجديد ولا تخترع.\n\nالملخص السابق: '+(PROFILES[name]||'لا يوجد')+'\n\nرسائله الأخيرة:\n- '+msgs.join('\n- '));
+  PROFILES[name]=String(r||'').trim().slice(0,600);keepLocal();var c=sbc();
+  if(c)await c.from('buddy_profiles').upsert({user_name:name,style:PROFILES[name],updated_at:new Date().toISOString()})}catch(e){console.warn('[style]',e.message)}}
+var _bsp=buildSystemPrompt;
+buildSystemPrompt=function(){return _bsp()+aipExtra()};
+function aipExtra(){var u=me(),s=store();if(!u||!s)return '';
+  var o=['','','👤 المتحدث الآن: '+u.name+' ('+(isAdm()?'مدير':'موظف')+') — ناده باسمه الأول.'];
+  if(PROFILES[u.name])o.push('🗣️ أسلوبه (قلّد لهجته ومصطلحاته بلطف دون مبالغة): '+PROFILES[u.name]);
+  if(can('prices')){o.push('💲 الأسعار الحالية:');s.products.slice(0,40).forEach(function(p){o.push('• '+p.name+': جملة '+(p.dist_price||p.price||0)+' / مستهلك '+(p.price||0))})}
+  else o.push('🔒 ممنوع ذكر أي أسعار أو تكاليف لهذا المستخدم.');
+  o.push('ℹ️ إن سُئلت: يقدر المستخدم يرسل صورة فاتورة (📎) أو رسالة صوتية (🎙️) فأعبّي نموذج المشتريات/المسحوبات تلقائياً، والحفظ دائماً بزر الحفظ.');
+  return o.join('\n')}
+var _send=sendMessage;
+sendMessage=function(raw){
+  var t=String(raw||'').trim();if(!t)return _send(raw);
+  LASTQ=t;trackStyle(t);var r=null;
+  try{r=aipCmd(t)}catch(e){console.warn('[aip]',e)}
+  if(r){addMsg(t,'me');inputEl.value='';
+    if(r.then)r.then(function(x){botSay(x)});else botSay(r);return}
+  _send(raw)};
+
+/* ── استيراد الفواتير: صورة أو صوت → تعبئة النموذج (بدون حفظ) ── */
+function img2b64(file){return new Promise(function(res,rej){var im=new Image(),u=URL.createObjectURL(file);
+  im.onload=function(){var s=Math.min(1,1600/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',0.85).split(',')[1])};
+  im.onerror=rej;im.src=u})}
+function fz(name,list){var n=nz(name);if(!n)return null;var best=null,bs=0;
+  (list||[]).forEach(function(x){var t=nz(x.name),s=0;if(t===n)s=100;else if(t.indexOf(n)>=0||n.indexOf(t)>=0)s=60;
+    else{var a=n.split(/\s+/),b=t.split(/\s+/);s=a.filter(function(q){return q.length>2&&b.indexOf(q)>=0}).length*20}
+    if(s>bs){bs=s;best=x}});return bs>=20?best:null}
+function exPrompt(kind){var s=store(),L=function(a){return (a||[]).slice(0,80).map(function(x){return x.name}).join('، ')};
+  return 'استخرج البيانات '+(kind==='audio'?'من التسجيل الصوتي (لهجة عربية/ليبية، اكتب الأرقام بالإنجليزية)':'من صورة الفاتورة')+' وأعد JSON فقط بهذا الشكل: {"type":"purchase|withdrawal","date":"YYYY-MM-DD أو null","supplier":"اسم أو null","distributor":"اسم أو null","payment":"cash|credit|null","note":"","items":[{"name":"","qty":0,"unit_cost":0}]}. purchase = شراء مواد/بضاعة من مورّد. withdrawal = سحب منتجات جاهزة لموزع. لا تخترع أي قيمة غير موجودة (استخدم null). unit_cost = سعر الوحدة (إن ظهر الإجمالي فقط فاقسمه على الكمية). استخدم أقرب اسم من القوائم إن تطابق المعنى وإلا اكتبه كما ورد.\nالمواد الخام: '+L(s.materials)+'\nالمنتجات: '+L(s.products)+'\nالموردون: '+L(s.suppliers)+'\nالموزعون: '+L(s.distributors)+'\nتاريخ اليوم: '+new Date().toISOString().slice(0,10)}
+function jparse(s){s=String(s||'').replace(/```json|```/g,'');var x=s.indexOf('{'),y=s.lastIndexOf('}');return JSON.parse(s.slice(x,y+1))}
+async function groqVision(b64){
+  var r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
+    body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',temperature:0.1,max_tokens:2000,
+      messages:[{role:'user',content:[{type:'text',text:exPrompt('image')},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}}]}]})});
+  if(!r.ok)throw new Error('vision HTTP '+r.status);var j=await r.json();return j.choices[0].message.content}
+async function groqWhisper(blob){
+  var s=store(),hint=(s.products||[]).concat(s.materials||[],s.suppliers||[]).map(function(x){return x.name}).join('، ').slice(0,500),
+      ty=blob.type||'',ext=ty.indexOf('mp4')>=0?'mp4':ty.indexOf('ogg')>=0?'ogg':'webm',fd=new FormData();
+  fd.append('file',blob,'voice.'+ext);fd.append('model','whisper-large-v3');fd.append('language','ar');fd.append('response_format','json');fd.append('temperature','0');
+  if(hint)fd.append('prompt',hint);
+  var r=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+GROQ_KEY},body:fd});
+  if(!r.ok)throw new Error('whisper HTTP '+r.status);var j=await r.json();return String(j.text||'').trim()}
+async function importDoc(kind,payload){
+  if(!can('import')){botSay('🔒 ما عندك صلاحية استيراد الفواتير — اطلبها من المدير.');return}
+  if(!GROQ_KEY){botSay('⚠️ الاستيراد يحتاج مفتاح Groq (groq_key في جدول app_config).');return}
+  try{
+    var raw;
+    if(kind==='image'){statusEl.textContent='🧾 أقرأ الفاتورة...';raw=await groqVision(payload)}
+    else{statusEl.textContent='🎧 أسمع التسجيل...';var tx=await groqWhisper(payload);
+      if(tx.length<4){botSay('ما فهمت التسجيل 😕 أعد المحاولة بصوت أوضح.');statusEl.textContent='مساعدك الذكي 🦉';return}
+      botSay('🎧 سمعتك تقول:\n«'+tx+'»');
+      statusEl.textContent='🧾 أرتّب البيانات...';
+      raw=await llm(exPrompt('audio')+'\n\nنص التسجيل:\n'+tx+'\n\nأعد JSON فقط بدون أي شرح.')}
+    fillImport(jparse(raw))}
+  catch(e){console.warn('[import]',e);botSay('ما قدرت أقرأ الفاتورة 😕 جرّب '+(kind==='image'?'صورة أوضح وبإضاءة أفضل.':'إعادة التسجيل.'))}
+  statusEl.textContent='مساعدك الذكي 🦉'}
+function setEl(id,v){var e=document.getElementById(id);if(!e||v==null)return;e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}
+function setF(row,k,v){var e=row&&row.querySelector('[data-f="'+k+'"]');if(e&&v!=null&&v!=='')e.value=v}
+function fillRows(box,n,fn){var rs;while((rs=box.querySelectorAll('.lineitem')).length>1)rs[rs.length-1].querySelector('[data-rm]').click();
+  while(box.querySelectorAll('.lineitem').length<n)box.querySelector('[data-add]').click();
+  var r2=box.querySelectorAll('.lineitem');for(var i=0;i<n;i++)fn(r2[i],i)}
+function fillImport(j){
+  var isP=j.type!=='withdrawal',items=(j.items||[]).filter(function(i){return i&&i.name&&+i.qty>0}),mod=isP?'purchases':'withdrawals';
+  if(!items.length){botSay('ما لقيت أصناف واضحة 🤔');return}
+  if(!hasMod(mod)){botSay('🔒 تبدو '+(isP?'فاتورة مشتريات':'مسحوبة')+' وما عندك صلاحية قسم '+(isP?'المشتريات':'المسحوبات'));return}
+  go(mod);
+  setTimeout(function(){var s=store(),warn=[],sum=0,L=[];
+    var sup=j.supplier?fz(j.supplier,s.suppliers):null,dist=j.distributor?fz(j.distributor,s.distributors):null;
+    if(isP){
+      var last={};(s.purchases||[]).slice().sort(function(a,b){return String(b.date).localeCompare(String(a.date))}).forEach(function(h){(h.items||[]).forEach(function(it){if(it.material_id&&last[it.material_id]==null&&it.unit_cost)last[it.material_id]=it.unit_cost})});
+      if(/^\d{4}-\d\d-\d\d$/.test(j.date||''))setEl('uh__date',j.date);
+      if(sup)setEl('uh__supplier_id',sup.id);else if(j.supplier)warn.push('المورّد «'+j.supplier+'» غير مسجّل — اخترُه يدوياً');
+      if(j.payment){var rd=document.querySelector('input[name="uh__payment"][value="'+j.payment+'"]');if(rd){rd.checked=true;rd.dispatchEvent(new Event('change',{bubbles:true}))}}
+      if(j.payment==='credit'&&!sup)warn.push('الآجل يحتاج مورّداً');
+      fillRows(document.getElementById('pu-lines'),items.length,function(row,i){var it=items[i],m=fz(it.name,s.materials),c=+it.unit_cost||0;
+        setF(row,'item',it.name);setF(row,'material_id',m?m.id:'');setF(row,'qty',it.qty);setF(row,'unit_cost',c||'');sum+=it.qty*c;
+        L.push('• '+it.name+' × '+it.qty+(c?' @ '+c:''));
+        if(!m)warn.push('«'+it.name+'» غير مربوط بمادة خام');
+        if(!c)warn.push('سعر «'+it.name+'» غير ظاهر');
+        else if(m&&last[m.id]&&Math.abs(c-last[m.id])/last[m.id]>0.2)warn.push('⚠️ سعر «'+it.name+'»: '+c+' (آخر شراء '+last[m.id]+')')});
+    }else{
+      setEl('wf__note',j.note||'');
+      fillRows(document.getElementById('wd-lines'),items.length,function(row,i){var it=items[i],p=fz(it.name,s.products);
+        setF(row,'product_id',p?p.id:'');setF(row,'qty',it.qty);L.push('• '+it.name+' × '+it.qty);
+        if(!p)warn.push('«'+it.name+'» غير مطابق لمنتج — اخترُه يدوياً');
+        else{var av=M().stockWH(s,p.id);if(it.qty>av+1e-9)warn.push('⚠️ المتاح من «'+p.name+'» هو '+av)}});
+    }
+    botSay('🧾 *جهّزت '+(isP?'فاتورة مشتريات':'مسحوبة')+'* ('+items.length+' صنف)\n'+L.join('\n')+(isP&&sum?'\nالإجمالي التقريبي: '+(Math.round(sum*1000)/1000)+' '+cur():'')+
+      (isP&&sup?'\nالمورّد: '+sup.name:'')+(!isP&&dist?'\nالموزع: '+dist.name+' — امسح بطاقته أولاً (النموذج مقفل حتى المسح)':'')+
+      (warn.length?'\n\n'+warn.map(function(w){return '• '+w}).join('\n'):'')+
+      '\n\nراجع البيانات ثم اضغط *'+(isP?'حفظ المشتريات':'تسجيل السحب')+'* — لن يُحفظ شيء قبل ذلك ✋');
+    var b=document.getElementById(isP?'pu-save':'wd-save');
+    if(b){b.scrollIntoView({behavior:'smooth',block:'center'});b.style.outline='3px solid #3ddc84';setTimeout(function(){b.style.outline=''},5000)}
+  },500)}
+function mountMedia(){var row=document.querySelector('.mzn-inputrow');if(!row||row.querySelector('#mzn-att'))return;
+  var f=document.createElement('input');f.type='file';f.accept='image/*';f.hidden=true;
+  var a=document.createElement('button');a.id='mzn-att';a.className='mic';a.title='استيراد فاتورة من صورة';a.textContent='📎';a.onclick=function(){f.click()};
+  var r=document.createElement('button');r.id='mzn-rec';r.className='mic';r.title='استيراد فاتورة بالصوت';r.textContent='🎙️';
+  f.onchange=async function(){var x=f.files[0];f.value='';if(!x)return;addMsg('📎 صورة فاتورة','me');
+    try{importDoc('image',await img2b64(x))}catch(e){botSay('تعذّرت قراءة الصورة')}};
+  var mr,ch=[];
+  r.onclick=async function(){if(mr&&mr.state==='recording'){mr.stop();return}
+    try{var st=await navigator.mediaDevices.getUserMedia({audio:true});ch=[];mr=new MediaRecorder(st);mr.ondataavailable=function(e){ch.push(e.data)};
+      mr.onstop=async function(){st.getTracks().forEach(function(t){t.stop()});r.textContent='🎙️';r.style.background='';addMsg('🎙️ رسالة صوتية','me');
+        try{importDoc('audio',new Blob(ch,{type:(mr&&mr.mimeType)||'audio/webm'}))}catch(e){botSay('تعذّرت معالجة التسجيل')}};
+      mr.start();r.textContent='⏹️';r.style.background='#ff6f61'}catch(e){botSay('ما قدرت أفتح المايك — اسمح للمتصفح')}};
+  row.insertBefore(r,row.firstChild);row.insertBefore(a,row.firstChild);row.appendChild(f)}
+var _mi=0,_mv=setInterval(function(){mountMedia();if(++_mi>30||document.getElementById('mzn-att'))clearInterval(_mv)},1000);
+
+/* ═══ MUZN OWL v2 — بومة مُزن التفاعلية (كحلي + ذهبي، بأسلوب دولينجو) ═══ */
+function owlSVG(p){
+  var D='#07102b',G='#D4AF37';
+  function eye(cx,k){return '<circle cx="'+cx+'" cy="58" r="20" fill="#fff" stroke="'+G+'" stroke-width="4"/>'}
+  return '<svg class="owl-svg" data-mood="idle" viewBox="0 0 120 130" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'+
+  '<defs>'+
+   '<linearGradient id="'+p+'nv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2d4a9c"/><stop offset="1" stop-color="#0f1f55"/></linearGradient>'+
+   '<linearGradient id="'+p+'gd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE58A"/><stop offset="1" stop-color="#D4AF37"/></linearGradient>'+
+   '<linearGradient id="'+p+'bl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF4C2"/><stop offset="1" stop-color="#F2D26B"/></linearGradient>'+
+  '</defs>'+
+  '<ellipse class="o-shadow" cx="60" cy="125" rx="32" ry="4" fill="rgba(0,0,0,.35)"/>'+
+  '<g class="o-all">'+
+   /* ريش الأذن */
+   '<path d="M20 44 L15 8 L50 26 Z" fill="url(#'+p+'nv)" stroke="'+D+'" stroke-width="3" stroke-linejoin="round"/>'+
+   '<path d="M100 44 L105 8 L70 26 Z" fill="url(#'+p+'nv)" stroke="'+D+'" stroke-width="3" stroke-linejoin="round"/>'+
+   '<path d="M22 32 L20 17 L38 26 Z" fill="url(#'+p+'gd)"/><path d="M98 32 L100 17 L82 26 Z" fill="url(#'+p+'gd)"/>'+
+   /* الأقدام */
+   '<ellipse cx="45" cy="120" rx="12" ry="5.5" fill="url(#'+p+'gd)" stroke="'+D+'" stroke-width="2.5"/>'+
+   '<ellipse cx="75" cy="120" rx="12" ry="5.5" fill="url(#'+p+'gd)" stroke="'+D+'" stroke-width="2.5"/>'+
+   /* الجسم */
+   '<ellipse cx="60" cy="72" rx="47" ry="50" fill="url(#'+p+'nv)" stroke="'+D+'" stroke-width="3.5"/>'+
+   '<path d="M30 30 Q60 18 90 30" stroke="'+G+'" stroke-width="3" fill="none" stroke-linecap="round" opacity=".9"/>'+
+   /* البطن */
+   '<ellipse cx="60" cy="97" rx="28" ry="23" fill="url(#'+p+'bl)" stroke="#C9A227" stroke-width="1.5"/>'+
+   '<path d="M44 90 q4 6 8 0 M56 90 q4 6 8 0 M68 90 q4 6 8 0 M50 101 q4 6 8 0 M62 101 q4 6 8 0 M56 111 q4 6 8 0" stroke="#C9A227" stroke-width="2" fill="none" stroke-linecap="round"/>'+
+   /* الأجنحة */
+   '<g class="o-wing wl"><path d="M17 68 Q0 92 13 110 Q30 106 33 82 Z" fill="url(#'+p+'nv)" stroke="'+D+'" stroke-width="3" stroke-linejoin="round"/><path d="M13 100 Q20 98 26 94" stroke="'+G+'" stroke-width="2.5" fill="none" stroke-linecap="round"/></g>'+
+   '<g class="o-wing wr"><path d="M103 68 Q120 92 107 110 Q90 106 87 82 Z" fill="url(#'+p+'nv)" stroke="'+D+'" stroke-width="3" stroke-linejoin="round"/><path d="M107 100 Q100 98 94 94" stroke="'+G+'" stroke-width="2.5" fill="none" stroke-linecap="round"/></g>'+
+   /* العيون */
+   eye(40)+eye(80)+
+   '<g class="o-eye eL-open"><g class="o-blink"><circle cx="40" cy="58" r="17" fill="#fff"/><g class="o-pup"><circle cx="42" cy="60" r="10" fill="'+D+'"/><circle cx="46" cy="55" r="3.6" fill="#fff"/><circle cx="38" cy="65" r="1.8" fill="#fff" opacity=".8"/></g></g></g>'+
+   '<g class="o-eye eR-open"><g class="o-blink"><circle cx="80" cy="58" r="17" fill="#fff"/><g class="o-pup"><circle cx="78" cy="60" r="10" fill="'+D+'"/><circle cx="82" cy="55" r="3.6" fill="#fff"/><circle cx="74" cy="65" r="1.8" fill="#fff" opacity=".8"/></g></g></g>'+
+   '<path class="o-eye eL-happy" d="M27 64 Q40 44 53 64" stroke="'+D+'" stroke-width="6" fill="none" stroke-linecap="round"/>'+
+   '<path class="o-eye eR-happy" d="M67 64 Q80 44 93 64" stroke="'+D+'" stroke-width="6" fill="none" stroke-linecap="round"/>'+
+   '<path class="o-eye eL-sleep" d="M27 58 Q40 70 53 58" stroke="'+D+'" stroke-width="5" fill="none" stroke-linecap="round"/>'+
+   '<path class="o-eye eR-sleep" d="M67 58 Q80 70 93 58" stroke="'+D+'" stroke-width="5" fill="none" stroke-linecap="round"/>'+
+   /* الحواجب */
+   '<g class="o-brow b-angry"><path d="M17 38 L55 52" stroke="'+D+'" stroke-width="7" stroke-linecap="round"/><path d="M103 38 L65 52" stroke="'+D+'" stroke-width="7" stroke-linecap="round"/></g>'+
+   '<g class="o-brow b-sad"><path d="M20 51 L54 38" stroke="'+D+'" stroke-width="6" stroke-linecap="round"/><path d="M100 51 L66 38" stroke="'+D+'" stroke-width="6" stroke-linecap="round"/></g>'+
+   /* خدود */
+   '<g class="o-blush"><ellipse cx="24" cy="80" rx="8" ry="5" fill="#ff8f7a" opacity=".55"/><ellipse cx="96" cy="80" rx="8" ry="5" fill="#ff8f7a" opacity=".55"/></g>'+
+   /* المنقار */
+   '<path class="o-beak" d="M50 69 Q60 64 70 69 Q67 83 60 86 Q53 83 50 69 Z" fill="url(#'+p+'gd)" stroke="'+D+'" stroke-width="2.8" stroke-linejoin="round"/>'+
+   /* غضب */
+   '<ellipse class="o-red" cx="60" cy="72" rx="47" ry="50" fill="#ff2d1f" opacity=".3"/>'+
+   '<g class="o-steam"><circle cx="10" cy="28" r="6" fill="#fff"/><circle cx="110" cy="28" r="6" fill="#fff"/><circle cx="16" cy="14" r="4" fill="#fff"/><circle cx="104" cy="14" r="4" fill="#fff"/></g>'+
+   /* حزن */
+   '<g class="o-tears"><path class="t1" d="M30 80 q-6 10 0 14 q6 -4 0 -14z" fill="#7fd0ff" stroke="#3a9ad9" stroke-width="1.2"/><path class="t2" d="M90 80 q-6 10 0 14 q6 -4 0 -14z" fill="#7fd0ff" stroke="#3a9ad9" stroke-width="1.2"/></g>'+
+  '</g>'+
+  /* مؤثرات خارج الجسم */
+  '<g class="o-fx o-spark"><path d="M8 20 l2 6 6 2 -6 2 -2 6 -2 -6 -6 -2 6 -2z" fill="#FFE58A"/><path d="M110 14 l2 6 6 2 -6 2 -2 6 -2 -6 -6 -2 6 -2z" fill="#FFE58A"/><path d="M112 58 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5z" fill="#fff"/></g>'+
+  '<g class="o-fx o-conf"><rect x="20" y="0" width="5" height="8" fill="#FFE58A"/><rect x="42" y="0" width="5" height="8" fill="#fff"/><rect x="64" y="0" width="5" height="8" fill="#ff6f61"/><rect x="86" y="0" width="5" height="8" fill="#7fd0ff"/><rect x="100" y="0" width="5" height="8" fill="#FFE58A"/><rect x="8" y="0" width="5" height="8" fill="#3ddc84"/></g>'+
+  '<g class="o-fx o-zzz"><text x="88" y="30" font-size="18" font-weight="800" fill="#fff" font-family="Arial,sans-serif">Z</text><text x="100" y="16" font-size="13" font-weight="800" fill="#fff" font-family="Arial,sans-serif">z</text></g>'+
+  '</svg>'}
+
+(function owlCSS(){var s=document.createElement('style');s.id='owl-css';s.textContent=[
+'.owl-svg{display:block;overflow:visible;width:84px;height:91px}.mzn-head .av .owl-svg{width:100%;height:100%}',
+'.owl-svg *{transform-box:fill-box}',
+'.owl-svg .o-eye,.owl-svg .o-brow,.owl-svg .o-blush,.owl-svg .o-red,.owl-svg .o-steam,.owl-svg .o-tears,.owl-svg .o-fx{display:none}',
+'.owl-svg .eL-open,.owl-svg .eR-open{display:block}',
+'.owl-svg .o-all{transform-origin:50% 100%;animation:oBreath 3.2s ease-in-out infinite}',
+'.owl-svg .o-blink{transform-origin:50% 50%;animation:oBlink 4.5s infinite}',
+'.owl-svg .wl{transform-origin:100% 12%}.owl-svg .wr{transform-origin:0% 12%}',
+'@keyframes oBreath{0%,100%{transform:scale(1,1)}50%{transform:scale(1.015,.985)}}',
+'@keyframes oBlink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}',
+/* سعيد */
+'.owl-svg[data-mood=happy] .eL-open,.owl-svg[data-mood=happy] .eR-open{display:none}',
+'.owl-svg[data-mood=happy] .eL-happy,.owl-svg[data-mood=happy] .eR-happy,.owl-svg[data-mood=happy] .o-blush,.owl-svg[data-mood=happy] .o-spark,.owl-svg[data-mood=happy] .o-conf{display:block}',
+'.owl-svg[data-mood=happy] .o-all{animation:oJump .55s ease-in-out infinite}',
+'.owl-svg[data-mood=happy] .wl{animation:oWaveL .55s ease-in-out infinite}.owl-svg[data-mood=happy] .wr{animation:oWaveR .55s ease-in-out infinite}',
+'@keyframes oJump{0%,100%{transform:translateY(0) scale(1,1)}40%{transform:translateY(-9px) scale(.97,1.04)}70%{transform:translateY(0) scale(1.04,.96)}}',
+'@keyframes oWaveL{0%,100%{transform:rotate(0)}50%{transform:rotate(-38deg)}}@keyframes oWaveR{0%,100%{transform:rotate(0)}50%{transform:rotate(38deg)}}',
+/* بالتوفيق (غمزة) */
+'.owl-svg[data-mood=luck] .eR-open{display:none}.owl-svg[data-mood=luck] .eR-happy,.owl-svg[data-mood=luck] .o-blush,.owl-svg[data-mood=luck] .o-spark{display:block}',
+'.owl-svg[data-mood=luck] .wr{animation:oWaveR .7s ease-in-out infinite}.owl-svg[data-mood=luck] .o-all{animation:oNod 1.1s ease-in-out infinite}',
+'@keyframes oNod{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}',
+/* غاضب */
+'.owl-svg[data-mood=angry] .b-angry,.owl-svg[data-mood=angry] .o-red,.owl-svg[data-mood=angry] .o-steam{display:block}',
+'.owl-svg[data-mood=angry] .o-pup{transform-origin:50% 50%;transform:scale(.75)}',
+'.owl-svg[data-mood=angry] .o-all{animation:oShake .14s linear infinite}',
+'.owl-svg[data-mood=angry] .wl{transform:rotate(14deg)}.owl-svg[data-mood=angry] .wr{transform:rotate(-14deg)}',
+'.owl-svg[data-mood=angry] .o-steam circle{animation:oSteam 1s ease-out infinite}.owl-svg[data-mood=angry] .o-steam circle:nth-child(2n){animation-delay:.4s}',
+'@keyframes oShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}',
+'@keyframes oSteam{0%{transform:translateY(6px) scale(.6);opacity:.9}100%{transform:translateY(-14px) scale(1.3);opacity:0}}',
+/* حزين */
+'.owl-svg[data-mood=sad] .b-sad,.owl-svg[data-mood=sad] .o-tears{display:block}',
+'.owl-svg[data-mood=sad] .o-pup{transform:translateY(4px)}',
+'.owl-svg[data-mood=sad] .o-all{animation:oDroop 2.6s ease-in-out infinite}',
+'.owl-svg[data-mood=sad] .wl{transform:rotate(16deg)}.owl-svg[data-mood=sad] .wr{transform:rotate(-16deg)}',
+'.owl-svg[data-mood=sad] .t1,.owl-svg[data-mood=sad] .t2{animation:oTear 1.5s ease-in infinite}.owl-svg[data-mood=sad] .t2{animation-delay:.6s}',
+'@keyframes oDroop{0%,100%{transform:scale(1,.95) translateY(2px)}50%{transform:scale(1,.93) translateY(3px)}}',
+'@keyframes oTear{0%{transform:translateY(-4px);opacity:0}25%{opacity:1}100%{transform:translateY(22px);opacity:0}}',
+/* نائم */
+'.owl-svg[data-mood=sleep] .eL-open,.owl-svg[data-mood=sleep] .eR-open{display:none}',
+'.owl-svg[data-mood=sleep] .eL-sleep,.owl-svg[data-mood=sleep] .eR-sleep,.owl-svg[data-mood=sleep] .o-zzz{display:block}',
+'.owl-svg[data-mood=sleep] .o-all{animation:oSleep 3s ease-in-out infinite}.owl-svg[data-mood=sleep] .o-zzz text{animation:oZ 2s ease-in-out infinite}',
+'@keyframes oSleep{0%,100%{transform:scale(1,1) rotate(-2deg)}50%{transform:scale(1.03,.97) rotate(-2deg)}}',
+'@keyframes oZ{0%{transform:translateY(6px);opacity:0}40%{opacity:1}100%{transform:translateY(-8px);opacity:0}}',
+/* تفكير */
+'.owl-svg[data-mood=think] .o-pup{transform:translate(3px,-3px)}',
+/* قطع الكونفيتي */
+'.owl-svg .o-conf rect{animation:oConf 1.2s linear infinite}.owl-svg .o-conf rect:nth-child(2n){animation-delay:.3s}.owl-svg .o-conf rect:nth-child(3n){animation-delay:.6s}',
+'@keyframes oConf{0%{transform:translateY(-6px) rotate(0);opacity:1}100%{transform:translateY(60px) rotate(240deg);opacity:0}}',
+'.owl-svg .o-spark path{animation:oSpark 1s ease-in-out infinite}.owl-svg .o-spark path:nth-child(2){animation-delay:.3s}',
+'@keyframes oSpark{0%,100%{transform:scale(.6);opacity:.5}50%{transform:scale(1.2);opacity:1}}',
+/* المنقار يتكلم */
+'#mzn-fab.talking .o-beak{transform-origin:50% 0%;animation:oTalk .22s ease-in-out infinite}',
+'@keyframes oTalk{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.25)}}',
+'#mzn-fab.talking .mzn-body{animation:none}',
+/* فقاعة الكلام */
+'#mzn-bubble{position:fixed;z-index:99998;max-width:230px;padding:10px 13px;border-radius:16px;background:#0f1f55;color:#fff;border:2px solid #D4AF37;font:700 13px/1.55 Cairo,Tahoma,sans-serif;direction:rtl;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;cursor:pointer;animation:oPop .3s cubic-bezier(.34,1.56,.64,1)}',
+'#mzn-bubble.on{display:block}#mzn-bubble:after{content:"";position:absolute;bottom:-9px;right:30px;width:14px;height:14px;background:inherit;border-right:2px solid;border-bottom:2px solid;border-color:inherit;transform:rotate(45deg)}',
+'#mzn-bubble.angry{border-color:#ff5547;background:#3a0f12}#mzn-bubble.sad{border-color:#7f93c4;background:#16224a}#mzn-bubble.happy,#mzn-bubble.luck{border-color:#FFE58A}',
+'@keyframes oPop{from{transform:scale(.6) translateY(10px);opacity:0}to{transform:none;opacity:1}}',
+'@media (prefers-reduced-motion:reduce){.owl-svg *{animation:none!important}}'
+].join('\n');document.head.appendChild(s)})();
+
+/* ── تركيب البومة الجديدة بدل القديمة ── */
+function mountOwl(){
+  var a=fab&&fab.querySelector('.owl-fallback');if(a)a.outerHTML=owlSVG('of');
+  var h=document.querySelector('.mzn-head .av .owl-fallback');if(h)h.outerHTML=owlSVG('oh');
+  if(!document.getElementById('mzn-bubble')){var b=document.createElement('div');b.id='mzn-bubble';b.onclick=function(){hideBub();if(fab)fab.click()};document.body.appendChild(b)}
+  if(fab)fab.addEventListener('click',function(){hideBub();owlSeq([{mood:'happy',ms:1400}])})}
+
+/* ── محرّك المشاعر ── */
+var oT=null,bT=null,oOff=function(){try{return localStorage.getItem('muzn_owl_off')==='1'}catch(e){return false}};
+function setMood(m){document.querySelectorAll('.owl-svg').forEach(function(s){s.setAttribute('data-mood',m||'idle')})}
+function hideBub(){var b=document.getElementById('mzn-bubble');if(b)b.className='';clearTimeout(bT)}
+function showBub(t,mood,ms){var b=document.getElementById('mzn-bubble');if(!b||!fab)return;
+  var r=fab.getBoundingClientRect();b.textContent=t;b.className='on '+(mood||'');
+  b.style.bottom=(window.innerHeight-r.top+12)+'px';b.style.right=Math.max(8,window.innerWidth-r.right-2)+'px';
+  clearTimeout(bT);bT=setTimeout(hideBub,ms)}
+function chatIsOpen(){return !!(chatEl&&chatEl.classList.contains('open'))}
+/* steps: [{text,mood,ms,speak}] تُنفّذ بالتتابع ثم ترجع البومة لحالتها الهادئة */
+function owlSeq(steps){
+  if(oOff()&&!(steps[0]&&steps[0].force))return;
+  clearTimeout(oT);var i=0;
+  (function run(){
+    if(i>=steps.length){setMood('idle');return}
+    var st=steps[i++],ms=st.ms||5000;setMood(st.mood||'idle');
+    if(st.text){if(chatIsOpen())botSay(st.text);else showBub(st.text,st.mood,ms)}
+    if(st.speak&&C&&C.voice&&st.text){try{speak(st.text.replace(/[^\u0600-\u06FF\s\w.,،!؟?]/g,''))}catch(e){}}
+    oT=setTimeout(run,ms)})()}
+window.__owl={say:owlSeq,mood:setMood,test:function(m){setMood(m)}};
+
+/* ── ظروف التفاعل ── */
+function fname(){var u=me();return u?String(u.name||'').split(' ')[0]:''}
+function dayKey(){return TODAY()}
+function flag(k){try{return localStorage.getItem('owl_'+k)==='1'}catch(e){return false}}
+function setFlag(k){try{localStorage.setItem('owl_'+k,'1')}catch(e){}}
+function tgtRole(){var r=getRole();return r==='sales'||r==='collections'||r==='distributors'||r==='production'}
+function tgtInfo(){var u=me();if(!u||!tgtRole())return null;try{var t=calculateSmartTargets(u.name);if(!t||!t.daily)return null;
+  var a=sumSales(salesToday(u.name));return{target:t.daily,got:a,left:Math.max(0,t.daily-a)}}catch(e){return null}}
+function money(x){return (Math.round(x*100)/100)+' '+cur()}
+function shiftState(){var s=store(),u=me();if(!s||!u)return null;var t=TODAY(),rs=(s.attendance_shifts||[]).filter(function(r){return r.user_id===u.id&&r.date===t});
+  if(!rs.length)return 'none';return rs.some(function(r){return !r.closed})?'open':'closed'}
+var _ss=null;
+function onShiftStart(){var n=fname(),ti=tgtInfo();
+  owlSeq([{text:'بالتوفيق يا '+n+'! 💪 ورديتك بدأت'+(ti?' — هدف اليوم '+money(ti.target)+'، يلا نكسره 🔥':'، الله يعطيك العافية 🔥'),mood:'luck',ms:7000,speak:true}])}
+function onShiftEnd(){var n=fname(),ti=tgtInfo(),st=[];
+  if(ti&&ti.got<ti.target)st.push({text:'😠 ما وصلت هدف اليوم! حققت '+money(ti.got)+' من '+money(ti.target)+' — ناقصك '+money(ti.left)+'. بكرة نعوضها!',mood:'angry',ms:7000});
+  else if(ti)st.push({text:'🎉 كفو يا '+n+'! وصلت هدف اليوم ('+money(ti.got)+')',mood:'happy',ms:6000});
+  st.push({text:'انتهت ورديتك يا '+n+'… رح أشتاق لك 🥺',mood:'sad',ms:5500});
+  st.push({text:'ليلة سعيدة يا '+n+' 🌙 نم قرير العين',mood:'sleep',ms:8000,speak:true});
+  owlSeq(st)}
+function checkTarget(){var u=me();if(!u||_ss!=='open')return;var ti=tgtInfo();if(!ti)return;var d=dayKey(),h=new Date().getHours(),n=fname();
+  if(ti.got>=ti.target&&!flag('hit_'+d)){setFlag('hit_'+d);owlSeq([{text:'🏆 مبروك يا '+n+'! وصلت هدف اليوم 🎉',mood:'happy',ms:8000,speak:true}]);return}
+  if(h>=18&&ti.got<ti.target*0.8&&!flag('b2_'+d)){setFlag('b2_'+d);owlSeq([{text:'😠 الساعة '+h+' وما وصلت 80% من الهدف! باقي '+money(ti.left)+' — شد حيلك!',mood:'angry',ms:7500}]);return}
+  if(h>=15&&ti.got<ti.target*0.5&&!flag('b1_'+d)){setFlag('b1_'+d);owlSeq([{text:'😠 الساعة '+h+' وما وصلت نص الهدف! باقي '+money(ti.left)+'.',mood:'angry',ms:7000}])}}
+var _ids=null,_lastRec=0;
+function recIds(){var s=store(),u=me(),o={};if(!s||!u)return null;
+  ['sales','purchases','withdrawals','shifts'].forEach(function(k){(s[k]||[]).forEach(function(r){if(r&&r.id&&r.by===u.name)o[r.id]=k})});return o}
+function watchRecords(){var cur_=recIds();if(!cur_)return;if(_ids===null){_ids=cur_;return}
+  var fresh=Object.keys(cur_).filter(function(id){return !_ids[id]});_ids=cur_;
+  if(fresh.length&&Date.now()-_lastRec>15000){_lastRec=Date.now();var n=fname(),m=['تم التسجيل ✅ يوم سعيد يا '+n+'! 🌟','سجّلتها لك 👏 شغل نظيف يا '+n,'تمام يا '+n+'! كمّل على كذا 💛'];
+    owlSeq([{text:m[Math.floor(Math.random()*m.length)],mood:'happy',ms:3800}])}}
+function tickOwl(){try{var st=shiftState();if(st===null)return;
+  if(_ss===null){_ss=st;return}
+  if(st!==_ss){var prev=_ss;_ss=st;if(st==='open')onShiftStart();else if(st==='closed'&&prev==='open')onShiftEnd()}
+  watchRecords()}catch(e){console.warn('[owl]',e.message)}}
+function greetLogin(){var u=me();if(!u)return;var k='owl_g_'+u.id;try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1')}catch(e){}
+  var h=new Date().getHours(),g=h<5?'سهران؟ 🌙':h<12?'صباح الخير ☀️':h<18?'مساء الخير 🌤️':'مساء النور 🌆';
+  setTimeout(function(){owlSeq([{text:g+' يا '+fname()+'، يوم سعيد! 🦉',mood:'happy',ms:5000}])},2500)}
+(function bootOwl(){var n=0,w=setInterval(function(){
+  if(!fab||!document.querySelector('.mzn-head .av')){if(++n>40)clearInterval(w);return}
+  if(!document.querySelector('.owl-svg')){try{mountOwl()}catch(e){console.warn('[owl mount]',e)}}
+  if(me()&&store()){clearInterval(w);greetLogin();setInterval(tickOwl,2000);setInterval(checkTarget,60000)}
+  else if(++n>120)clearInterval(w)},1000)})();
+
+/* ═══ MUZN VOICE v2 — صوت طبيعي عبر Groq Orpheus (سعودي) + احتياطي المتصفح ═══ */
+var ORPH=[['noura','نورة (أنثى)'],['lulwa','لولوة (أنثى)'],['aisha','عائشة (أنثى)'],['fahad','فهد (ذكر)'],['sultan','سلطان (ذكر)'],['abdullah','عبدالله (ذكر)']];
+var TTS_MODEL='canopylabs/orpheus-arabic-saudi',TTS_MAX=190,TTS_CHUNKS=4;
+var spkId=0,spkAudio=null,orphDownUntil=0,orphHinted=false,spkCache={},spkCacheKeys=[],_unlocked=false;
+function ttsVoice(){var n=C.voiceName||'';if(n.indexOf('orph:')===0)return n.slice(5);if(!n)return 'noura';return null}
+function ttsOn(){return !!GROQ_KEY&&Date.now()>orphDownUntil&&ttsVoice()!==null}
+function ttsClean(t){
+  var c=String(t||'').replace(/\*([^*]+)\*/g,'$1').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu,'')
+    .replace(/^[•\-\d]+[.)]?\s+/gm,'').replace(/[•|_#~`]/g,' ').replace(/د\.ل|LYD/g,' دينار ').replace(/\s*—\s*/g,'، ')
+    .replace(/\n+/g,'. ').replace(/\s+/g,' ').trim();
+  var cu=''+cur();if(cu&&cu.length>0&&cu!=='د.ل')c=c.split(cu).join(' '+(/د\.?ك/.test(cu)?'دينار':cu)+' ');
+  return c}
+function ttsChunks(t){
+  var s=t.split(/(?<=[.!؟?،:؛])\s+/),out=[],cur_='';
+  s.forEach(function(p){
+    while(p.length>TTS_MAX){var cut=p.lastIndexOf(' ',TTS_MAX);if(cut<60)cut=TTS_MAX;if(cur_){out.push(cur_);cur_=''}out.push(p.slice(0,cut).trim());p=p.slice(cut).trim()}
+    if(!p)return;
+    if((cur_+' '+p).trim().length<=TTS_MAX)cur_=(cur_+' '+p).trim();else{out.push(cur_);cur_=p}});
+  if(cur_)out.push(cur_);return out.filter(function(x){return x.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'').length>1})}
+async function ttsFetch(text,voice){
+  var k=voice+'|'+text;if(spkCache[k])return spkCache[k];
+  var r=await fetch('https://api.groq.com/openai/v1/audio/speech',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
+    body:JSON.stringify({model:TTS_MODEL,voice:voice,input:text,response_format:'wav'})});
+  if(!r.ok){var e=new Error('tts HTTP '+r.status);e.status=r.status;throw e}
+  var u=URL.createObjectURL(await r.blob());spkCache[k]=u;spkCacheKeys.push(k);
+  if(spkCacheKeys.length>25){var old=spkCacheKeys.shift();try{URL.revokeObjectURL(spkCache[old])}catch(e){}delete spkCache[old]}
+  return u}
+function unlockAudio(){if(_unlocked)return;_unlocked=true;try{
+  spkAudio=spkAudio||new Audio();spkAudio.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+  var p=spkAudio.play();if(p&&p.catch)p.catch(function(){})}catch(e){}}
+['pointerdown','touchstart','keydown'].forEach(function(ev){document.addEventListener(ev,unlockAudio,{once:true,passive:true})});
+var _speakBrowser=speak,_stopBrowser=stopSpeak;
+function ttsFail(e){
+  console.warn('[TTS]',e&&e.message);
+  orphDownUntil=Date.now()+((e&&(e.status===429))?60000:(e&&(e.status===400||e.status===403||e.status===401))?30*60000:2*60000);
+  if(e&&(e.status===400||e.status===403)&&!orphHinted){orphHinted=true;
+    try{botSay('ℹ️ الصوت الطبيعي ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground (باستخدام نفس حساب المفتاح). مؤقتاً أستخدم صوت المتصفح.')}catch(x){}}}
+speak=function(text){
+  if(!C.voice)return;
+  var clean=ttsClean(text);if(!clean)return;
+  if(!ttsOn()){return _speakBrowser(text)}
+  stopSpeak();var id=spkId,voice=ttsVoice(),parts=ttsChunks(clean).slice(0,TTS_CHUNKS);if(!parts.length)return;
+  spkAudio=spkAudio||new Audio();var next=ttsFetch(parts[0],voice);
+  (async function play(i,pending){
+    try{
+      var url=await pending;if(id!==spkId)return;
+      var pf=i+1<parts.length?ttsFetch(parts[i+1],voice):null;if(pf)pf.catch(function(){});
+      spkAudio.onended=null;spkAudio.src=url;spkAudio.playbackRate=Math.min(1.5,Math.max(0.7,Number(C.rate)||1));
+      if(fab)fab.classList.add('talking');
+      await new Promise(function(res,rej){spkAudio.onended=res;spkAudio.onerror=function(){rej(new Error('audio error'))};
+        var p=spkAudio.play();if(p&&p.catch)p.catch(rej)});
+      if(id!==spkId)return;
+      if(pf)return play(i+1,pf);
+      if(fab)fab.classList.remove('talking');
+    }catch(e){
+      if(fab)fab.classList.remove('talking');if(id!==spkId)return;
+      if(i===0||e.status){ttsFail(e);if(i===0)_speakBrowser(parts.join(' '))}}
+  })(0,next)};
+stopSpeak=function(){spkId++;try{if(spkAudio){spkAudio.onended=null;spkAudio.pause()}}catch(e){}if(fab)fab.classList.remove('talking');_stopBrowser()};
+/* قائمة الأصوات: الطبيعية أولاً */
+var _lv=loadVoices;
+loadVoices=function(){_lv();var sel=$('mzn-voice-select');if(!sel)return;
+  var g=document.createElement('optgroup');g.label='🌟 أصوات طبيعية (Groq)';
+  ORPH.forEach(function(v){var o=document.createElement('option');o.value='orph:'+v[0];o.textContent=v[1];g.appendChild(o)});
+  sel.insertBefore(g,sel.firstChild);
+  var n=C.voiceName||'orph:noura';if(!sel.querySelector('option[value="'+n+'"]'))n='orph:noura';sel.value=n}
+var _gsv=getSelectedVoice;
+getSelectedVoice=function(){if((C.voiceName||'').indexOf('orph:')===0){return arVoices&&arVoices[0]||null}return _gsv()};
+if(window.speechSynthesis)speechSynthesis.onvoiceschanged=loadVoices;
+setTimeout(function(){try{loadVoices()}catch(e){}},3200);
+window.__owl=window.__owl||{};window.__owl.speak=speak;
 
 })();
 </script>
