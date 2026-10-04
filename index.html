@@ -10610,10 +10610,20 @@ var GEMINI_KEY = '';
 var OPENROUTER_KEY = '';
 
 async function loadAIKeys() {
+  // انتظر window.__muzn
+  var waited = 0;
+  while ((!M() || !M().adapter || !M().adapter.sb) && waited < 30000) {
+    await new Promise(function(r){ setTimeout(r, 500); });
+    waited += 500;
+  }
+  var m = M();
+  if (!m || !m.adapter || !m.adapter.sb) {
+    console.warn('[AI Keys ❌] التطبيق لم يجهز');
+    return;
+  }
   try {
-    var m = M();
-    if (!m || !m.adapter || !m.adapter.sb) return;
     var r = await m.adapter.sb.from('app_config').select('key,value');
+    if (r.error) throw r.error;
     if (r.data) {
       r.data.forEach(function(row){
         if (row.key === 'groq_key'       && row.value) GROQ_KEY = row.value;
@@ -10625,8 +10635,20 @@ async function loadAIKeys() {
       if (GEMINI_KEY) p.push('Gemini');
       if (OPENROUTER_KEY) p.push('OpenRouter');
       console.log('[AI Keys ✅]', p.join(' + ') || 'لا مزود');
+
+      // حدّث نقاط الحالة في الإعدادات
+      try { updateProviderStatus(); } catch(e){}
+
+      // أبلغ البومة
+      try {
+        if (window.toast && p.length) {
+          window.toast('🤖 مُزن جاهز — ' + p.join(' + '), 'ok');
+        }
+      } catch(e){}
     }
-  } catch(e) { console.warn('[AI Keys ❌]', e.message); }
+  } catch(e) {
+    console.warn('[AI Keys ❌]', e.message);
+  }
 }
 
 var CFG_KEY = 'muzn_buddy_v6_cfg';
