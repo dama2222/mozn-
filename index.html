@@ -10474,7 +10474,7 @@ window.closeSheet = closeSheet;
      ═══════════════════════════════════════════════════════════ -->
 <style>
 #mzn-fab{
-  position:fixed;bottom:calc(150px + env(safe-area-inset-bottom,0px));left:12px;
+  position:fixed;bottom:calc(170px + env(safe-area-inset-bottom,0px));right:12px;
   z-index:99999 !important;width:80px;height:80px;
   border:0;background:transparent;padding:0;
   cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.55));
@@ -12079,7 +12079,12 @@ function buildSystemPrompt() {
     '• لا تخترع أرقاماً — استخدم ما في السياق فقط',
     '• استخدم المعلومات المُتعلَّمة من المدير إن وُجدت',
     '• إذا كان المستخدم متضايقاً، تعاطف معه أولاً قبل الحل',
-    '• أجب بالعربية الليبية/الفصحى المبسّطة'
+       '• أجب بالعربية الليبية/الفصحى المبسّطة',
+    '• اكتب الأرقام مباشرة بدون زخرفة',
+    '',
+    '🛑 تصحيح أخطاء سابقة:',
+    '• إذا وجدت في المحادثة السابقة أنك قلت "أضفت"/"حذفت"/"سجلت"، هذا خطأ.',
+    '• اعتذر فوراً وقل: "أعتذر، أنا للقراءة فقط ولا أعدّل البيانات."'
   ].join('\n');
 }
 
@@ -12392,6 +12397,15 @@ function sendMessage(raw) {
       return;
     }
   }
+  /* 🆕 رفض طلبات التعديل فوراً — لا تصل لـ AI */
+  var preDet = detectIntent(text);
+  if (preDet.intent === 'cannot_edit') {
+    var cantR = buildReply('cannot_edit', text);
+    botSay(cantR.text);
+    C.history.push({ role: 'bot', text: cantR.text, ts: Date.now() });
+    saveCfg();
+    return;
+  }
 
   /* 🆕 2) ضغط زر جاهز → القاعدة المحلية (سريع) */
   if (isKnownChip(text)) {
@@ -12478,6 +12492,8 @@ function smartGreeting() {
 var greeted = false;
 function openChat() {
   chatEl.classList.add('open');
+  // 🆕 امسح الذاكرة كل ما فتح المحادثة من جديد
+  if (!greeted) C.history = [];
   if (!greeted) { greeted = true; setTimeout(function(){ botSay(smartGreeting()); }, 350); }
   setTimeout(function(){ inputEl.focus(); }, 300);
 }
@@ -12511,7 +12527,6 @@ function boot() {
 
   console.log('[MUZN Buddy v6] جاهز — في انتظار المفاتيح');
 
-  fab.onclick = openChat;
   $('mzn-chat-bg').onclick = closeChat;
   $('mzn-close').onclick = closeChat;
   $('mzn-settings-btn').onclick = openSettings;
@@ -12522,6 +12537,54 @@ function boot() {
     speak('مرحباً، أنا مُزن، مساعدك الذكي.');
     setTimeout(function(){ C.voice = old; }, 5000);
   };
+   /* 🆕 سحب البومة لأي مكان */
+  (function enableDrag(){
+    var drag = false, startX, startY, startL, startT, moved = false;
+    var saved = localStorage.getItem('mzn_fab_pos');
+    if (saved) {
+      try {
+        var p = JSON.parse(saved);
+        fab.style.left = p.left + 'px';
+        fab.style.top = p.top + 'px';
+        fab.style.right = 'auto';
+        fab.style.bottom = 'auto';
+      } catch(e){}
+    }
+    function onDown(e){
+      drag = true; moved = false;
+      var r = fab.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startL = r.left; startT = r.top;
+      fab.style.transition = 'none';
+    }
+    function onMove(e){
+      if (!drag) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
+      if (!moved) return;
+      var nl = Math.max(4, Math.min(window.innerWidth - 90, startL + dx));
+      var nt = Math.max(4, Math.min(window.innerHeight - 90, startT + dy));
+      fab.style.left = nl + 'px';
+      fab.style.top = nt + 'px';
+      fab.style.right = 'auto';
+      fab.style.bottom = 'auto';
+    }
+    function onUp(){
+      if (!drag) return;
+      drag = false;
+      fab.style.transition = '';
+      if (moved) {
+        var r = fab.getBoundingClientRect();
+        localStorage.setItem('mzn_fab_pos', JSON.stringify({left: r.left, top: r.top}));
+      } else {
+        openChat();
+      }
+    }
+    fab.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  })();
 
   sendEl.onclick = function(){ sendMessage(inputEl.value); };
   inputEl.addEventListener('keydown', function(e){
