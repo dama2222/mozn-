@@ -10878,7 +10878,39 @@ function M() { return window.__muzn || null; }
 function store() { var m = M(); return m && m.store ? m.store : null; }
 function me() { var m = M(); return m && m.user ? m.user : null; }
 function cur() { var s = store(); return s && s.company ? (s.company.currency_symbol || '') : ''; }
-function fmt(n) {
+/* ═══ Helpers محلية للبومة (بديل عن دوال التطبيق الرئيسي) ═══ */
+function dn(id) {
+  var s = store(); if (!s || !id) return 'بدون';
+  var d = s.distributors.find(function(x){ return x.id === id; });
+  return d ? d.name : '—';
+}
+function cn(id) {
+  var s = store(); if (!s || !id) return 'عميل نقدي';
+  var c = s.customers.find(function(x){ return x.id === id; });
+  return c ? c.name : '—';
+}
+function pn(id) {
+  var s = store(); if (!s || !id) return '—';
+  var p = s.products.find(function(x){ return x.id === id; });
+  return p ? p.name : '—';
+}
+function mn(id) {
+  var s = store(); if (!s || !id) return '—';
+  var m = s.materials.find(function(x){ return x.id === id; });
+  return m ? m.name : '—';
+}
+function sn(id) {
+  var s = store(); if (!s || !id) return '—';
+  var sup = s.suppliers.find(function(x){ return x.id === id; });
+  return sup ? sup.name : '—';
+}
+function nm(coll, id) {
+  var s = store(); if (!s || !id) return '—';
+  var arr = s[coll] || [];
+  var item = arr.find(function(x){ return x.id === id; });
+  return item ? item.name : '—';
+}
+  function fmt(n) {
   var s = store();
   var d = s && s.company ? (s.company.currency_decimals != null ? s.company.currency_decimals : 3) : 3;
   return (Number(n)||0).toFixed(d);
