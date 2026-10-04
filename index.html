@@ -10366,405 +10366,6 @@ window.closeSheet = closeSheet;
   }
 })();
 </script>
- <!-- ===== MUZN Buddy v4.1 ===== -->
-<style>
-#mzn-fab{position:fixed;bottom:calc(160px + env(safe-area-inset-bottom,0px));left:12px;z-index:99999;width:84px;height:84px;border:0;background:transparent;padding:0;cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.55));animation:mznFloat 3s ease-in-out infinite;transition:transform .2s;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-#mzn-fab *{pointer-events:none}
-#mzn-fab:active{transform:scale(.92)}
-#mzn-fab .mzn-badge{position:absolute;top:0;right:0;background:#ff3b30;color:#fff;font-size:11px;font-weight:800;min-width:22px;height:22px;border-radius:99px;display:grid;place-items:center;padding:0 5px;border:2px solid #181b25;font-family:'Cairo',Tahoma,sans-serif;animation:mznPulse 2s ease-in-out infinite}
-#mzn-fab .mzn-badge[hidden]{display:none}
-@keyframes mznFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-@keyframes mznPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
-
-.mzn-chat{position:fixed;inset:0;z-index:100000;display:none;align-items:flex-end;justify-content:center;font-family:'Cairo',Tahoma,sans-serif;direction:rtl}
-.mzn-chat.open{display:flex}
-.mzn-chat-bg{position:absolute;inset:0;background:rgba(0,0,0,.65)}
-.mzn-panel{position:relative;width:min(100%,480px);max-height:90vh;background:var(--shell,#181b25);color:var(--text,#f5f6f8);border-radius:22px 22px 0 0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 -10px 40px rgba(0,0,0,.6);animation:mznUp .28s cubic-bezier(.34,1.56,.64,1)}
-@keyframes mznUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
-
-.mzn-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(135deg,#D4AF37,#8B6914);border-bottom:2px solid #3a2a0a;flex:none}
-.mzn-head .av{width:44px;height:44px;flex:none;background:#0a1128;border-radius:50%;padding:2px;display:grid;place-items:center;overflow:hidden;border:2px solid #F8E08A}
-.mzn-head .av svg{width:100%;height:100%}
-.mzn-head .info{flex:1;min-width:0}
-.mzn-head .info b{display:block;color:#fff;font-size:15px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.4)}
-.mzn-head .info small{color:rgba(255,255,255,.9);font-size:11px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mzn-head button{background:rgba(0,0,0,.25);border:0;color:#fff;width:36px;height:36px;border-radius:50%;font-size:15px;cursor:pointer;display:grid;place-items:center;flex:none}
-.mzn-head button:active{background:rgba(0,0,0,.5)}
-.mzn-head button.off{opacity:.5}
-
-.mzn-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;min-height:280px;background:var(--shell,#181b25)}
-.mzn-msg{max-width:82%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.55;font-weight:600;white-space:pre-wrap;word-break:break-word}
-.mzn-msg.bot{align-self:flex-start;background:var(--card,#1d212d);border:1px solid var(--line,#3b4050);border-start-start-radius:4px}
-.mzn-msg.me{align-self:flex-end;background:linear-gradient(135deg,#D4AF37,#8B6914);color:#fff;border-end-end-radius:4px}
-.mzn-msg b{color:#F8E08A}
-.mzn-msg.bot b{color:#D4AF37}
-.mzn-msg .prog{display:block;margin-top:8px;height:12px;background:rgba(0,0,0,.3);border-radius:99px;overflow:hidden}
-.mzn-msg .prog i{display:block;height:100%;background:linear-gradient(90deg,#D4AF37,#F8E08A);border-radius:99px;transition:width .5s}
-.mzn-msg .bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#a1a7b6);margin-top:4px;font-weight:700}
-
-.mzn-chips{display:flex;gap:6px;overflow-x:auto;padding:8px 12px;flex:none;border-top:1px solid var(--line,#3b4050);background:var(--card2,#262a38);scrollbar-width:none}
-.mzn-chips::-webkit-scrollbar{display:none}
-.mzn-chips button{flex:none;background:var(--card,#1d212d);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:99px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
-.mzn-chips button:hover,.mzn-chips button:active{background:#D4AF37;color:#0a1128;border-color:#D4AF37}
-
-.mzn-inputrow{display:flex;gap:6px;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));background:var(--shell,#181b25);border-top:1px solid var(--line,#3b4050);flex:none}
-.mzn-inputrow input{flex:1;min-width:0;background:var(--input,#474c59);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:22px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none}
-.mzn-inputrow input:focus{border-color:#D4AF37}
-.mzn-inputrow button{width:44px;height:44px;flex:none;border:0;border-radius:50%;background:linear-gradient(135deg,#D4AF37,#8B6914);color:#0a1128;font-size:17px;font-weight:800;cursor:pointer;display:grid;place-items:center}
-.mzn-inputrow button.mic{background:#0a1128;color:#F8E08A;border:1px solid #D4AF37}
-.mzn-inputrow button.mic.rec{background:#ff3b30;color:#fff;animation:mznPulse 1s infinite}
-
-.mzn-typing{align-self:flex-start;display:flex;gap:3px;padding:12px 14px;background:var(--card,#1d212d);border-radius:16px;border-start-start-radius:4px;border:1px solid var(--line,#3b4050)}
-.mzn-typing i{width:7px;height:7px;border-radius:50%;background:#D4AF37;animation:mznTyping 1.2s infinite}
-.mzn-typing i:nth-child(2){animation-delay:.15s}
-.mzn-typing i:nth-child(3){animation-delay:.3s}
-@keyframes mznTyping{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
-
-.mzn-settings{position:absolute;inset:0;background:var(--shell,#181b25);z-index:5;padding:16px;overflow-y:auto;display:none}
-.mzn-settings.open{display:block}
-.mzn-settings h3{color:#D4AF37;margin:0 0 14px;font-size:17px}
-.mzn-settings label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px;color:var(--text,#f5f6f8)}
-.mzn-settings input,.mzn-settings select{width:100%;background:var(--input,#474c59);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none}
-.mzn-settings input:focus,.mzn-settings select:focus{border-color:#D4AF37}
-.mzn-settings .hint{font-size:11.5px;color:var(--muted,#a1a7b6);margin-top:5px;line-height:1.5}
-.mzn-settings .row{display:flex;gap:8px;margin-top:16px}
-.mzn-settings .row button{flex:1;padding:11px;border:0;border-radius:8px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit}
-.mzn-settings .row .save{background:linear-gradient(135deg,#D4AF37,#8B6914);color:#0a1128}
-.mzn-settings .row .cancel{background:var(--card2,#262a38);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050)}
-.mzn-settings .row .test{background:#0a1128;color:#F8E08A;border:1px solid #D4AF37}
-.mzn-settings .mode-group{display:flex;gap:6px;margin-top:6px}
-.mzn-settings .mode-group button{flex:1;padding:10px;border:2px solid var(--line,#3b4050);background:var(--card,#1d212d);color:var(--text,#f5f6f8);border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px}
-.mzn-settings .mode-group button.on{background:linear-gradient(135deg,#D4AF37,#8B6914);color:#0a1128;border-color:#D4AF37}
-.mzn-settings .info{background:rgba(212,175,55,.12);border:1px solid #D4AF37;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.6;margin-top:12px}
-</style>
-
-<button id="mzn-fab" aria-label="افتح المساعد الذكي">
-<svg viewBox="0 0 100 120" width="84" height="84">
-<defs>
-<linearGradient id="mznG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F8E08A"/><stop offset="0.5" stop-color="#D4AF37"/><stop offset="1" stop-color="#8B6914"/></linearGradient>
-<linearGradient id="mznL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF3C4"/><stop offset="1" stop-color="#E5C158"/></linearGradient>
-<linearGradient id="mznN" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a2a5e"/><stop offset="1" stop-color="#0a1128"/></linearGradient>
-</defs>
-<ellipse cx="50" cy="115" rx="26" ry="3.5" fill="rgba(0,0,0,.4)"/>
-<path d="M16 60 Q6 82 16 102 Q26 92 28 70 Z" fill="url(#mznN)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-<path d="M84 60 Q94 82 84 102 Q74 92 72 70 Z" fill="url(#mznN)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-<path d="M20 72 Q16 82 20 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-<path d="M80 72 Q84 82 80 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-<ellipse cx="50" cy="80" rx="32" ry="37" fill="url(#mznG)" stroke="#3a2a0a" stroke-width="2.5"/>
-<ellipse cx="50" cy="84" rx="22" ry="27" fill="url(#mznL)" opacity=".85"/>
-<path d="M27 42 Q20 18 30 8 Q40 22 42 38 Z" fill="url(#mznG)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-<path d="M73 42 Q80 18 70 8 Q60 22 58 38 Z" fill="url(#mznG)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-<circle cx="50" cy="43" r="33" fill="url(#mznG)" stroke="#3a2a0a" stroke-width="2.5"/>
-<path d="M50 30 Q34 32 29 46 Q27 56 38 61 Q45 64 50 61 Q55 64 62 61 Q73 56 71 46 Q66 32 50 30 Z" fill="url(#mznL)" stroke="#8B6914" stroke-width="1.5" stroke-linejoin="round"/>
-<circle cx="37" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-<circle cx="63" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-<circle cx="37" cy="43" r="10" fill="url(#mznN)"/>
-<circle cx="63" cy="43" r="10" fill="url(#mznN)"/>
-<circle cx="37" cy="43" r="5" fill="#0a1128"/>
-<circle cx="63" cy="43" r="5" fill="#0a1128"/>
-<circle cx="40" cy="39" r="2.8" fill="#fff"/>
-<circle cx="66" cy="39" r="2.8" fill="#fff"/>
-<path d="M50 53 L43 63 Q50 67 57 63 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.8" stroke-linejoin="round"/>
-<ellipse cx="43" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-<ellipse cx="57" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-</svg>
-<span class="mzn-badge" id="mzn-badge" hidden>0</span>
-</button>
-
-<div id="mzn-chat" class="mzn-chat">
-<div class="mzn-chat-bg" id="mzn-chat-bg"></div>
-<div class="mzn-panel">
-<div class="mzn-head">
-<div class="av">
-<svg viewBox="0 0 100 100" width="42" height="42">
-<defs>
-<linearGradient id="mznGH" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F8E08A"/><stop offset="1" stop-color="#D4AF37"/></linearGradient>
-<linearGradient id="mznNH" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a2a5e"/><stop offset="1" stop-color="#0a1128"/></linearGradient>
-</defs>
-<path d="M28 42 Q22 22 30 12 Q38 24 42 38 Z" fill="url(#mznGH)" stroke="#3a2a0a" stroke-width="2"/>
-<path d="M72 42 Q78 22 70 12 Q62 24 58 38 Z" fill="url(#mznGH)" stroke="#3a2a0a" stroke-width="2"/>
-<circle cx="50" cy="55" r="32" fill="url(#mznGH)" stroke="#3a2a0a" stroke-width="2.5"/>
-<ellipse cx="50" cy="58" rx="24" ry="20" fill="#FFF3C4"/>
-<circle cx="37" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-<circle cx="63" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-<circle cx="37" cy="52" r="9" fill="url(#mznNH)"/>
-<circle cx="63" cy="52" r="9" fill="url(#mznNH)"/>
-<circle cx="37" cy="52" r="4.5" fill="#0a1128"/>
-<circle cx="63" cy="52" r="4.5" fill="#0a1128"/>
-<circle cx="39.5" cy="49" r="2.2" fill="#fff"/>
-<circle cx="65.5" cy="49" r="2.2" fill="#fff"/>
-<path d="M50 62 L44 71 Q50 75 56 71 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-</svg>
-</div>
-<div class="info"><b>مزن</b><small id="mzn-status">مساعدك الذكي</small></div>
-<button id="mzn-voice" title="الصوت">🔊</button>
-<button id="mzn-settings-btn" title="الإعدادات">⚙️</button>
-<button id="mzn-close" aria-label="إغلاق">✕</button>
-</div>
-<div class="mzn-body" id="mzn-body"></div>
-<div class="mzn-chips" id="mzn-chips"></div>
-<div class="mzn-inputrow">
-<button class="mic" id="mzn-mic" aria-label="تحدث">🎤</button>
-<input id="mzn-input" placeholder="اكتب سؤالك..." autocomplete="off">
-<button id="mzn-send" aria-label="إرسال">➤</button>
-</div>
-<div class="mzn-settings" id="mzn-settings">
-<h3>إعدادات المساعد</h3>
-<label>طريقة المحادثة</label>
-<div class="mode-group">
-<button id="mzn-mode-rules" class="on">قاعدة ذكية</button>
-<button id="mzn-mode-gemini">Gemini AI</button>
-</div>
-<div class="hint" id="mzn-mode-hint">القاعدة الذكية سريعة وتعمل بدون مفتاح API.</div>
-<label>Gemini API Key (اختياري)</label>
-<input type="password" id="mzn-gemini-key" placeholder="AIza...">
-<div class="hint">احصل على مفتاح مجاني من aistudio.google.com/apikey</div>
-<label>الصوت</label>
-<select id="mzn-voice-select"><option>جارٍ التحميل...</option></select>
-<label>سرعة الصوت</label>
-<input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
-<div class="info">للحصول على صوت طبيعي: استخدم Microsoft Edge.</div>
-<div class="row">
-<button class="test" id="mzn-test-voice">اختبار الصوت</button>
-<button class="cancel" id="mzn-settings-close">إلغاء</button>
-<button class="save" id="mzn-settings-save">حفظ</button>
-</div>
-</div>
-</div>
-</div>
-
-<script>
-<!-- ═══════════════════════════════════════════════════════════
-     🦉 MUZN BUDDY v6 — ذكي + HR + 3 مزودين AI
-     ═══════════════════════════════════════════════════════════ -->
-<style>
-#mzn-fab{
-  position:fixed;bottom:calc(150px + env(safe-area-inset-bottom,0px));left:12px;
-  z-index:99999 !important;width:80px;height:80px;
-  border:0;background:transparent;padding:0;
-  cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.55));
-  animation:mznFloat 3s ease-in-out infinite;transition:transform .2s;
-  pointer-events:auto !important;touch-action:manipulation;
-  -webkit-tap-highlight-color:transparent;
-}
-#mzn-fab svg, #mzn-fab .mzn-badge{pointer-events:none}
-#mzn-fab:active{transform:scale(.92)}
-#mzn-fab .mzn-badge{
-  position:absolute;top:0;right:0;background:#ff3b30;color:#fff;font-size:11px;
-  font-weight:800;min-width:22px;height:22px;border-radius:99px;
-  display:grid;place-items:center;padding:0 5px;border:2px solid var(--shell,#181b25);
-  font-family:'Cairo',Tahoma,sans-serif;animation:mznPulse 2s ease-in-out infinite;
-}
-#mzn-fab .mzn-badge[hidden]{display:none}
-@keyframes mznFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-@keyframes mznPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
-#mzn-fab.talking .mzn-body{animation:mznTalk .3s ease-in-out infinite}
-@keyframes mznTalk{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
-
-.mzn-chat{position:fixed;inset:0;z-index:100;display:none;align-items:flex-end;justify-content:center;font-family:'Cairo',Tahoma,sans-serif;direction:rtl}
-.mzn-chat.open{display:flex}
-.mzn-chat-bg{position:absolute;inset:0;background:rgba(0,0,0,.6)}
-.mzn-panel{position:relative;width:min(100%,480px);max-height:88vh;background:var(--shell,#181b25);color:var(--text,#f5f6f8);border-radius:22px 22px 0 0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 -10px 40px rgba(0,0,0,.5);animation:mznUp .28s cubic-bezier(.34,1.56,.64,1)}
-@keyframes mznUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
-
-.mzn-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(135deg,#D4AF37,#8B6914);border-bottom:2px solid #3a2a0a;flex:none}
-.mzn-head .av{width:44px;height:44px;flex:none;background:#fff;border-radius:50%;padding:2px;display:grid;place-items:center;overflow:hidden;box-shadow:0 0 0 2px #0a1128 inset}
-.mzn-head .av svg{width:100%;height:100%}
-.mzn-head .info{flex:1;min-width:0}
-.mzn-head .info b{display:block;color:#fff;font-size:15px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.mzn-head .info small{color:rgba(255,255,255,.9);font-size:11px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mzn-head button{background:rgba(255,255,255,.2);border:0;color:#fff;width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer;display:grid;place-items:center;flex:none}
-.mzn-head button:active{background:rgba(255,255,255,.35)}
-.mzn-head button.off{opacity:.5}
-
-.mzn-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;min-height:280px}
-.mzn-msg{max-width:82%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.55;font-weight:600;white-space:pre-wrap;word-break:break-word}
-.mzn-msg.bot{align-self:flex-start;background:var(--card,#1d212d);border:1px solid var(--line,#3b4050);border-start-start-radius:4px}
-.mzn-msg.me{align-self:flex-end;background:linear-gradient(135deg,#D4AF37,#8B6914);color:#fff;border-end-end-radius:4px}
-.mzn-msg b{color:#FFD700}
-.mzn-msg.bot b{color:#D4AF37}
-.mzn-msg .prog{display:block;margin-top:8px;height:12px;background:rgba(0,0,0,.3);border-radius:99px;overflow:hidden}
-.mzn-msg .prog i{display:block;height:100%;background:linear-gradient(90deg,#D4AF37,#FFD700);border-radius:99px;transition:width .5s}
-.mzn-msg .bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#a1a7b6);margin-top:4px;font-weight:700}
-
-.mzn-chips{display:flex;gap:6px;overflow-x:auto;padding:8px 12px;flex:none;border-top:1px solid var(--line,#3b4050);background:var(--card2,#262a38);scrollbar-width:none}
-.mzn-chips::-webkit-scrollbar{display:none}
-.mzn-chips button{flex:none;background:var(--card,#1d212d);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:99px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s}
-.mzn-chips button:hover,.mzn-chips button:active{background:#D4AF37;color:#0a1128;border-color:#D4AF37}
-
-.mzn-inputrow{display:flex;gap:6px;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));background:var(--shell,#181b25);border-top:1px solid var(--line,#3b4050);flex:none}
-.mzn-inputrow input{flex:1;min-width:0;background:var(--input,#474c59);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:22px;padding:10px 14px;font-size:14px;font-family:inherit;outline:none}
-.mzn-inputrow input::placeholder{color:var(--muted,#a1a7b6)}
-.mzn-inputrow input:focus{border-color:#D4AF37}
-.mzn-inputrow button{width:44px;height:44px;flex:none;border:0;border-radius:50%;background:linear-gradient(135deg,#D4AF37,#8B6914);color:#fff;font-size:17px;cursor:pointer;display:grid;place-items:center;transition:transform .15s}
-.mzn-inputrow button:active{transform:scale(.92)}
-.mzn-inputrow button.mic{background:var(--card2,#262a38);border:1px solid var(--line,#3b4050)}
-.mzn-inputrow button.mic.rec{background:#ff3b30;animation:mznPulse 1s infinite}
-
-.mzn-typing{align-self:flex-start;display:flex;gap:3px;padding:12px 14px;background:var(--card,#1d212d);border-radius:16px;border-start-start-radius:4px;border:1px solid var(--line,#3b4050)}
-.mzn-typing i{width:7px;height:7px;border-radius:50%;background:#D4AF37;animation:mznTyping 1.2s infinite}
-.mzn-typing i:nth-child(2){animation-delay:.15s}
-.mzn-typing i:nth-child(3){animation-delay:.3s}
-@keyframes mznTyping{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
-
-.mzn-settings{position:absolute;inset:0;background:var(--shell,#181b25);z-index:5;padding:16px;overflow-y:auto;display:none}
-.mzn-settings.open{display:block}
-.mzn-settings h3{color:#D4AF37;margin:0 0 14px;font-size:17px}
-.mzn-settings label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px;color:var(--text,#f5f6f8)}
-.mzn-settings input,.mzn-settings select{width:100%;background:var(--input,#474c59);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050);border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none}
-.mzn-settings .hint{font-size:11.5px;color:var(--muted,#a1a7b6);margin-top:5px;line-height:1.5}
-.mzn-settings .row{display:flex;gap:8px;margin-top:16px}
-.mzn-settings .row button{flex:1;padding:11px;border:0;border-radius:8px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit}
-.mzn-settings .row .save{background:linear-gradient(135deg,#D4AF37,#8B6914);color:#fff}
-.mzn-settings .row .cancel{background:var(--card2,#262a38);color:var(--text,#f5f6f8);border:1px solid var(--line,#3b4050)}
-.mzn-settings .row .test{background:#1a2a5e;color:#fff}
-.mzn-settings .info{background:rgba(212,175,55,.1);border:1px solid #D4AF37;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.6;margin-top:12px;color:var(--text,#f5f6f8)}
-.mzn-settings .info b{color:#D4AF37}
-.mzn-settings .status{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--card,#1d212d);border:1px solid var(--line,#3b4050);border-radius:8px;margin:6px 0;font-size:12.5px}
-.mzn-settings .status .dot{width:8px;height:8px;border-radius:50%;background:#3b4050}
-.mzn-settings .status.on .dot{background:#3ddc84;box-shadow:0 0 8px #3ddc84}
-.mzn-settings .status.off .dot{background:#ff6f61}
-
-@media (prefers-reduced-motion:reduce){
-  #mzn-fab,.mzn-panel,.mzn-typing i{animation:none!important}
-}
-</style>
-
-<button id="mzn-fab" aria-label="افتح المساعد الذكي">
-  <svg class="mzn-body" viewBox="0 0 100 120" width="80" height="80">
-    <defs>
-      <linearGradient id="mznGold" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#F8E08A"/>
-        <stop offset="0.45" stop-color="#D4AF37"/>
-        <stop offset="1" stop-color="#8B6914"/>
-      </linearGradient>
-      <linearGradient id="mznGoldLight" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#FFF3C4"/>
-        <stop offset="1" stop-color="#E5C158"/>
-      </linearGradient>
-      <linearGradient id="mznNavy" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#1a2a5e"/>
-        <stop offset="1" stop-color="#0a1128"/>
-      </linearGradient>
-      <radialGradient id="mznEyeGlow" cx="0.35" cy="0.35" r="0.7">
-        <stop offset="0" stop-color="#3a5aae"/>
-        <stop offset="1" stop-color="#0a1128"/>
-      </radialGradient>
-    </defs>
-    <ellipse cx="50" cy="115" rx="26" ry="3.5" fill="rgba(0,0,0,.4)"/>
-    <path d="M16 60 Q6 82 16 102 Q26 92 28 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M84 60 Q94 82 84 102 Q74 92 72 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M20 72 Q16 82 20 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-    <path d="M80 72 Q84 82 80 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-    <ellipse cx="50" cy="80" rx="32" ry="37" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
-    <ellipse cx="50" cy="84" rx="22" ry="27" fill="url(#mznGoldLight)" opacity=".85"/>
-    <path d="M36 74 Q40 80 36 86 Q40 92 36 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M44 72 Q48 78 44 84 Q48 90 44 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M50 71 Q54 77 50 83 Q54 89 50 95" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M56 72 Q60 78 56 84 Q60 90 56 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M64 74 Q60 80 64 86 Q60 92 64 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M27 42 Q20 18 30 8 Q40 22 42 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-    <path d="M73 42 Q80 18 70 8 Q60 22 58 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-    <circle cx="50" cy="43" r="33" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
-    <path d="M50 30 Q34 32 29 46 Q27 56 38 61 Q45 64 50 61 Q55 64 62 61 Q73 56 71 46 Q66 32 50 30 Z" fill="url(#mznGoldLight)" stroke="#8B6914" stroke-width="1.5" stroke-linejoin="round"/>
-    <circle cx="37" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
-    <circle cx="63" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
-    <circle cx="37" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-    <circle cx="63" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-    <circle cx="37" cy="43" r="10" fill="url(#mznEyeGlow)"/>
-    <circle cx="63" cy="43" r="10" fill="url(#mznEyeGlow)"/>
-    <circle cx="37" cy="43" r="5" fill="#0a1128"/>
-    <circle cx="63" cy="43" r="5" fill="#0a1128"/>
-    <circle cx="40" cy="39" r="2.8" fill="#fff"/>
-    <circle cx="66" cy="39" r="2.8" fill="#fff"/>
-    <circle cx="34.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
-    <circle cx="60.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
-    <path d="M50 53 L43 63 Q50 67 57 63 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M43 63 Q50 66 57 63" stroke="#3a2a0a" stroke-width="1.3" fill="none"/>
-    <ellipse cx="43" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-    <ellipse cx="57" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-    <path d="M40 113 L46 113 M40 116 L46 116" stroke="#3a2a0a" stroke-width="1.1"/>
-    <path d="M54 113 L60 113 M54 116 L60 116" stroke="#3a2a0a" stroke-width="1.1"/>
-  </svg>
-  <span class="mzn-badge" id="mzn-badge" hidden>0</span>
-</button>
-
-<div id="mzn-chat" class="mzn-chat" role="dialog" aria-modal="true">
-  <div class="mzn-chat-bg" id="mzn-chat-bg"></div>
-  <div class="mzn-panel">
-    <div class="mzn-head">
-      <div class="av">
-        <svg viewBox="0 0 100 100" width="42" height="42">
-          <defs>
-            <linearGradient id="mznGoldH" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#F8E08A"/>
-              <stop offset="1" stop-color="#D4AF37"/>
-            </linearGradient>
-            <linearGradient id="mznNavyH" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#1a2a5e"/>
-              <stop offset="1" stop-color="#0a1128"/>
-            </linearGradient>
-          </defs>
-          <path d="M28 42 Q22 22 30 12 Q38 24 42 38 Z" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2"/>
-          <path d="M72 42 Q78 22 70 12 Q62 24 58 38 Z" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2"/>
-          <circle cx="50" cy="55" r="32" fill="url(#mznGoldH)" stroke="#3a2a0a" stroke-width="2.5"/>
-          <ellipse cx="50" cy="58" rx="24" ry="20" fill="#FFF3C4"/>
-          <circle cx="37" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-          <circle cx="63" cy="52" r="12" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-          <circle cx="37" cy="52" r="9" fill="url(#mznNavyH)"/>
-          <circle cx="63" cy="52" r="9" fill="url(#mznNavyH)"/>
-          <circle cx="37" cy="52" r="4.5" fill="#0a1128"/>
-          <circle cx="63" cy="52" r="4.5" fill="#0a1128"/>
-          <circle cx="39.5" cy="49" r="2.2" fill="#fff"/>
-          <circle cx="65.5" cy="49" r="2.2" fill="#fff"/>
-          <path d="M50 62 L44 71 Q50 75 56 71 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-        </svg>
-      </div>
-      <div class="info">
-        <b>مُزن</b>
-        <small id="mzn-status">مساعدك الذكي 🦉</small>
-      </div>
-      <button id="mzn-voice" title="الصوت" aria-label="تفعيل الصوت">🔊</button>
-      <button id="mzn-settings-btn" title="الإعدادات" aria-label="الإعدادات">⚙️</button>
-      <button id="mzn-close" aria-label="إغلاق">✕</button>
-    </div>
-
-    <div class="mzn-body" id="mzn-body"></div>
-    <div class="mzn-chips" id="mzn-chips"></div>
-    <div class="mzn-inputrow">
-      <button class="mic" id="mzn-mic" aria-label="تحدث">🎤</button>
-      <input id="mzn-input" placeholder="اكتب سؤالك..." autocomplete="off">
-      <button id="mzn-send" aria-label="إرسال">➤</button>
-    </div>
-
-    <div class="mzn-settings" id="mzn-settings">
-      <h3>⚙️ إعدادات مُزن</h3>
-
-      <label>حالة مزوّدي الذكاء الاصطناعي</label>
-      <div class="status" id="mzn-st-groq"><span>🟢 Groq (Llama 3.3)</span><span class="dot"></span></div>
-      <div class="status" id="mzn-st-gemini"><span>🔵 Gemini</span><span class="dot"></span></div>
-      <div class="status" id="mzn-st-or"><span>🟣 OpenRouter</span><span class="dot"></span></div>
-
-      <label>🎙️ الصوت</label>
-      <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الأصوات الأفضل تظهر في Edge (Neural).</div>
-
-      <label>🎚️ سرعة الصوت</label>
-      <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
-
-      <div class="info">
-        💡 <b>نصيحة:</b> استخدم <b>Microsoft Edge</b> على الكمبيوتر — أصواته العربية الطبيعية جداً.
-      </div>
-
-      <div class="row">
-        <button class="test" id="mzn-test-voice">🎤 اختبار</button>
-        <button class="cancel" id="mzn-settings-close">إلغاء</button>
-        <button class="save" id="mzn-settings-save">حفظ</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
 /* ═══════════════════════════════════════════════════════════════
    MUZN BUDDY v6 — Groq + Gemini + OpenRouter + HR ذكي
@@ -10772,9 +10373,6 @@ window.closeSheet = closeSheet;
 (function () {
 'use strict';
 
-/* ╔══════════════════════════════════════════════════════════╗
-   ║  🔑 المفاتيح — كل الموظفين يستخدمونها تلقائياً          ║
-   ╚══════════════════════════════════════════════════════════╝ */
 var GROQ_KEY = '';
 var GEMINI_KEY = '';
 var OPENROUTER_KEY = '';
@@ -10799,8 +10397,6 @@ async function loadAIKeys() {
   } catch(e) { console.warn('[AI Keys ❌]', e.message); }
 }
 
-
-/* ═══ تخزين ═══ */
 var CFG_KEY = 'muzn_buddy_v6_cfg';
 var TARGET_KEY = 'muzn_buddy_targets';
 
@@ -10817,7 +10413,6 @@ function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(C)); } c
 function loadTargets() { try { var r = localStorage.getItem(TARGET_KEY); if (r) return JSON.parse(r); } catch(e){} return {}; }
 function saveTargets(t) { try { localStorage.setItem(TARGET_KEY, JSON.stringify(t)); } catch(e){} }
 
-/* ═══ أدوات ═══ */
 function $(id){ return document.getElementById(id); }
 function TODAY() {
   var d = new Date();
@@ -10889,7 +10484,7 @@ if (window.speechSynthesis) {
 function splitSentences(text) {
   var clean = String(text||'')
     .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/[🦉📊💰✅⚠️🔴🟢🎯📦📋💳🎁📢👋☀️🌙🌤️🌆💪✨😊😉👀🌟➤🥇🥈🥉⏳💵💼🏆📈🎤⚙️🔊🔇💡🎉]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
     .replace(/—/g, '،').replace(/\s+/g, ' ').trim();
   return clean.split(/(?<=[.!؟،:])\s+/).filter(function(s){ return s.trim().length > 1; });
 }
@@ -11033,9 +10628,7 @@ function denyMsg(cat) {
   return '🔒 قسم "' + (map[cat]||cat) + '" خارج صلاحياتك.';
 }
 
-/* ═══════════════════════════════════════════════════════════
-   👥 دوال HR
-   ═══════════════════════════════════════════════════════════ */
+/* ═══ HR ═══ */
 function avgDailySales(userName, days) {
   var total = 0, count = 0;
   for (var i = 1; i <= days; i++) {
@@ -11050,15 +10643,9 @@ function suggestTarget(userName) {
   var avg30 = avgDailySales(userName, 30);
   var avg7  = avgDailySales(userName, 7);
   var avg = avg30 > 0 ? (avg30 * 0.7 + avg7 * 0.3) : avg7;
-  if (avg <= 0) {
-    return { daily: DEFAULT_DAILY_TARGET, weekly: DEFAULT_DAILY_TARGET*7, monthly: DEFAULT_DAILY_TARGET*30, reason: 'لا توجد بيانات كافية — هدف ابتدائي' };
-  }
-  var daily = Math.ceil((avg * (1 + TARGET_RAISE_PCT/100)) / 50) * 50;
-  return {
-    daily: daily, weekly: daily*7, monthly: daily*30,
-    avg7: Math.round(avg7), avg30: Math.round(avg30),
-    reason: 'متوسطك اليومي: ' + Math.round(avg30) + ' — رفعت الهدف ' + TARGET_RAISE_PCT + '% للتحدي'
-  };
+  if (avg <= 0) return { daily: 500, weekly: 3500, monthly: 15000, reason: 'هدف ابتدائي' };
+  var daily = Math.ceil((avg * 1.15) / 50) * 50;
+  return { daily: daily, weekly: daily*7, monthly: daily*30, reason: 'متوسطك اليومي: ' + Math.round(avg30) + ' — رفعت الهدف 15% للتحدي' };
 }
 function closeMyShift() {
   var m = M(), s = store(), u = me();
@@ -11068,12 +10655,12 @@ function closeMyShift() {
   if (!shift) return { ok: false, msg: 'ما عندك وردية مفتوحة اليوم.' };
   var dur = Math.round((Date.now() - shift.checkin_ts) / 60000);
   var hours = Math.round(dur / 60 * 10) / 10;
-  var patch = { checkout_ts: Date.now(), closed: true, note: 'أُغلقت بواسطة مُزن 🦉' };
+  var patch = { checkout_ts: Date.now(), closed: true, note: 'أُغلقت بواسطة مُزن' };
   try {
     if (m && m.adapter && m.adapter.updateSimple) m.adapter.updateSimple('attendance_shifts', shift.id, patch);
     Object.assign(shift, patch);
-  } catch(e) { return { ok: false, msg: 'تعذر الإغلاق: ' + e.message }; }
-  return { ok: true, duration: dur, hours: hours, shift: shift };
+  } catch(e) { return { ok: false, msg: 'تعذر الإغلاق.' }; }
+  return { ok: true, duration: dur, hours: hours };
 }
 function myAttendance(days) {
   var s = store(), u = me();
@@ -11093,7 +10680,7 @@ function myAttendance(days) {
     var ds = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     if (!daysWorked[ds]) absences.push(ds);
   }
-  return { totalShifts: mine.length, uniqueDays: Object.keys(daysWorked).length, hours: Math.round(totalMin/60*10)/10, absences: absences, shifts: mine.sort(function(a,b){ return (b.checkin_ts||0)-(a.checkin_ts||0); }) };
+  return { totalShifts: mine.length, uniqueDays: Object.keys(daysWorked).length, hours: Math.round(totalMin/60*10)/10, absences: absences };
 }
 function isLateToday() {
   var s = store(), u = me();
@@ -11107,7 +10694,7 @@ function isLateToday() {
   return {
     late: checkinHour >= threshold || checkinHour < 5,
     early: checkinHour < ((s.company && s.company.shift_early_threshold) || 5),
-    hour: checkinHour, threshold: threshold,
+    threshold: threshold,
     time: start.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' }),
     duration: shift.closed ? Math.round((shift.checkout_ts - shift.checkin_ts)/60000) : Math.round((Date.now() - shift.checkin_ts)/60000),
     closed: shift.closed
@@ -11183,9 +10770,7 @@ function managerAdvice() {
   return tips;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   🧠 محرك الفهم
-   ═══════════════════════════════════════════════════════════ */
+/* ═══ محرك الفهم ═══ */
 function norm(t) {
   return String(t||'').toLowerCase()
     .replace(/[إأآا]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
@@ -11204,7 +10789,6 @@ function detectIntent(raw) {
 
   if (anyHas(t, ['سلام','مرحب','هاي','اهلا','هلا','صباح','مساء','hi','hello'])) add('greet', 5);
   if (anyHas(t, ['مساعده','ساعدني','كيف استخدم','اشرح لي','شرح','help'])) add('help', 10);
-
   if (has(t,'السنه') || has(t,'سنه') || has(t,'سنة')) add('sales_year', 80);
   if (has(t,'ربح') || has(t,'ارباح') || has(t,'ربحت') || has(t,'مكسب')) add('profit', 90);
   if (/\d{1,2}\s*[\/\-]\s*\d{1,2}/.test(t)) add('specific_date', 85);
@@ -11231,21 +10815,17 @@ function detectIntent(raw) {
   if (has(t,'شكوى') || has(t,'شكوه') || has(t,'اشتكي')) add('complaint', 100);
   if (has(t,'من انت') || has(t,'اسمك')) add('who', 80);
   if (has(t,'شكرا') || has(t,'مشكور')) add('thanks', 60);
-
-  /* HR */
   if (has(t,'اقترح') && has(t,'هدف')) add('suggest_target', 110);
   if (has(t,'حدد') && has(t,'هدفي') && !/\d/.test(t)) add('suggest_target', 100);
-  if ((has(t,'اغلق') || has(t,'انهي')) && (has(t,'الورديه') || has(t,'الشفت') || has(t,'ورديتي') || has(t,'ورديه'))) add('close_shift', 100);
+  if ((has(t,'اغلق') || has(t,'انهي')) && (has(t,'الورديه') || has(t,'الشفت') || has(t,'ورديتي'))) add('close_shift', 100);
   if (has(t,'ورديتي') || has(t,'شفتي')) add('shift_status', 80);
   if (has(t,'هل انا مسجل') || has(t,'حضوري اليوم')) add('shift_status', 85);
   if (has(t,'هل تاخرت') || has(t,'تاخرت اليوم')) add('late_check', 100);
   if ((has(t,'كم يوم') && has(t,'غبت')) || has(t,'سجل حضوري') || has(t,'ايام غيابي')) add('absence_report', 100);
   if (has(t,'مكافات') && (has(t,'الفريق') || has(t,'الشهر') || has(t,'الاسبوع'))) add('team_rewards', 90);
-  if (has(t,'من') && has(t,'مستحق') && has(t,'مكافاه')) add('team_rewards', 90);
   if (has(t,'حلل') && (has(t,'مبيعاتي') || has(t,'ادائي'))) add('analyze_self', 90);
-  if (has(t,'كيف') && has(t,'ادائي')) add('analyze_self', 90);
   if (has(t,'حلل') && has(t,'انتاج')) add('analyze_production', 90);
-  if (has(t,'استشاره') || has(t,'نصيحه') || has(t,'ما رايك') || has(t,'شور')) add('consultant', 90);
+  if (has(t,'استشاره') || has(t,'نصيحه') || has(t,'شور')) add('consultant', 90);
   if (has(t,'قارن') && (has(t,'الشهر') || has(t,'الماضي'))) add('compare', 90);
 
   var best = null, bs = 0;
@@ -11267,15 +10847,13 @@ function buildReply(intent, raw) {
       return { text: t + ' ' + name + '! 🦉\nاسألني عن مبيعاتك، أرباحك، ديونك، أو أي شيء.' };
     }
     case 'help':
-      return { text: '🦉 *أنا مُزن — مساعدك الذكي.*\n\nاقدر أساعدك في:\n• 📊 مبيعاتك (اليوم/الأسبوع/الشهر/السنة)\n• 💰 الأرباح (للمدير)\n• 📅 تاريخ محدد: "مبيعات 10/3"\n• 💵 من دفع اليوم\n• 💳 الديون\n• 🎯 هدفك: "اقترح لي هدف" أو "حدد هدفي 2000"\n• 🕐 "أغلق ورديتي"، "ورديتي اليوم"\n• ⚠️ "هل تأخرت اليوم"، "كم يوم غبت"\n• 🎁 "مكافآت الفريق"\n• 📈 "حلل أدائي"، "قارن الشهور"\n• 🧠 "استشارة" (للمدير)\n• 📦 المخزون\n• 📢 شكوى: "شكوى: نص"\n\nاكتب أي سؤال ✨' };
-
+      return { text: '🦉 *أنا مُزن — مساعدك الذكي.*\n\nاقدر أساعدك في:\n• 📊 مبيعاتك (اليوم/الأسبوع/الشهر/السنة)\n• 💰 الأرباح (للمدير)\n• 📅 تاريخ محدد: "مبيعات 10/3"\n• 💵 من دفع اليوم\n• 💳 الديون\n• 🎯 "اقترح لي هدف" أو "حدد هدفي 2000"\n• 🕐 "أغلق ورديتي"، "ورديتي اليوم"\n• ⚠️ "هل تأخرت اليوم"، "كم يوم غبت"\n• 🎁 "مكافآت الفريق"\n• 📈 "حلل أدائي"، "قارن الشهور"\n• 🧠 "استشارة" (للمدير)\n• 📦 المخزون\n• 📢 "شكوى: نص"\n\nاكتب أي سؤال ✨' };
     case 'sales_year': {
       if (!canAccess('sales')) return { text: denyMsg('sales') };
       var s3 = store(); if (!s3) return { text: 'لا بيانات.' };
       var arr = isAdmin ? salesYear() : salesYear(u.name);
       if (!arr.length) return { text: 'لا مبيعات في ' + YEAR() };
-      var total = sumSales(arr);
-      var lines = ['📊 *مبيعات ' + YEAR() + '*', '• الفواتير: ' + arr.length, '• الإجمالي: ' + fmt(total) + ' ' + cn];
+      var lines = ['📊 *مبيعات ' + YEAR() + '*', '• الفواتير: ' + arr.length, '• الإجمالي: ' + fmt(sumSales(arr)) + ' ' + cn];
       if (isAdmin) {
         var its = (s3.sale_items_flat||[]).filter(function(x){ return x.date.slice(0,4) === YEAR(); });
         var rev = its.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
@@ -11298,7 +10876,7 @@ function buildReply(intent, raw) {
       var ys = yd.getFullYear()+'-'+String(yd.getMonth()+1).padStart(2,'0')+'-'+String(yd.getDate()).padStart(2,'0');
       var arr2 = salesInRange(ys, ys, isAdmin ? null : u.name);
       if (!arr2.length) return { text: 'أمس ما فيه مبيعات.' };
-      return { text: '📊 *مبيعات أمس (' + ys + ')*\n• الفواتير: ' + arr2.length + '\n• الإجمالي: ' + fmt(sumSales(arr2)) + ' ' + cn };
+      return { text: '📊 *مبيعات أمس*\n• الفواتير: ' + arr2.length + '\n• الإجمالي: ' + fmt(sumSales(arr2)) + ' ' + cn };
     }
     case 'sales_month': {
       if (!canAccess('sales')) return { text: denyMsg('sales') };
@@ -11348,8 +10926,7 @@ function buildReply(intent, raw) {
       var ds = YEAR() + '-' + String(mon).padStart(2,'0') + '-' + String(day).padStart(2,'0');
       var arrD = salesInRange(ds, ds, isAdmin ? null : u.name);
       if (!arrD.length) return { text: 'لا مبيعات بتاريخ ' + ds };
-      var l3 = ['📊 *مبيعات ' + ds + '*', '• الفواتير: ' + arrD.length, '• الإجمالي: ' + fmt(sumSales(arrD)) + ' ' + cn];
-      return { text: l3.join('\n') };
+      return { text: '📊 *مبيعات ' + ds + '*\n• الفواتير: ' + arrD.length + '\n• الإجمالي: ' + fmt(sumSales(arrD)) + ' ' + cn };
     }
     case 'payments_today': {
       if (!canAccess('collections') && !canAccess('sales')) return { text: denyMsg('collections') };
@@ -11416,10 +10993,10 @@ function buildReply(intent, raw) {
       if (!ct) return { text: 'ما عندك هدف. اكتب: "اقترح لي هدف"' };
       var tt = sumSales(salesToday(u.name));
       var p2 = Math.min(Math.round(tt/ct*100),100);
-      var r2 = Math.max(ct-tt,0);
+      var r2v = Math.max(ct-tt,0);
       var l9 = ['🎯 *هدفك*', '• الهدف: ' + fmt(ct) + ' ' + cn, '• أنجزت: ' + fmt(tt) + ' ' + cn, '• التقدم: ' + p2 + '%'];
-      if (r2 <= 0) l9.push('\n🎉 حققت هدفك!');
-      else l9.push('\nباقي: ' + fmt(r2) + ' ' + cn + ' 💪');
+      if (r2v <= 0) l9.push('\n🎉 حققت هدفك!');
+      else l9.push('\nباقي: ' + fmt(r2v) + ' ' + cn + ' 💪');
       return { text: l9.join('\n'), progress: p2 };
     }
     case 'suggest_target': {
@@ -11568,74 +11145,43 @@ function buildReply(intent, raw) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   🧠 AI Providers
-   ═══════════════════════════════════════════════════════════ */
+/* ═══ AI Providers ═══ */
 function buildSystemPrompt() {
   var u = me(); var s = store(); var cn = cur(); var role = getRole();
   var isAdmin = u && u.role === 'admin'; var un = u ? u.name : null;
-
   var ctx = {
     الشركة: (s && s.company && s.company.name) || 'MUZN',
     اليوم: TODAY(), الشهر: MONTH(), السنة: YEAR(),
     المستخدم: un || 'زائر', الدور: role, العملة: cn
   };
-
   var sT = isAdmin ? salesToday() : salesToday(un);
   var sM = isAdmin ? salesMonth() : salesMonth(un);
   var sY = isAdmin ? salesYear() : salesYear(un);
   ctx.مبيعات_اليوم = { فواتير: sT.length, إجمالي: r3(sumSales(sT)) };
   ctx.مبيعات_الشهر = { فواتير: sM.length, إجمالي: r3(sumSales(sM)) };
   ctx.مبيعات_السنة = { فواتير: sY.length, إجمالي: r3(sumSales(sY)) };
-
   if (isAdmin && s) {
     var it = s.sale_items_flat || [];
     var rev = it.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
     var cost = it.reduce(function(t,x){ var p = s.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.dist_price||p.price||0); }, 0);
     ctx.الأرباح_الإجمالية = { إيراد: r3(rev), تكلفة: r3(cost), ربح: r3(rev-cost) };
-    var bd = {};
-    it.filter(function(x){ return x.date === TODAY(); }).forEach(function(x){
-      var k = x.distributor_id || '__d__';
-      bd[k] = (bd[k]||0) + (x.qty*x.price-(x.discount||0));
-    });
-    ctx.مبيعات_اليوم_حسب_الموزع = Object.keys(bd).map(function(k){
-      var d = k === '__d__' ? {name:'بيع مباشر'} : ((s.distributors||[]).find(function(y){return y.id===k;})||{name:'؟'});
-      return d.name + ': ' + r3(bd[k]);
-    }).join(' | ');
   }
-
   var ov = overdueCustomers();
   ctx.عملاء_متأخرون = { عدد: ov.length, قائمة: ov.slice(0,10).map(function(x){ return x.c.name + ' (' + r3(x.remaining) + ')'; }).join('، ') };
-
   var dd = distsWithDebt();
   ctx.ديون_الموزعين = { عدد: dd.length, قائمة: dd.slice(0,10).map(function(x){ return x.d.name + ' (' + r3(x.bal) + ')'; }).join('، ') };
-
   var ls = lowStock();
   ctx.نواقص = { منتجات: ls.products.slice(0,8).map(function(p){ return p.name; }).join('، '), مواد: ls.materials.slice(0,8).map(function(m){ return m.name; }).join('، ') };
   ctx.طلبات_معلقة = pendingPRs().length;
   var tgt = myTarget();
   if (tgt) ctx.هدفي = { القيمة: tgt, أنجزت: r3(sumSales(sT)) };
-
   var lc = isLateToday();
   if (lc && !lc.noShift) ctx.ورديتي = { بدأت: lc.time, متأخر: lc.late, مغلقة: lc.closed };
-
   return [
     'أنت "مُزن" 🦉 — مساعد ذكي ودود في MUZN Operations (إدارة مبيعات وإنتاج في ليبيا).',
-    '',
-    'شخصيتك:',
-    '- عربي بأسلوب ودود، محفّز، مختصر',
-    '- تجيب بالتفصيل عند الحاجة، باختصار عند عدمها',
-    '- أرقام حقيقية من السياق فقط — لا تختلق',
-    '- إيموجي باعتدال',
-    '',
-    '📊 البيانات الآن:',
-    JSON.stringify(ctx, null, 2),
-    '',
-    'قواعد:',
-    '1. دور المستخدم "' + role + '" — احترم الصلاحيات',
-    '2. العملة: ' + cn,
-    '3. لا تخترع أرقاماً',
-    '4. أجب بالعربية الليبية/الفصحى المبسّطة'
+    'شخصيتك: عربي ودود، محفّز، مختصر. أرقام حقيقية فقط. إيموجي باعتدال.',
+    '📊 البيانات الآن:', JSON.stringify(ctx, null, 2),
+    'قواعد: دور المستخدم "' + role + '". العملة: ' + cn + '. لا تخترع أرقاماً. أجب بالعربية.'
   ].join('\n');
 }
 
@@ -11647,7 +11193,7 @@ function askGroq(userMsg, history) {
   return fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_KEY },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: msgs, temperature: 0.75, max_tokens: 800, top_p: 0.95 })
+    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: msgs, temperature: 0.75, max_tokens: 800 })
   }).then(function(r){
     return r.json().then(function(d){
       if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
@@ -11664,7 +11210,6 @@ function askGemini(userMsg, history) {
   var contents = [];
   (history||[]).slice(-8).forEach(function(h){ contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: String(h.text||'').slice(0,600) }] }); });
   contents.push({ role: 'user', parts: [{ text: buildSystemPrompt() + '\n\n---\n\nسؤال: ' + userMsg }] });
-
   function tryM(i) {
     if (i >= models.length) return Promise.reject(new Error('all gemini failed'));
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + GEMINI_KEY;
@@ -11673,13 +11218,7 @@ function askGemini(userMsg, history) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: contents,
-        generationConfig: { temperature: 0.75, maxOutputTokens: 800, topP: 0.95 },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-        ]
+        generationConfig: { temperature: 0.75, maxOutputTokens: 800 }
       })
     }).then(function(r){ return r.json().then(function(d){
       if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
@@ -11718,7 +11257,6 @@ function askAI(userMsg, history) {
   if (GEMINI_KEY)     chain.push({ name: 'Gemini',     fn: askGemini });
   if (OPENROUTER_KEY) chain.push({ name: 'OpenRouter', fn: askOpenRouter });
   if (!chain.length) return Promise.reject(new Error('no provider'));
-
   function tryN(i) {
     if (i >= chain.length) return Promise.reject(new Error('all failed'));
     var p = chain[i];
@@ -11828,31 +11366,25 @@ function smartGreeting() {
   var t = h<12 ? 'صباح الخير ☀️' : h<18 ? 'مساء الخير 🌤️' : 'مساء النجاح 🌆';
   var cn = cur(); var role = getRole();
   var lines = [t + ' ' + name + '! 🦉'];
-
   var lc = isLateToday();
   if (lc && !lc.noShift) {
     if (lc.late) lines.push('⚠️ تأخرت اليوم — بدأت ' + lc.time);
     else if (lc.early) lines.push('🌅 جيت بدري اليوم!');
   } else if (lc && lc.noShift) lines.push('⏸️ ما سجّلت حضورك اليوم.');
-
   var arrT = role === 'admin' ? salesToday() : salesToday(u.name);
   var tt = sumSales(arrT);
   if (arrT.length) lines.push('💰 اليوم: ' + arrT.length + ' فاتورة — ' + fmt(tt) + ' ' + cn);
   else lines.push('ما فيه مبيعات لسّه.');
-
   var tgt = myTarget();
   if (tgt) {
     var pct = Math.min(Math.round(tt/tgt*100),100);
-    var rem = Math.max(tgt-tt,0);
     if (pct >= 100) lines.push('🎉 حققت هدفك!');
     else lines.push('🎯 هدفك ' + fmt(tgt) + ' — ' + pct + '%');
   } else if (role === 'admin') lines.push('قول "اقترح لي هدف" وأحسبه من أدائك.');
-
   var ls = lowStock();
   if (ls.products.length + ls.materials.length) lines.push('⚠️ عندك نواقص.');
   var ov = overdueCustomers();
   if (ov.length) lines.push('💳 ' + ov.length + ' عميل متأخر — اسأل "الديون".');
-
   lines.push('\nاسألني 👇');
   return lines.join('\n');
 }
@@ -11891,11 +11423,7 @@ function boot() {
   badgeEl = $('mzn-badge'); settingsEl = $('mzn-settings');
   if (!fab) return;
 
-  var prov = [];
-  if (GROQ_KEY) prov.push('Groq');
-  if (GEMINI_KEY) prov.push('Gemini');
-  if (OPENROUTER_KEY) prov.push('OpenRouter');
-  console.log('[MUZN Buddy v6] مزودو AI:', prov.length ? prov.join(' + ') : 'قاعدة فقط');
+  console.log('[MUZN Buddy v6] جاهز — في انتظار المفاتيح');
 
   fab.onclick = openChat;
   $('mzn-chat-bg').onclick = closeChat;
@@ -11905,7 +11433,7 @@ function boot() {
   $('mzn-settings-save').onclick = saveSettings;
   $('mzn-test-voice').onclick = function(){
     var old = C.voice; C.voice = true;
-    speak('مرحباً، أنا مُزن، مساعدك الذكي في تطبيق مُزن أوبراشنز.');
+    speak('مرحباً، أنا مُزن، مساعدك الذكي.');
     setTimeout(function(){ C.voice = old; }, 5000);
   };
 
@@ -11944,6 +11472,9 @@ function boot() {
   updateBadge();
   setInterval(updateBadge, 30000);
 
+  // ✅ استدعِ تحميل المفاتيح من Supabase
+  loadAIKeys();
+
   var w = setInterval(function(){
     if (window.__muzn && window.__muzn.user) {
       clearInterval(w); buildChips(); updateBadge();
@@ -11959,9 +11490,7 @@ function updateBadge() {
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-else 
-  loadAIKeys();
-  boot();
+else boot();
 
 })();
 </script>
