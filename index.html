@@ -11449,29 +11449,81 @@ function emotionalResponse(emotion, originalText) {
   }
 }
 
-var LEARNED_KEY = 'muzn_buddy_learned';
+/* ═══ التعليم — نسخة Supabase مع fallback محلي ═══ */
+var LEARNED_KEY = 'muzn_buddy_learned_v2';
+var _learnedCache = null;
+
 function getLearnedFacts() {
+  // fallback سريع (متزامن) — للاستخدام في buildSystemPrompt
+  if (_learnedCache) return _learnedCache;
   try { var r = localStorage.getItem(LEARNED_KEY); return r ? JSON.parse(r) : []; }
   catch(e) { return []; }
 }
-function saveLearnedFacts(facts) {
+
+function saveLearnedFactsLocal(facts) {
+  _learnedCache = facts;
   try { localStorage.setItem(LEARNED_KEY, JSON.stringify(facts)); } catch(e){}
 }
-function addLearnedFact(text, category) {
-  var facts = getLearnedFacts();
-  facts.unshift({ id: Date.now(), text: text, category: category || 'عام',
-    by: me() ? me().name : 'غير معروف', ts: Date.now() });
-  facts = facts.slice(0, 100);
-  saveLearnedFacts(facts);
-  return facts[0];
+
+async function loadLearnedFromCloud() {
+  var m = M();
+  if (!m || !m.adapter || !m.adapter.sb) return;
+  try {
+    var r = await m.adapter.sb.from('buddy_learned').select('*').order('created_at', {ascending: false}).limit(100);
+    if (r.error) throw r.error;
+    if (r.data) {
+      var facts = r.data.map(function(x){
+        return { id: x.id, text: x.text, category: x.category || 'عام',
+                 by: x.by_name || '—', ts: x.ts || Date.now() };
+      });
+      saveLearnedFactsLocal(facts);
+      console.log('[Learned ✅] تم تحميل ' + facts.length + ' معلومة من السحابة');
+    }
+  } catch(e) {
+    console.warn('[Learned ❌]', e.message);
+  }
 }
+
+async function addLearnedFact(text, category) {
+  var u = me();
+  var fact = {
+    id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('f-' + Date.now()),
+    text: text, category: category || 'عام',
+    by: u ? u.name : 'غير معروف',
+    ts: Date.now()
+  };
+
+  // احفظ محلياً فوراً
+  var facts = getLearnedFacts();
+  facts.unshift(fact);
+  facts = facts.slice(0, 100);
+  saveLearnedFactsLocal(facts);
+
+  // احفظ في السحابة
+  var m = M();
+  if (m && m.adapter && m.adapter.sb) {
+    try {
+      await m.adapter.sb.from('buddy_learned').insert({
+        id: fact.id, text: fact.text, category: fact.category,
+        by_name: fact.by, ts: fact.ts
+      });
+      console.log('[Learned ✅] حُفظت في السحابة');
+    } catch(e) {
+      console.warn('[Learned ❌] فشل الحفظ السحابي:', e.message);
+    }
+  }
+  return fact;
+}
+
 function getLearnedContext() {
   var facts = getLearnedFacts();
   if (!facts.length) return '';
-  return '\n\n📚 معلومات تعلمتها من المدير:\n' +
-    facts.slice(0, 15).map(function(f){ return '• ' + f.text; }).join('\n');
+  return '\n\n📚 معلومات تعلمتها من المدير (التزم بها):\n' +
+    facts.slice(0, 20).map(function(f){ return '• ' + f.text; }).join('\n');
 }
 
+// حمّل من السحابة عند الإقلاع
+setTimeout(function(){ loadLearnedFromCloud(); }, 3000);
 /* ═══ buildReply ═══ */
 function buildReply(intent, raw) {
   var u = me();
