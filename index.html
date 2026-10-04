@@ -12317,10 +12317,10 @@ function buildSystemPrompt() {
     '• لا تستخدم جداول Markdown (|) — استخدم نقاط •',
     '',
     '📊 بيانات التطبيق الحالية (استخدمها فقط):',
-    JSON.stringify(ctx, null, 2),
+    JSON.stringify(ctx),
     '',
     '📋 المهام المقترحة اليوم:',
-    tasks.length ? tasks.slice(0, 8).map(function(t){
+    tasks.length ? tasks.slice(0, /مهام|افعل|اسوي|أسوي|اولوي|نصيح|اقترح/.test(nz(LASTQ)) ? 8 : 2).map(function(t){
       return '• ' + t.title + ' — ' + t.reason;
     }).join('\n') : '• لا مهام عاجلة',
     '',
@@ -12359,7 +12359,7 @@ function askGroq(userMsg, history) {
   'openai/gpt-oss-20b'     // احتياط سريع
 ];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
-  (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
+  (history||[]).slice(-4).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,350) }); });
   msgs.push({ role: 'user', content: userMsg });
 
   function tryM(i) {
@@ -12412,7 +12412,7 @@ function orFreeModels() {
 function askOpenRouter(userMsg, history) {
   if (!OPENROUTER_KEY) return Promise.reject(new Error('no openrouter key'));
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
-  (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
+  (history||[]).slice(-4).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,350) }); });
   msgs.push({ role: 'user', content: userMsg });
 
   return orFreeModels().then(function(models){
@@ -12421,7 +12421,7 @@ function askOpenRouter(userMsg, history) {
       return fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENROUTER_KEY },
-        body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 1200, reasoning: { enabled: false } })
+        body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 700, reasoning: { enabled: false } })
       }).then(function(r){ return r.json().then(function(d){
         if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
         var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
@@ -13049,7 +13049,7 @@ function fillImport(j){
   var isP=j.type!=='withdrawal',items=(j.items||[]).filter(function(i){return i&&i.name&&+i.qty>0}),mod=isP?'purchases':'withdrawals';
   if(!items.length){botSay('ما لقيت أصناف واضحة 🤔');return}
   if(!hasMod(mod)){botSay('🔒 تبدو '+(isP?'فاتورة مشتريات':'مسحوبة')+' وما عندك صلاحية قسم '+(isP?'المشتريات':'المسحوبات'));return}
-  go(mod);
+  if(!goTab(mod)){botSay('افتح قسم '+(isP?'المشتريات':'المسحوبات')+' يدوياً ثم أعد الإرسال');return}
   setTimeout(function(){var s=store(),warn=[],sum=0,L=[];
     var sup=j.supplier?fz(j.supplier,s.suppliers):null,dist=j.distributor?fz(j.distributor,s.distributors):null;
     if(isP){
@@ -13076,6 +13076,7 @@ function fillImport(j){
       (warn.length?'\n\n'+warn.map(function(w){return '• '+w}).join('\n'):'')+
       '\n\nراجع البيانات ثم اضغط *'+(isP?'حفظ المشتريات':'تسجيل السحب')+'* — لن يُحفظ شيء قبل ذلك ✋');
     var b=document.getElementById(isP?'pu-save':'wd-save');
+    setTimeout(function(){try{closeChat();showBub('جهّزت الفاتورة ✅ راجعها واضغط حفظ','happy',8000);setMood('happy');setTimeout(function(){setMood('idle')},3500)}catch(e){}},2200);
     if(b){b.scrollIntoView({behavior:'smooth',block:'center'});b.style.outline='3px solid #3ddc84';setTimeout(function(){b.style.outline=''},5000)}
   },500)}
 function mountMedia(){var row=document.querySelector('.mzn-inputrow');if(!row||row.querySelector('#mzn-att'))return;
@@ -13284,6 +13285,208 @@ function greetLogin(){var u=me();if(!u)return;var k='owl_g_'+u.id;try{if(session
 
 setTimeout(function(){try{loadVoices()}catch(e){}},3200);
 window.__owl=window.__owl||{};window.__owl.speak=speak;
+
+
+function goTab(id){
+  var b=document.querySelector('#nav button[data-tab="'+id+'"]');
+  if(b){b.click();return true}
+  var more=document.querySelector('#nav button[data-tab="__more"]');
+  if(more){more.click();setTimeout(function(){var o=document.querySelector('[data-go="'+id+'"]');if(o)o.click()},300);return true}
+  return false}
+
+/* ═══ MUZN FIX v3: رؤية Qwen + Whisper + توفير التوكن + ثبات البومة ═══ */
+var FIX_NOW=function(){return Date.now()};
+
+/* ── 1) الفواتير: نماذج الرؤية الحالية على Groq (llama-4-scout لم يعد متاحاً → 404) ── */
+var VIS_GROQ=['qwen/qwen3.8-27b','qwen/qwen3.6-27b'],VIS_OR=['google/gemma-4-31b-it:free','qwen/qwen3.8-27b:free'];
+function stripThink(t){return String(t||'').replace(/<think>[\s\S]*?<\/think>/g,'').trim()}
+function hErr(m,s){var e=new Error(m);e.status=s;return e}
+exPrompt=function(kind){
+  return 'استخرج بيانات '+(kind==='audio'?'من نص تسجيل صوتي (لهجة عربية/ليبية)':'من صورة فاتورة')+' وأعد JSON فقط بلا أي شرح: '+
+  '{"type":"purchase|withdrawal","date":"YYYY-MM-DD أو null","supplier":null,"distributor":null,"payment":"cash|credit|null","note":"","items":[{"name":"","qty":0,"unit_cost":0}]}. '+
+  'purchase=شراء مواد من مورّد، withdrawal=سحب منتجات جاهزة لموزع. الأرقام بالإنجليزية، لا تخترع قيماً غير موجودة (null). '+
+  'unit_cost=سعر الوحدة (إن ظهر الإجمالي فقط اقسمه على الكمية). اكتب الأسماء كما وردت. اليوم: '+new Date().toISOString().slice(0,10)};
+img2b64=function(file){return new Promise(function(res,rej){var im=new Image(),u=URL.createObjectURL(file);
+  im.onload=function(){var s=Math.min(1,1280/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',0.8).split(',')[1])};
+  im.onerror=function(){rej(new Error('bad image'))};im.src=u})};
+async function visionCall(url,key,model,b64,extra){
+  var body=Object.assign({model:model,temperature:0.1,max_tokens:1500,messages:[{role:'user',content:[{type:'text',text:exPrompt('image')},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}}]}]},extra||{});
+  var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify(body)});
+  if(!r.ok){var d={};try{d=await r.json()}catch(e){}throw hErr('vision '+model+' HTTP '+r.status+' '+((d.error&&d.error.message)||'').slice(0,120),r.status)}
+  var j=await r.json(),t=stripThink(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content);
+  if(t.indexOf('{')<0)throw hErr('vision '+model+' no json',0);return t}
+groqVision=async function(b64){var err;
+  if(GROQ_KEY){for(var i=0;i<VIS_GROQ.length;i++){
+    try{try{return await visionCall('https://api.groq.com/openai/v1/chat/completions',GROQ_KEY,VIS_GROQ[i],b64,{reasoning_effort:'none'})}
+        catch(e){if(e.status===400)return await visionCall('https://api.groq.com/openai/v1/chat/completions',GROQ_KEY,VIS_GROQ[i],b64,{});throw e}}
+    catch(e){err=e;console.warn('[vision]',e.message)}}}
+  if(OPENROUTER_KEY){for(var k=0;k<VIS_OR.length;k++){
+    try{return await visionCall('https://openrouter.ai/api/v1/chat/completions',OPENROUTER_KEY,VIS_OR[k],b64,{reasoning:{enabled:false}})}
+    catch(e){err=e;console.warn('[vision OR]',e.message)}}}
+  throw err||hErr('no vision provider',0)};
+
+/* ── 2) الصوت: Whisper (الـ prompt محدود ~224 توكن فاختصرناه) ── */
+groqWhisper=async function(blob){
+  var s=store(),names=(s.products||[]).slice(0,10).concat((s.materials||[]).slice(0,10)).map(function(x){return x.name}).join('، ').slice(0,110),
+      ty=blob.type||'',ext=ty.indexOf('mp4')>=0?'mp4':ty.indexOf('ogg')>=0?'ogg':'webm',err;
+  var models=['whisper-large-v3','whisper-large-v3-turbo'];
+  for(var i=0;i<models.length;i++){try{
+    var fd=new FormData();fd.append('file',blob,'voice.'+ext);fd.append('model',models[i]);fd.append('language','ar');fd.append('response_format','json');fd.append('temperature','0');
+    if(names&&i===0)fd.append('prompt',names);
+    var r=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+GROQ_KEY},body:fd});
+    if(!r.ok){var d={};try{d=await r.json()}catch(e){}throw hErr('whisper '+models[i]+' HTTP '+r.status+' '+((d.error&&d.error.message)||'').slice(0,120),r.status)}
+    var j=await r.json();return String(j.text||'').trim()}catch(e){err=e;console.warn('[whisper]',e.message)}}
+  throw err};
+function why(e,kind){var s=e&&e.status;
+  if(s===429)return 'وصلنا الحد المؤقت لـ Groq — انتظر دقيقة وأعد المحاولة ⏳';
+  if(s===401||s===403)return 'مفتاح Groq غير صالح أو غير مسموح له بهذا النموذج 🔑';
+  if(s===404)return 'نموذج القراءة غير متاح في حسابك حالياً — فعّل qwen/qwen3.8-27b في Groq (Model Permissions) أو أضف مفتاح OpenRouter 🔧';
+  if(s===413)return 'الملف كبير — جرّب صورة أصغر أو تسجيلاً أقصر';
+  return kind==='image'?'ما قدرت أقرأ الفاتورة 😕 جرّب صورة أوضح وبإضاءة أفضل.':'ما قدرت أفهم التسجيل 😕 أعد المحاولة بصوت أوضح وقريب من المايك.'}
+importDoc=async function(kind,payload){
+  if(!can('import')){botSay('🔒 ما عندك صلاحية استيراد الفواتير — اطلبها من المدير.');return}
+  if(!GROQ_KEY&&!OPENROUTER_KEY){botSay('⚠️ الاستيراد يحتاج مفتاح Groq (groq_key) في جدول app_config.');return}
+  try{var raw;
+    if(kind==='image'){statusEl.textContent='🧾 أقرأ الفاتورة...';raw=await groqVision(payload)}
+    else{
+      if(!GROQ_KEY){botSay('⚠️ الاستيراد الصوتي يحتاج مفتاح Groq.');statusEl.textContent='مساعدك الذكي 🦉';return}
+      if(payload.size<3000){botSay('التسجيل قصير جداً 🎙️ اضغط الزر، تكلّم، ثم اضغط ⏹️ مرة ثانية.');statusEl.textContent='مساعدك الذكي 🦉';return}
+      statusEl.textContent='🎧 أسمع التسجيل...';var tx=await groqWhisper(payload);
+      if(tx.length<4){botSay('ما فهمت التسجيل 😕 أعد المحاولة بصوت أوضح.');statusEl.textContent='مساعدك الذكي 🦉';return}
+      botSay('🎧 سمعتك تقول:\n«'+tx+'»');statusEl.textContent='🧾 أرتّب البيانات...';
+      raw=await llm(exPrompt('audio')+'\n\nنص التسجيل:\n'+tx+'\n\nأعد JSON فقط.')}
+    fillImport(jparse(stripThink(raw)))}
+  catch(e){console.warn('[import]',e&&e.message);botSay(why(e,kind))}
+  statusEl.textContent='مساعدك الذكي 🦉'};
+/* LLM النصي المساعد: النموذج الصغير + تفكير منخفض لتقليل التوكن */
+llm=async function(p){
+  var errs;
+  var tries=[{m:'openai/gpt-oss-20b',x:{reasoning_effort:'low',max_completion_tokens:900}},{m:'openai/gpt-oss-120b',x:{reasoning_effort:'low',max_completion_tokens:900}},{m:'qwen/qwen3.8-27b',x:{reasoning_effort:'none',max_tokens:900}}];
+  if(GROQ_KEY){for(var i=0;i<tries.length;i++){try{
+    var r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
+      body:JSON.stringify(Object.assign({model:tries[i].m,messages:[{role:'user',content:p}],temperature:0.1},tries[i].x))});
+    if(!r.ok)throw hErr('llm '+tries[i].m+' HTTP '+r.status,r.status);
+    var j=await r.json(),t=stripThink(j.choices[0].message.content);if(t)return t}catch(e){errs=e;console.warn('[llm]',e.message)}}}
+  throw errs||new Error('no llm available')};
+/* مدة التسجيل القصوى 45 ثانية */
+var _mm=mountMedia;
+mountMedia=function(){_mm();var r=document.getElementById('mzn-rec');if(!r||r._cap)return;r._cap=1;var o=r.onclick,tm=null;
+  r.onclick=function(){var was=r.textContent==='⏹️';o&&o();if(!was){clearTimeout(tm);tm=setTimeout(function(){if(r.textContent==='⏹️')r.click()},45000)}else clearTimeout(tm)}};
+
+/* ── 3) توفير التوكن ── */
+var MD={};   /* نماذج في فترة راحة بعد 429/413/404 */
+function mdUp(m){return !MD[m]||MD[m]<FIX_NOW()}
+function mdDown(m,st,hdr){var s=st===404?30*60000:st===429?(parseFloat(hdr)>0?parseFloat(hdr)*1000+2000:65000):st===413?3*60000:30000;MD[m]=FIX_NOW()+s}
+var _brc=buildRichContext;
+buildRichContext=function(){
+  var f=_brc(),q=nz(LASTQ),o={},has=function(re){return re.test(q)};
+  var show={
+    'الأرباح':has(/ربح|ارباح|مكسب|تكلف|هامش/),
+    'الذمم_من_العملاء':has(/ذمم|دين|ديون|عميل|عملاء|متاخر|مديون|مستحق|تحصيل|دفع|اجل|آجل/),
+    'ديون_الموزعين':has(/موزع|ديون|دين|مديون|مندوب/),
+    'عهدة_الموزعين':has(/عهد|بضاع|موزع/),
+    'نواقص_المخزون':has(/مخزون|نقص|ناقص|مواد|خام|منتج|مستودع|كميه|كمية|نفد|خلص/),
+    'طلبات_نواقص_معلقة':has(/طلب|نقص|ناقص|نواقص|شراء|مشتريات/),
+    'التسليمات':has(/تسليم|سلم|يسلم|موزع|ايداع/),
+    'التحصيلات':has(/تحصيل|دفع|دفعات|حصل|ذمم|قبض/)};
+  Object.keys(f).forEach(function(k){if(show.hasOwnProperty(k)){if(show[k])o[k]=f[k]}else o[k]=f[k]});
+  var c=o['الذمم_من_العملاء'];if(c&&c.كل_العملاء){c=Object.assign({},c);c.كل_العملاء=c.كل_العملاء.slice().sort(function(a,b){return b.المتبقي-a.المتبقي}).slice(0,10);o['الذمم_من_العملاء']=c}
+  var d=o['ديون_الموزعين'];if(d&&d.الموزعون){d=Object.assign({},d);d.الموزعون=d.الموزعون.slice().sort(function(a,b){return b.المطلوب_منه-a.المطلوب_منه}).slice(0,12);o['ديون_الموزعين']=d}
+  return o};
+getLearnedContext=function(){
+  var f=getLearnedFacts().filter(function(x){return can('prices')||x.category!=='أسعار'});if(!f.length)return '';
+  var q=nz(LASTQ).split(/\s+/).filter(function(x){return x.length>2});if(!q.length)return '';
+  var sc=f.map(function(x){var tx=nz(x.text);return{x:x,s:q.reduce(function(a,w){return a+(tx.indexOf(w)>=0?10:0)},0)}}).filter(function(o){return o.s>0}).sort(function(a,b){return b.s-a.s}).slice(0,8);
+  if(!sc.length)return '';
+  return '\n\n📚 معلومات تعلمتها من المدير (التزم بها):\n'+sc.map(function(o){return '• '+o.x.text.slice(0,220)}).join('\n')};
+aipExtra=function(){var u=me(),s=store();if(!u||!s)return '';
+  var o=['','👤 المتحدث: '+u.name+' ('+(isAdm()?'مدير':'موظف')+') — ناده باسمه الأول.'];
+  if(PROFILES[u.name])o.push('🗣️ أسلوبه: '+PROFILES[u.name].slice(0,300));
+  var q=nz(LASTQ);
+  if(can('prices')){
+    if(/سعر|اسعار|بكم|كم سعر|تسعير|جمله|جملة|مستهلك/.test(q)){
+      var hit=s.products.filter(function(p){var n=nz(p.name);return q.indexOf(n)>=0||n.split(/\s+/).some(function(w){return w.length>3&&q.indexOf(w)>=0})}).slice(0,10);
+      if(!hit.length)hit=s.products.slice(0,10);
+      o.push('💲 الأسعار:');hit.forEach(function(p){o.push('• '+p.name+': جملة '+(p.dist_price||p.price||0)+' / مستهلك '+(p.price||0))})}
+  }else o.push('🔒 ممنوع ذكر أي أسعار أو تكاليف لهذا المستخدم.');
+  return o.join('\n')};
+/* تحديث الأسلوب: كل 20 رسالة بدل 8 */
+trackStyle=function(t){var u=me();if(!u||t.length<6)return;var k='muzn_sb_'+u.name,b=[];
+  try{b=JSON.parse(localStorage.getItem(k)||'[]')}catch(e){}
+  b.push(t.slice(0,140));
+  if(b.length>=20){localStorage.removeItem(k);updStyle(u.name,b.slice(-12))}else{try{localStorage.setItem(k,JSON.stringify(b))}catch(e){}}};
+/* سلسلة Groq: كاش للنماذج الفاشلة + تفكير منخفض + سجل أقصر */
+askGroq=function(userMsg,history){
+  if(!GROQ_KEY)return Promise.reject(new Error('no groq key'));
+  var sys=buildSystemPrompt(),small=sys.length<6500;
+  var models=[];if(small)models.push({m:'allam-2-7b',x:{max_tokens:600}});
+  models.push({m:'openai/gpt-oss-120b',x:{reasoning_effort:'low',max_completion_tokens:900}},{m:'qwen/qwen3.8-27b',x:{reasoning_effort:'none',max_tokens:700}},{m:'openai/gpt-oss-20b',x:{reasoning_effort:'low',max_completion_tokens:900}});
+  var msgs=[{role:'system',content:sys}];
+  (history||[]).slice(-4).forEach(function(h){msgs.push({role:h.role==='user'?'user':'assistant',content:String(h.text||'').slice(0,350)})});
+  msgs.push({role:'user',content:userMsg});
+  function go(i){
+    while(i<models.length&&!mdUp(models[i].m))i++;
+    if(i>=models.length)return Promise.reject(new Error('كل موديلات Groq في فترة راحة'));
+    var M_=models[i];
+    function call(extra){return fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
+      body:JSON.stringify(Object.assign({model:M_.m,messages:msgs,temperature:0.7},extra))})}
+    return call(M_.x).then(function(r){
+      if(r.status===400&&M_.x.reasoning_effort){var x2=Object.assign({},M_.x);delete x2.reasoning_effort;return call(x2)}return r}).then(function(r){
+      return r.json().then(function(d){
+        if(!r.ok){mdDown(M_.m,r.status,r.headers.get('retry-after'));throw new Error((d.error&&d.error.message)||('HTTP '+r.status))}
+        var c=d.choices&&d.choices[0],t=stripThink(c&&c.message&&c.message.content);
+        if(!t){MD[M_.m]=FIX_NOW()+20000;throw new Error('empty')}
+        console.log('[Groq ✅]',M_.m);return t})
+    }).catch(function(e){console.warn('[Groq ❌]',M_.m,e.message);return go(i+1)})}
+  return go(0)};
+
+/* ── 4) رد محلي بلا AI للأسئلة القصيرة المعروفة (يوفّر معظم التوكن) ── */
+var LOCAL_OK={sales_today:1,sales_month:1,sales_week:1,sales_year:1,sales_yesterday:1,payments_today:1,remits_today:1,not_remitted:1,debts:1,dist_debts:1,target:1,stock:1,requests:1,top:1,profit:1,shift_status:1,late_check:1,absence_report:1,my_bonus:1,weekly_report:1,daily_tasks:1,smart_target:1,suggest_target:1,who:1,thanks:1,greet:1,show_learned:1};
+function localFirst(t){
+  if(t.length>38)return false;var d;try{d=detectIntent(t)}catch(e){return false}
+  if(!d||!LOCAL_OK[d.intent])return false;
+  if(/رايك|رأيك|نصيح|كيف|ليش|لماذا|اسوي|أسوي|افعل|أفعل|حلل|قارن|شور|\?|؟/.test(t)&&d.intent!=='suggest_target'&&d.intent!=='daily_tasks')return false;
+  var weak={greet:1,thanks:1,who:1};if(d.score<(weak[d.intent]?5:80)||(weak[d.intent]&&t.length>24))return false;
+  var r;try{r=buildReply(d.intent,t)}catch(e){return false}
+  if(!(r&&r.text))return false;
+  addMsg(t,'me');inputEl.value='';C.history=(C.history||[]).slice(-20);C.history.push({role:'user',text:t,ts:Date.now()});
+  botSay(r.text,{progress:r.progress});C.history.push({role:'bot',text:r.text,ts:Date.now()});saveCfg();return true}
+var _send2=sendMessage;
+sendMessage=function(raw){var t=String(raw||'').trim();
+  if(t){var ok=false;try{ok=localFirst(t)}catch(e){console.warn('[local]',e)}if(ok){LASTQ=t;return}}
+  return _send2(raw)};
+
+/* ── 5) البومة: تفاعلات ثابتة (بالتوقيت الفعلي للوردية، لا مقارنة حالات) ── */
+function seenK(k){try{return localStorage.getItem('owl_s_'+k)==='1'}catch(e){return false}}
+function markK(k){try{localStorage.setItem('owl_s_'+k,'1')}catch(e){}}
+function myShiftRows(){var s=store(),u=me(),o=[];if(!s||!u)return o;
+  (s.attendance_shifts||[]).forEach(function(r){if(r.user_id===u.id)o.push(r)});
+  ['distributor_shifts','operator_shifts'].forEach(function(k){(s[k]||[]).forEach(function(r){if(r.by===u.name)o.push(r)})});return o}
+function pruneSeen(){try{var n=0;for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i);if(k&&k.indexOf('owl_s_')===0&&++n>200)localStorage.removeItem(k)}}catch(e){}}
+var _t0=0;
+tickOwl=function(){try{var u=me(),s=store();if(!u||!s)return;var now=Date.now();if(!_t0)_t0=now;
+  var rows=myShiftRows();
+  rows.forEach(function(r){
+    if(r.checkin_ts&&now-r.checkin_ts<120000&&!seenK('in_'+r.id)){markK('in_'+r.id);if(now-_t0>3000)onShiftStart()}
+    if(r.closed&&r.checkout_ts&&now-r.checkout_ts<120000&&!seenK('out_'+r.id)){markK('out_'+r.id);if(now-_t0>3000)onShiftEnd()}});
+  if(now-_t0<25000){_ids=recIds();return}   /* فترة تثبيت: لا نحسب السجلات القادمة من المزامنة الأولى */
+  watchRecords()}catch(e){console.warn('[owl]',e.message)}};
+checkTarget=function(){var u=me();if(!u)return;var open=myShiftRows().some(function(r){return !r.closed&&r.date===TODAY()});if(!open)return;
+  var ti=tgtInfo();if(!ti)return;var d=dayKey(),h=new Date().getHours(),n=fname();
+  if(ti.got>=ti.target&&!flag('hit_'+d)){setFlag('hit_'+d);owlSeq([{text:'🏆 مبروك يا '+n+'! وصلت هدف اليوم 🎉',mood:'happy',ms:8000,speak:true}]);return}
+  if(h>=18&&ti.got<ti.target*0.8&&!flag('b2_'+d)){setFlag('b2_'+d);owlSeq([{text:'😠 الساعة '+h+' وما وصلت 80% من الهدف! باقي '+money(ti.left)+' — شد حيلك!',mood:'angry',ms:7500}]);return}
+  if(h>=15&&ti.got<ti.target*0.5&&!flag('b1_'+d)){setFlag('b1_'+d);owlSeq([{text:'😠 الساعة '+h+' وما وصلت نص الهدف! باقي '+money(ti.left)+'.',mood:'angry',ms:7000}])}};
+/* فقاعة الكلام: تبقى داخل الشاشة مهما سحبت البومة */
+showBub=function(t,mood,ms){var b=document.getElementById('mzn-bubble');if(!b||!fab)return;
+  b.className='on '+(mood||'');b.textContent=t;b.style.maxWidth=Math.min(230,window.innerWidth-16)+'px';b.style.right='auto';b.style.bottom='auto';
+  var r=fab.getBoundingClientRect(),w=b.offsetWidth,h=b.offsetHeight,vw=window.innerWidth;
+  var left=Math.min(Math.max(8,r.right-w),vw-w-8),above=r.top>h+24,top=above?r.top-h-12:r.bottom+12;
+  b.style.left=left+'px';b.style.top=Math.max(8,Math.min(top,window.innerHeight-h-8))+'px';
+  b.style.setProperty('--tx',Math.min(Math.max(12,r.left+r.width/2-left-7),w-26)+'px');b.classList.toggle('below',!above);
+  clearTimeout(bT);bT=setTimeout(hideBub,ms)};
+(function(){var s=document.createElement('style');s.textContent='#mzn-bubble:after{right:auto!important;left:var(--tx,30px)}#mzn-bubble.below:after{bottom:auto;top:-9px;transform:rotate(225deg)}.owl-svg{max-width:100%}';document.head.appendChild(s)})();
+setTimeout(pruneSeen,5000);
 
 })();
 </script>
