@@ -24,7 +24,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js">
 </script>
 <script src="barcode.js"></script>
-<script src="config.js"></script>
 <style>
 :root{
   --bg:#0f1117; --shell:#181b25; --card:#1d212d; --card2:#262a38; --line:#3b4050;
@@ -10776,13 +10775,30 @@ window.closeSheet = closeSheet;
 /* ╔══════════════════════════════════════════════════════════╗
    ║  🔑 المفاتيح — كل الموظفين يستخدمونها تلقائياً          ║
    ╚══════════════════════════════════════════════════════════╝ */
+var GROQ_KEY = '';
+var GEMINI_KEY = '';
+var OPENROUTER_KEY = '';
 
-var GROQ_KEY       = (typeof window.MUZN_GROQ_KEY       !== 'undefined') ? window.MUZN_GROQ_KEY       : '';
-var GEMINI_KEY     = (typeof window.MUZN_GEMINI_KEY     !== 'undefined') ? window.MUZN_GEMINI_KEY     : '';
-var OPENROUTER_KEY = (typeof window.MUZN_OPENROUTER_KEY !== 'undefined') ? window.MUZN_OPENROUTER_KEY : '';
+async function loadAIKeys() {
+  try {
+    var m = M();
+    if (!m || !m.adapter || !m.adapter.sb) return;
+    var r = await m.adapter.sb.from('app_config').select('key,value');
+    if (r.data) {
+      r.data.forEach(function(row){
+        if (row.key === 'groq_key'       && row.value) GROQ_KEY = row.value;
+        if (row.key === 'gemini_key'     && row.value) GEMINI_KEY = row.value;
+        if (row.key === 'openrouter_key' && row.value) OPENROUTER_KEY = row.value;
+      });
+      var p = [];
+      if (GROQ_KEY) p.push('Groq');
+      if (GEMINI_KEY) p.push('Gemini');
+      if (OPENROUTER_KEY) p.push('OpenRouter');
+      console.log('[AI Keys ✅]', p.join(' + ') || 'لا مزود');
+    }
+  } catch(e) { console.warn('[AI Keys ❌]', e.message); }
+}
 
-var DEFAULT_DAILY_TARGET = 500;
-var TARGET_RAISE_PCT = 15;
 
 /* ═══ تخزين ═══ */
 var CFG_KEY = 'muzn_buddy_v6_cfg';
@@ -11943,7 +11959,9 @@ function updateBadge() {
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-else boot();
+else 
+  loadAIKeys();
+  boot();
 
 })();
 </script>
