@@ -10475,6 +10475,7 @@ window.closeSheet = closeSheet;
 <style>
 #mzn-fab{
   position:fixed;bottom:calc(170px + env(safe-area-inset-bottom,0px));right:12px;
+  cursor:grab;
   z-index:99999 !important;width:80px;height:80px;
   border:0;background:transparent;padding:0;
   cursor:pointer;filter:drop-shadow(0 6px 14px rgba(0,0,0,.55));
@@ -12072,74 +12073,236 @@ function buildReply(intent, raw) {
     default: return { text: null };
   }
 }
+/* ═══ سياق شامل لـ AI — كل البيانات الفعلية ═══ */
+function buildRichContext() {
+  var u = me();
+  var s = store();
+  if (!u || !s) return {};
 
-/* ═══ AI Providers ═══ */
-function buildSystemPrompt() {
-  var u = me(); var s = store(); var cn = cur(); var role = getRole();
-  var isAdmin = u && u.role === 'admin'; var un = u ? u.name : null;
-  var ctx = {
-    الشركة: (s && s.company && s.company.name) || 'MUZN',
-    اليوم: TODAY(), الشهر: MONTH(), السنة: YEAR(),
-    المستخدم: un || 'زائر', الدور: role, العملة: cn
-  };
+  var isAdmin = u.role === 'admin';
+  var un = isAdmin ? null : u.name;
+  var cn = cur();
+  var ctx = {};
+
+  ctx.المستخدم = { الاسم: u.name, الدور: isAdmin ? 'مدير' : 'موظف' };
+
+  // ═══ المبيعات ═══
   var sT = isAdmin ? salesToday() : salesToday(un);
+  var sW = isAdmin ? salesWeek() : salesWeek(un);
   var sM = isAdmin ? salesMonth() : salesMonth(un);
   var sY = isAdmin ? salesYear() : salesYear(un);
-  ctx.مبيعات_اليوم = { فواتير: sT.length, إجمالي: r3(sumSales(sT)) };
-  ctx.مبيعات_الشهر = { فواتير: sM.length, إجمالي: r3(sumSales(sM)) };
-  ctx.مبيعات_السنة = { فواتير: sY.length, إجمالي: r3(sumSales(sY)) };
-  if (isAdmin && s) {
+  ctx.مبيعات = {
+    اليوم:  { فواتير: sT.length, إجمالي: r3(sumSales(sT)) },
+    الأسبوع:{ فواتير: sW.length, إجمالي: r3(sumSales(sW)) },
+    الشهر:  { فواتير: sM.length, إجمالي: r3(sumSales(sM)) },
+    السنة:  { فواتير: sY.length, إجمالي: r3(sumSales(sY)) }
+  };
+
+  // ═══ الأرباح (مدير) ═══
+  if (isAdmin) {
     var it = s.sale_items_flat || [];
     var rev = it.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
-    var cost = it.reduce(function(t,x){ var p = s.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.dist_price||p.price||0); }, 0);
-    ctx.الأرباح_الإجمالية = { إيراد: r3(rev), تكلفة: r3(cost), ربح: r3(rev-cost) };
+    var cost = it.reduce(function(t,x){
+      var p = s.products.find(function(y){ return y.id === x.product_id; }) || {};
+      return t + x.qty * (p.dist_price || p.price || 0);
+    }, 0);
+    ctx.الأرباح = {
+      الإيراد: r3(rev), التكلفة: r3(cost),
+      الربح_الصافي: r3(rev - cost),
+      هامش_الربح: rev > 0 ? ((rev-cost)/rev*100).toFixed(1) + '%' : '—'
+    };
   }
-  var ov = overdueCustomers();
-  ctx.عملاء_متأخرون = { عدد: ov.length, قائمة: ov.slice(0,10).map(function(x){ return x.c.name + ' (' + r3(x.remaining) + ')'; }).join('، ') };
-  var dd = distsWithDebt();
-  ctx.ديون_الموزعين = { عدد: dd.length, قائمة: dd.slice(0,10).map(function(x){ return x.d.name + ' (' + r3(x.bal) + ')'; }).join('، ') };
+
+  // ═══ 🆕 كل الذمم من العملاء (مش فقط المتأخرين) ═══
+  if (canAccess('collections') || canAccess('sales') || isAdmin) {
+    var custBals = (s.customers || []).map(function(c){
+      var b = safe(function(){ return M().custBal(s, c); }, null);
+      if (!b || b.remaining <= 0.009) return null;
+      return {
+        الاسم: c.name,
+        المنطقة: c.region || '—',
+        المندوب: c.distributor_id ? dn(c.distributor_id) : 'بدون',
+        المتبقي: r3(b.remaining + (b.tax || 0)),
+        ضريبة_التأخير: r3(b.tax || 0),
+        الحالة: b.bucket === 'overdue' ? 'متأخر' :
+                b.bucket === 'week' ? 'مستحق خلال أسبوع' :
+                b.bucket === 'later' ? 'لاحق' : 'مسدد',
+        تاريخ_الاستحقاق: b.due || '—'
+      };
+    }).filter(function(x){ return x; });
+
+    var totalDebts = custBals.reduce(function(t,x){ return t + x.المتبقي; }, 0);
+    var overdueC = custBals.filter(function(x){ return x.الحالة === 'متأخر'; });
+
+    ctx.الذمم_من_العملاء = {
+      العدد_الإجمالي: custBals.length,
+      العدد_المتأخر: overdueC.length,
+      الإجمالي_المستحق: r3(totalDebts),
+      كل_العملاء: custBals.slice(0, 30)
+    };
+  }
+
+  // ═══ 🆕 ديون الموزعين (تفصيل كامل) ═══
+  if (canAccess('distributors') || isAdmin) {
+    var distList = (s.distributors || []).map(function(d){
+      var sum = safe(function(){ return M().dSummary(s, d); }, null);
+      if (!sum) return null;
+      return {
+        الاسم: d.name,
+        المطلوب_منه: r3(Math.max(sum.bal, 0)),
+        بضاعة_بعهدته: r3(sum.held || 0),
+        الحالة: sum.bal > 0.009 ? 'مدين' : sum.bal < -0.009 ? 'دائن' : 'مسدد',
+        نوع_الفترة: sum.per ? sum.per.label : '—',
+        موعد_التسليم: sum.per ? sum.per.e : '—'
+      };
+    }).filter(function(x){ return x; });
+    var totalDist = distList.reduce(function(t,x){ return t + x.المطلوب_منه; }, 0);
+    ctx.ديون_الموزعين = { العدد: distList.length, الإجمالي: r3(totalDist), الموزعون: distList };
+  }
+
+  // ═══ 🆕 عهدة الموزعين (بضاعة عندهم بالتفصيل) ═══
+  if (canAccess('withdrawals') || isAdmin) {
+    var custList = [];
+    (s.distributors || []).forEach(function(d){
+      var items = [];
+      (s.products || []).forEach(function(p){
+        var q = safe(function(){ return M().custody(s, d.id, p.id); }, 0);
+        if (q > 0.009) items.push({ المنتج: p.name, الكمية: r3(q) });
+      });
+      if (items.length) custList.push({ الموزع: d.name, الأصناف: items });
+    });
+    if (custList.length) ctx.عهدة_الموزعين = custList;
+  }
+
+  // ═══ نواقص المخزون ═══
   var ls = lowStock();
-  ctx.نواقص = { منتجات: ls.products.slice(0,8).map(function(p){ return p.name; }).join('، '), مواد: ls.materials.slice(0,8).map(function(m){ return m.name; }).join('، ') };
-  ctx.طلبات_معلقة = pendingPRs().length;
+  if (ls.products.length || ls.materials.length) {
+    ctx.نواقص_المخزون = {
+      منتجات: ls.products.slice(0, 15).map(function(p){
+        return { الاسم: p.name, المتاح: r3(p.have), الحد: r3(p.min) };
+      }),
+      مواد_خام: ls.materials.slice(0, 15).map(function(m){
+        return { الاسم: m.name, المتاح: r3(m.have), الحد: r3(m.min) };
+      })
+    };
+  }
+
+  // ═══ 🆕 التسليمات ═══
+  if (canAccess('distributors') || canAccess('collections') || isAdmin) {
+    var rems = remittedToday();
+    var notRems = distsNotRemittedToday();
+    ctx.التسليمات = {
+      اليوم: {
+        عدد_من_سلّم: rems.length,
+        الإجمالي: r3(rems.reduce(function(t,r){ return t + (r.amount||0); }, 0)),
+        قائمة: rems.map(function(r){
+          var d = s.distributors.find(function(x){ return x.id === r.distributor_id; });
+          return { الاسم: d ? d.name : '—', المبلغ: r3(r.amount) };
+        })
+      },
+      لم_يسلّموا_اليوم: notRems.map(function(d){ return d.name; })
+    };
+  }
+
+  // ═══ 🆕 التحصيلات ═══
+  if (canAccess('collections') || isAdmin) {
+    var pT = paidToday();
+    var pM = (s.payments || []).filter(function(p){ return p.date.slice(0,7) === MONTH(); });
+    ctx.التحصيلات = {
+      اليوم:      { العدد: pT.length, الإجمالي: r3(pT.reduce(function(t,p){ return t + (p.amount||0); }, 0)) },
+      هذا_الشهر:  { العدد: pM.length, الإجمالي: r3(pM.reduce(function(t,p){ return t + (p.amount||0); }, 0)) }
+    };
+  }
+
+  // ═══ 🆕 طلبات النواقص ═══
+  var prs = pendingPRs();
+  if (prs.length) {
+    ctx.طلبات_نواقص_معلقة = prs.slice(0, 10).map(function(r){
+      return {
+        المُرسِل: r.requested_by_name || '—',
+        التاريخ: r.date,
+        الأصناف: (r.items || []).map(function(i){ return i.name + ' ×' + i.qty; }).join('، ')
+      };
+    });
+  }
+
+  // ═══ الهدف والوردية ═══
   var tgt = myTarget();
-  if (tgt) ctx.هدفي = { القيمة: tgt, أنجزت: r3(sumSales(sT)) };
+  if (tgt) {
+    var tt = sumSales(salesToday(u.name));
+    ctx.هدفي = { القيمة: r3(tgt), أنجزت_اليوم: r3(tt), النسبة: Math.round(tt/tgt*100) + '%' };
+  }
   var lc = isLateToday();
-  if (lc && !lc.noShift) ctx.ورديتي = { بدأت: lc.time, متأخر: lc.late, مغلقة: lc.closed };
-  var tasks = u ? generateDailyTasks(un) : [];
-  var targets = u ? calculateSmartTargets(un) : null;
+  if (lc && !lc.noShift) {
+    ctx.ورديتي = {
+      بدأت: lc.time, متأخر: lc.late, مبكر: lc.early,
+      مغلقة: lc.closed, المدة_دقيقة: Math.round(lc.duration)
+    };
+  }
+
+  return ctx;
+}
+
+function buildSystemPrompt() {
+  var u = me();
+  var cn = cur();
+  var role = getRole();
+
+  // ✅ السياق الغني
+  var ctx = buildRichContext();
+
+  // ✅ المهام المقترحة
+  var tasks = u ? generateDailyTasks(u.name) : [];
+
+  // ✅ الأهداف الذكية
+  var targets = u ? calculateSmartTargets(u.name) : null;
+
+  // ✅ ما تعلمته من المدير
   var learned = getLearnedContext();
 
   return [
     'أنت "مُزن" 🦉 — مساعد ذكي ودود في MUZN Operations (إدارة مبيعات وإنتاج في ليبيا).',
     '',
-    'شخصيتك: عربي ودود، محفّز، مختصر. أرقام حقيقية فقط. إيموجي باعتدال.',
-    'ستايل: تتكلم كإنسان حقيقي، تتفهم مشاعر الموظف، تساعد بالحلول.',
+    '🎯 شخصيتك:',
+    '• تتكلم بالعربية الودية (الفصحى المبسّطة أو الليبية)',
+    '• محفّز ومختصر، تجيب بالأرقام الفعلية',
+    '• تستخدم إيموجي باعتدال',
+    '• لا تستخدم جداول Markdown (|) — استخدم نقاط •',
     '',
-    '📊 البيانات الآن:',
+    '📊 بيانات التطبيق الحالية (استخدمها فقط):',
     JSON.stringify(ctx, null, 2),
     '',
     '📋 المهام المقترحة اليوم:',
-    tasks.length ? tasks.slice(0, 8).map(function(t){ return '• ' + t.title + ' — ' + t.reason; }).join('\n') : '• لا مهام',
+    tasks.length ? tasks.slice(0, 8).map(function(t){
+      return '• ' + t.title + ' — ' + t.reason;
+    }).join('\n') : '• لا مهام عاجلة',
     '',
     '🎯 الأهداف:',
     targets ? ('يومي: ' + r3(targets.daily) + ' | أسبوعي: ' + r3(targets.weekly) + ' | شهري: ' + r3(targets.monthly)) : 'غير محددة',
     learned,
     '',
-    '⚠️ قواعد:',
-    '• دور المستخدم "' + role + '" — احترم الصلاحيات',
-    '• العملة: ' + cn,
-    '• لا تخترع أرقاماً — استخدم ما في السياق فقط',
-    '• استخدم المعلومات المُتعلَّمة من المدير إن وُجدت',
-    '• إذا كان المستخدم متضايقاً، تعاطف معه أولاً قبل الحل',
-       '• أجب بالعربية الليبية/الفصحى المبسّطة',
-    '• اكتب الأرقام مباشرة بدون زخرفة',
+    '⚠️ قواعد صارمة:',
+    '1. دور المستخدم "' + role + '" — احترم الصلاحيات',
+    '2. العملة: ' + cn,
+    '3. لا تخترع أرقاماً — كل الأرقام في السياق أعلاه',
+    '4. عند سؤالك عن "الذمم" أو "الديون" أو "من لم يدفع"،',
+    '   استخدم "الذمم_من_العملاء" (كل العملاء) وليس فقط المتأخرين',
+    '5. عند سؤالك عن "التسليمات"، استخدم "التسليمات" في السياق',
+    '6. عند سؤالك عن "المخزون"، استخدم "نواقص_المخزون"',
+    '7. أجب بالعربية الواضحة بدون تعقيد',
     '',
-    '🛑 تصحيح أخطاء سابقة:',
-    '• إذا وجدت في المحادثة السابقة أنك قلت "أضفت"/"حذفت"/"سجلت"، هذا خطأ.',
-    '• اعتذر فوراً وقل: "أعتذر، أنا للقراءة فقط ولا أعدّل البيانات."'
+    '🚫 ممنوع تماماً:',
+    '• لا تقل "أضفت" / "حذفت" / "عدّلت" / "سجلت"',
+    '• أنت قارئ فقط، لا تكتب في قاعدة البيانات',
+    '• إذا طُلب منك تعديل، قل: "أنا للقراءة فقط — استخدم التطبيق"',
+    '',
+    '📝 تنسيق الإجابة:',
+    '• استخدم نقاط (•) أو أرقام (1. 2. 3.)',
+    '• لا جداول Markdown',
+    '• الإيموجي: 1-3 في الرد',
+    '• الأرقام: اكتبها مباشرة (1234.5 د.ل)'
   ].join('\n');
 }
-
 function askGroq(userMsg, history) {
   if (!GROQ_KEY) return Promise.reject(new Error('no groq key'));
    var models = [
@@ -12589,8 +12752,9 @@ function boot() {
     speak('مرحباً، أنا مُزن، مساعدك الذكي.');
     setTimeout(function(){ C.voice = old; }, 5000);
   };
-   /* 🆕 سحب البومة لأي مكان */
-  (function enableDrag(){
+
+  /* 🆕 سحب البومة لأي مكان */
+  (function(){
     var drag = false, startX, startY, startL, startT, moved = false;
     var saved = localStorage.getItem('mzn_fab_pos');
     if (saved) {
@@ -12602,14 +12766,15 @@ function boot() {
         fab.style.bottom = 'auto';
       } catch(e){}
     }
-    function onDown(e){
+    fab.addEventListener('pointerdown', function(e){
       drag = true; moved = false;
       var r = fab.getBoundingClientRect();
       startX = e.clientX; startY = e.clientY;
       startL = r.left; startT = r.top;
       fab.style.transition = 'none';
-    }
-    function onMove(e){
+      fab.style.cursor = 'grabbing';
+    });
+    document.addEventListener('pointermove', function(e){
       if (!drag) return;
       var dx = e.clientX - startX;
       var dy = e.clientY - startY;
@@ -12621,10 +12786,11 @@ function boot() {
       fab.style.top = nt + 'px';
       fab.style.right = 'auto';
       fab.style.bottom = 'auto';
-    }
-    function onUp(){
+    });
+    document.addEventListener('pointerup', function(){
       if (!drag) return;
       drag = false;
+      fab.style.cursor = 'grab';
       fab.style.transition = '';
       if (moved) {
         var r = fab.getBoundingClientRect();
@@ -12632,10 +12798,7 @@ function boot() {
       } else {
         openChat();
       }
-    }
-    fab.addEventListener('pointerdown', onDown);
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    });
   })();
 
   sendEl.onclick = function(){ sendMessage(inputEl.value); };
