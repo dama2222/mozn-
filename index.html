@@ -11441,26 +11441,49 @@ function buildSystemPrompt() {
 
 function askGroq(userMsg, history) {
   if (!GROQ_KEY) return Promise.reject(new Error('no groq key'));
+  var models = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-70b-versatile',
+    'llama3-70b-8192',
+    'mixtral-8x7b-32768',
+    'llama-3.1-8b-instant'
+  ];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
   (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
   msgs.push({ role: 'user', content: userMsg });
-  return fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_KEY },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: msgs, temperature: 0.75, max_tokens: 800 })
-  }).then(function(r){
-    return r.json().then(function(d){
-      if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
-      var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-      if (!t) throw new Error('empty');
-      return t.trim();
+
+  function tryM(i) {
+    if (i >= models.length) return Promise.reject(new Error('كل موديلات Groq فشلت'));
+    var url = 'https://api.groq.com/openai/v1/chat/completions';
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_KEY },
+      body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 800 })
+    }).then(function(r){
+      return r.json().then(function(d){
+        if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
+        var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+        if (!t) throw new Error('empty');
+        console.log('[Groq ✅]', models[i]);
+        return t.trim();
+      });
+    }).catch(function(e){
+      console.warn('[Groq ❌]', models[i], e.message);
+      return tryM(i + 1);
     });
-  });
+  }
+  return tryM(0);
 }
 
 function askGemini(userMsg, history) {
   if (!GEMINI_KEY) return Promise.reject(new Error('no gemini key'));
-  var models = ['gemini-2.0-flash-exp','gemini-2.0-flash','gemini-1.5-flash-latest','gemini-1.5-flash'];
+var models = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-001',
+  'gemini-1.5-flash-002',
+  'gemini-1.5-flash-8b'
+];
   var contents = [];
   (history||[]).slice(-8).forEach(function(h){ contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: String(h.text||'').slice(0,600) }] }); });
   contents.push({ role: 'user', parts: [{ text: buildSystemPrompt() + '\n\n---\n\nسؤال: ' + userMsg }] });
@@ -11490,21 +11513,36 @@ function askGemini(userMsg, history) {
 
 function askOpenRouter(userMsg, history) {
   if (!OPENROUTER_KEY) return Promise.reject(new Error('no openrouter key'));
+  var models = [
+    'meta-llama/llama-3.3-70b-instruct',
+    'meta-llama/llama-3.1-70b-instruct',
+    'google/gemini-flash-1.5',
+    'anthropic/claude-3-haiku',
+    'mistralai/mistral-7b-instruct'
+  ];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
   (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
   msgs.push({ role: 'user', content: userMsg });
-  return fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENROUTER_KEY },
-    body: JSON.stringify({ model: 'meta-llama/llama-3.3-70b-instruct:free', messages: msgs, temperature: 0.75, max_tokens: 800 })
-  }).then(function(r){ return r.json().then(function(d){
-    if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
-    var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-    if (!t) throw new Error('empty');
-    return t.trim();
-  }); });
-}
 
+  function tryM(i) {
+    if (i >= models.length) return Promise.reject(new Error('كل موديلات OpenRouter فشلت'));
+    return fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENROUTER_KEY },
+      body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 800 })
+    }).then(function(r){ return r.json().then(function(d){
+      if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
+      var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+      if (!t) throw new Error('empty');
+      console.log('[OpenRouter ✅]', models[i]);
+      return t.trim();
+    }); }).catch(function(e){
+      console.warn('[OpenRouter ❌]', models[i], e.message);
+      return tryM(i + 1);
+    });
+  }
+  return tryM(0);
+}
 function askAI(userMsg, history) {
   var chain = [];
   if (GROQ_KEY)       chain.push({ name: 'Groq',       fn: askGroq });
