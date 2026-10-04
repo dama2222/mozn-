@@ -10605,7 +10605,7 @@ window.closeSheet = closeSheet;
      
       <label>🎙️ الصوت</label>
       <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الوضع التلقائي يجرّب: Groq ← Edge العصبي ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
+      <div class="hint">الوضع التلقائي يجرّب: Groq ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
 
       <label>🎚️ سرعة الصوت</label>
       <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
@@ -10767,7 +10767,7 @@ var EDGEV = [['ar-SA-ZariyahNeural','زارية (سعودية، أنثى)'],['ar
 var VRSV = [['ar-sa','سعودي'],['ar-eg','مصري'],['ar-kw','كويتي'],['ar-ly','ليبي']];
 function normVoice() {
   var n = C.voiceName || '';
-  if (/\((Groq|VoiceRSS)\)$/.test(n)) return '';   /* قيم قديمة من نسخ سابقة */
+  if (/\((Groq|VoiceRSS)\)$/.test(n) || /^edge:/.test(n)) return '';   /* قيم قديمة من نسخ سابقة */
   return n;
 }
 function addVoiceGroup(sel, label, items, prefix) {
@@ -10793,7 +10793,6 @@ function loadVoices() {
   auto.value = ''; auto.textContent = '✨ تلقائي (أفضل صوت متاح)';
   sel.appendChild(auto);
   addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي' + (GROQ_KEY ? '' : ' (يحتاج مفتاح)'), ORPH, 'orph:');
-  addVoiceGroup(sel, '🎧 أصوات عصبية مجانية (Edge)', EDGEV, 'edge:');
   addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني' + (GEMINI_KEY ? '' : ' (يحتاج مفتاح)'), GEMV, 'gem:');
   addVoiceGroup(sel, '📞 VoiceRSS' + (VOICERSS_KEY ? '' : ' (يحتاج مفتاح)'), VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
   if (arVoices.length) {
@@ -10829,6 +10828,33 @@ function splitSentences(text) {
     .replace(/—/g, '،').replace(/\s+/g, ' ').trim();
   return clean.split(/(?<=[.!؟،:])\s+/).filter(function(s){ return s.trim().length > 1; });
 }
+/* ═══ Groq عبر Supabase: إذا المتصفح/الشبكة حجبت api.groq.com (CORS / Failed to fetch) نمرّر الطلب من السيرفر ═══ */
+(function () {
+  var origFetch = window.fetch.bind(window);
+  function viaProxy(url, o) {
+    var sb = M() && M().adapter && M().adapter.sb;
+    if (!sb || (o && o.body && typeof o.body !== 'string')) return Promise.reject(new TypeError('Failed to fetch'));   /* FormData (تفريغ الصوت) غير مدعوم */
+    var h = (o && o.headers) || {};
+    var auth = h.Authorization || h.authorization || (h.get && h.get('Authorization'));
+    return sb.functions.invoke('groq-proxy', { body: { path: url.replace('https://api.groq.com', ''), auth: auth, body: o && o.body } })
+      .then(function (r) {
+        if (r.error || !r.data || r.data.status == null) throw new TypeError('Groq proxy failed');
+        var bin = atob(r.data.b64 || ''), u8 = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return new Response(u8, { status: r.data.status, headers: { 'Content-Type': r.data.ct || 'application/json' } });
+      });
+  }
+  window.fetch = function (u, o) {
+    var url = typeof u === 'string' ? u : (u && u.url) || '';
+    if (url.indexOf('https://api.groq.com/') !== 0) return origFetch(u, o);
+    if (window.__groqViaProxy) return viaProxy(url, o);
+    return origFetch(u, o).catch(function (e) {
+      if (!(e instanceof TypeError)) throw e;
+      return viaProxy(url, o).then(function (res) { window.__groqViaProxy = true; return res; });
+    });
+  };
+})();
+
 /* ═══ MUZN VOICE v3 — سلسلة أصوات تلقائية: Groq Orpheus ← Gemini TTS ← VoiceRSS ← المتصفح ═══ */
 var GEM_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'], gemModel = null;
 var TTS_LIM = { groq: {max:190, n:4}, edge: {max:400, n:3}, gemini: {max:600, n:2}, voicerss: {max:800, n:1} };
@@ -10951,7 +10977,7 @@ function ttsChain() {
   else if (n.indexOf('gem:') === 0) order.push('gemini');
   else if (n.indexOf('vrs:') === 0) order.push('voicerss');
   else if (n) return [];                       /* اختار صوت متصفح بالاسم */
-  ['groq', 'edge', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
+  ['groq', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
   return order.filter(ttsAvail);
 }
 function ttsVoiceFor(p) {
