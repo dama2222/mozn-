@@ -10599,13 +10599,12 @@ window.closeSheet = closeSheet;
 
       <label>حالة مزوّدي الذكاء الاصطناعي</label>
       <div class="status" id="mzn-st-groq"><span>🟢 Groq (Llama 3.3)</span><span class="dot"></span></div>
-      <div class="status" id="mzn-st-gemini"><span>🔵 Gemini</span><span class="dot"></span></div>
       <div class="status" id="mzn-st-or"><span>🟣 OpenRouter</span><span class="dot"></span></div>
       <div class="status" id="mzn-st-vrs"><span>🎙️ VoiceRSS TTS</span><span class="dot"></span></div>
      
       <label>🎙️ الصوت</label>
       <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الوضع التلقائي يجرّب: Groq ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
+      <div class="hint">الوضع التلقائي: إذا متصفحك فيه صوت عربي طبيعي (⭐ مثل Edge) يستخدمه مباشرة، وإلا يجرّب Groq ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
 
       <label>🎚️ سرعة الصوت</label>
       <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
@@ -10653,13 +10652,11 @@ async function loadAIKeys() {
     if (r.data) {
       r.data.forEach(function(row){
         if (row.key === 'groq_key'       && row.value) GROQ_KEY = row.value;
-        if (row.key === 'gemini_key'     && row.value) GEMINI_KEY = row.value;
         if (row.key === 'openrouter_key' && row.value) OPENROUTER_KEY = row.value;
        if (row.key === 'voicerss_key' && row.value) VOICERSS_KEY = row.value;
       });
            var p = [];
       if (GROQ_KEY) p.push('Groq');
-      if (GEMINI_KEY) p.push('Gemini');
       if (OPENROUTER_KEY) p.push('OpenRouter');
       if (VOICERSS_KEY) p.push('VoiceRSS');
       console.log('[AI Keys ✅]', p.join(' + ') || 'لا مزود');
@@ -10762,12 +10759,13 @@ function scoreVoice(v) {
 }
 /* ملاحظة: القيم المخزّنة — orph:xxx = Groq ، gem:xxx = Gemini ، vrs:xx-xx = VoiceRSS ، اسم عادي = صوت المتصفح ، فارغ = تلقائي */
 var ORPH = [['noura','نورة (أنثى)'],['lulwa','لولوة (أنثى)'],['aisha','عائشة (أنثى)'],['fahad','فهد (ذكر)'],['sultan','سلطان (ذكر)'],['abdullah','عبدالله (ذكر)']];
-var GEMV = [['Kore','كورا (أنثى)'],['Zephyr','زيفير (أنثى)'],['Aoede','أويدي (أنثى)'],['Leda','ليدا (أنثى)'],['Puck','باك (ذكر)'],['Charon','شارون (ذكر)'],['Fenrir','فنرير (ذكر)'],['Orus','أورس (ذكر)']];
-var EDGEV = [['ar-SA-ZariyahNeural','زارية (سعودية، أنثى)'],['ar-SA-HamedNeural','حامد (سعودي، ذكر)'],['ar-KW-NouraNeural','نورة (كويتية)'],['ar-KW-FahedNeural','فهد (كويتي)'],['ar-LY-ImanNeural','إيمان (ليبية)'],['ar-LY-OmarNeural','عمر (ليبي)'],['ar-EG-SalmaNeural','سلمى (مصرية)'],['ar-AE-FatimaNeural','فاطمة (إماراتية)']];
-var VRSV = [['ar-sa','سعودي'],['ar-eg','مصري'],['ar-kw','كويتي'],['ar-ly','ليبي']];
+var VRSV = [['ar-eg','مصري']];   /* VoiceRSS رفض ar-sa/kw/ly: "language does not support" */
+function hasNaturalBrowserVoice() {
+  return arVoices.some(function(v){ return /natural|neural/i.test(v.name || ''); });
+}
 function normVoice() {
   var n = C.voiceName || '';
-  if (/\((Groq|VoiceRSS)\)$/.test(n) || /^edge:/.test(n)) return '';   /* قيم قديمة من نسخ سابقة */
+  if (/\((Groq|VoiceRSS)\)$/.test(n) || /^(edge|gem):/.test(n)) return '';   /* قيم قديمة من نسخ سابقة */
   return n;
 }
 function addVoiceGroup(sel, label, items, prefix) {
@@ -10793,14 +10791,13 @@ function loadVoices() {
   auto.value = ''; auto.textContent = '✨ تلقائي (أفضل صوت متاح)';
   sel.appendChild(auto);
   addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي' + (GROQ_KEY ? '' : ' (يحتاج مفتاح)'), ORPH, 'orph:');
-  addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني' + (GEMINI_KEY ? '' : ' (يحتاج مفتاح)'), GEMV, 'gem:');
   addVoiceGroup(sel, '📞 VoiceRSS' + (VOICERSS_KEY ? '' : ' (يحتاج مفتاح)'), VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
   if (arVoices.length) {
     var brGroup = document.createElement('optgroup');
     brGroup.label = '💻 أصوات المتصفح';
     arVoices.forEach(function(v){
       var opt = document.createElement('option');
-      opt.value = v.name; opt.textContent = v.name + ' (' + v.lang + ')';
+      opt.value = v.name; opt.textContent = (/natural|neural/i.test(v.name || '') ? '⭐ ' : '') + v.name + ' (' + v.lang + ')';
       brGroup.appendChild(opt);
     });
     sel.appendChild(brGroup);
@@ -10828,36 +10825,8 @@ function splitSentences(text) {
     .replace(/—/g, '،').replace(/\s+/g, ' ').trim();
   return clean.split(/(?<=[.!؟،:])\s+/).filter(function(s){ return s.trim().length > 1; });
 }
-/* ═══ Groq عبر Supabase: إذا المتصفح/الشبكة حجبت api.groq.com (CORS / Failed to fetch) نمرّر الطلب من السيرفر ═══ */
-(function () {
-  var origFetch = window.fetch.bind(window);
-  function viaProxy(url, o) {
-    var sb = M() && M().adapter && M().adapter.sb;
-    if (!sb || (o && o.body && typeof o.body !== 'string')) return Promise.reject(new TypeError('Failed to fetch'));   /* FormData (تفريغ الصوت) غير مدعوم */
-    var h = (o && o.headers) || {};
-    var auth = h.Authorization || h.authorization || (h.get && h.get('Authorization'));
-    return sb.functions.invoke('groq-proxy', { body: { path: url.replace('https://api.groq.com', ''), auth: auth, body: o && o.body } })
-      .then(function (r) {
-        if (r.error || !r.data || r.data.status == null) throw new TypeError('Groq proxy failed');
-        var bin = atob(r.data.b64 || ''), u8 = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        return new Response(u8, { status: r.data.status, headers: { 'Content-Type': r.data.ct || 'application/json' } });
-      });
-  }
-  window.fetch = function (u, o) {
-    var url = typeof u === 'string' ? u : (u && u.url) || '';
-    if (url.indexOf('https://api.groq.com/') !== 0) return origFetch(u, o);
-    if (window.__groqViaProxy) return viaProxy(url, o);
-    return origFetch(u, o).catch(function (e) {
-      if (!(e instanceof TypeError)) throw e;
-      return viaProxy(url, o).then(function (res) { window.__groqViaProxy = true; return res; });
-    });
-  };
-})();
-
 /* ═══ MUZN VOICE v3 — سلسلة أصوات تلقائية: Groq Orpheus ← Gemini TTS ← VoiceRSS ← المتصفح ═══ */
-var GEM_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'], gemModel = null;
-var TTS_LIM = { groq: {max:190, n:4}, edge: {max:400, n:3}, gemini: {max:600, n:2}, voicerss: {max:800, n:1} };
+var TTS_LIM = { groq: {max:190, n:2}, voicerss: {max:800, n:1} };   /* Groq TTS: 100 طلب/يوم و3.6K توكن/يوم فقط */
 var spkId = 0, spkAudio = null, spkCache = {}, spkCacheKeys = [], ttsDown = {}, orphHinted = false, _unlocked = false;
 
 function ttsClean(t) {
@@ -10894,51 +10863,6 @@ async function synGroq(text, voice) {
   if (!r.ok) throw httpErr('Groq TTS HTTP ' + r.status, r.status);
   return URL.createObjectURL(await r.blob());
 }
-function pcmToWavUrl(b64, rate) {
-  var bin = atob(b64), n = bin.length, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
-  function w(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
-  w(0,'RIFF'); v.setUint32(4, 36 + n, true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36,'data'); v.setUint32(40, n, true);
-  var u8 = new Uint8Array(buf, 44); for (var i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-}
-async function synGemini(text, voice) {
-  var models = gemModel ? [gemModel] : GEM_MODELS, last = null;
-  for (var i = 0; i < models.length; i++) {
-    var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_KEY },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: text }] }],
-        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } }
-      })
-    });
-    if (!r.ok) {
-      last = httpErr('Gemini TTS HTTP ' + r.status, r.status);
-      if (r.status === 404 || r.status === 429 || r.status === 503) continue;   /* جرّب النموذج التالي */
-      throw last;
-    }
-    var j = await r.json(), parts = (((j.candidates || [])[0] || {}).content || {}).parts || [], d = null;
-    parts.forEach(function(p){ if (p.inlineData && p.inlineData.data) d = p.inlineData; });
-    if (!d) { last = httpErr('Gemini TTS: no audio', 500); continue; }
-    gemModel = models[i];
-    var m = /rate=(\d+)/.exec(d.mimeType || '');
-    return pcmToWavUrl(d.data, m ? +m[1] : 24000);
-  }
-  throw last || httpErr('Gemini TTS failed', 500);
-}
-function edgeReady() { try { return !!(M() && M().adapter && M().adapter.sb); } catch(e) { return false; } }
-async function synEdge(text, voice) {
-  var r = await M().adapter.sb.functions.invoke('edge-tts', { body: { text: text, voice: voice, rate: C.rate || 1 } });
-  if (r.error || !r.data || !r.data.audio) {
-    var st = r.error && r.error.context && r.error.context.status, detail = '';
-    try { if (r.error && r.error.context && r.error.context.json) detail = (await r.error.context.json()).error || ''; } catch(x){}
-    window.__edgeErr = detail || (r.error && r.error.message) || 'failed';
-    throw httpErr('Edge TTS: ' + window.__edgeErr, st === 404 ? 404 : 500);
-  }
-  return 'data:audio/mpeg;base64,' + r.data.audio;
-}
 async function synVRS(text, lang) {
   var r = await fetch('https://api.voicerss.org/', {
     method: 'POST',
@@ -10955,7 +10879,7 @@ async function synVRS(text, lang) {
 async function ttsSynth(p, text, voice) {
   var k = p + '|' + voice + '|' + text;
   if (spkCache[k]) return spkCache[k];
-  var u = p === 'groq' ? await synGroq(text, voice) : p === 'edge' ? await synEdge(text, voice) : p === 'gemini' ? await synGemini(text, voice) : await synVRS(text, voice);
+  var u = p === 'groq' ? await synGroq(text, voice) : await synVRS(text, voice);
   spkCache[k] = u; spkCacheKeys.push(k);
   if (spkCacheKeys.length > 25) {
     var o = spkCacheKeys.shift();
@@ -10968,31 +10892,26 @@ async function ttsSynth(p, text, voice) {
 /* ── اختيار المزوّد ── */
 function ttsAvail(p) {
   if ((ttsDown[p] || 0) > Date.now()) return false;
-  return p === 'groq' ? !!GROQ_KEY : p === 'edge' ? edgeReady() : p === 'gemini' ? !!GEMINI_KEY : !!VOICERSS_KEY;
+  return p === 'groq' ? !!GROQ_KEY : !!VOICERSS_KEY;
 }
 function ttsChain() {
   var n = normVoice(), order = [];
   if (n.indexOf('orph:') === 0) order.push('groq');
-  else if (n.indexOf('edge:') === 0) order.push('edge');
-  else if (n.indexOf('gem:') === 0) order.push('gemini');
   else if (n.indexOf('vrs:') === 0) order.push('voicerss');
   else if (n) return [];                       /* اختار صوت متصفح بالاسم */
-  ['groq', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
+  else if (hasNaturalBrowserVoice()) return [];   /* تلقائي + المتصفح فيه صوت عصبي طبيعي (مثل Edge) = مجاني وبلا حدود، نستخدمه مباشرة */
+  ['groq', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
   return order.filter(ttsAvail);
 }
 function ttsVoiceFor(p) {
-  var n = normVoice(), pre = { groq: 'orph:', edge: 'edge:', gemini: 'gem:', voicerss: 'vrs:' }[p];
-  if (n.indexOf(pre) === 0) return n.slice(pre.length);
-  return { groq: 'noura', edge: 'ar-SA-ZariyahNeural', gemini: 'Kore', voicerss: 'ar-sa' }[p];
+  var n = normVoice(), pre = { groq: 'orph:', voicerss: 'vrs:' }[p];
+  if (n.indexOf(pre) === 0 && !(p === 'voicerss' && n !== 'vrs:ar-eg')) return n.slice(pre.length);
+  return { groq: 'noura', voicerss: 'ar-eg' }[p];
 }
 function ttsFail(p, e) {
   console.warn('[TTS ' + p + ' ❌]', e && e.message);
   var s = e && e.status;
-  ttsDown[p] = Date.now() + (s === 429 ? 60000 : (s === 400 || s === 401 || s === 403 || s === 404) ? 30 * 60000 : 2 * 60000);
-  if (p === 'edge' && window.__edgeErr && !window.__edgeHinted) {
-    window.__edgeHinted = true;
-    try { botSay('ℹ️ صوت Edge ما اشتغل — رسالة الخطأ: ' + window.__edgeErr + ' (أرسلها للمطوّر). أستخدم صوت بديل مؤقتاً.'); } catch(x){}
-  }
+  ttsDown[p] = Date.now() + (s === 429 ? 10 * 60000 : (s === 400 || s === 401 || s === 403 || s === 404) ? 30 * 60000 : 2 * 60000);
   if (p === 'groq' && (s === 400 || s === 403) && !orphHinted) {
     orphHinted = true;
     try { botSay('ℹ️ صوت Groq ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground. مؤقتاً أستخدم صوت بديل.'); } catch(x){}
@@ -12434,10 +12353,10 @@ function buildSystemPrompt() {
 function askGroq(userMsg, history) {
   if (!GROQ_KEY) return Promise.reject(new Error('no groq key'));
    var models = [
-  'openai/gpt-oss-120b',   // ⭐ أقوى
-  'allam-2-7b',             // ⭐ الأفضل عربي
-  'openai/gpt-oss-20b',
-  'qwen/qwen3-8-27b'
+  'allam-2-7b',            // ⭐ عربي + أعلى حد: 7K طلب/يوم و500K توكن/يوم
+  'openai/gpt-oss-120b',   // الأقوى (1K طلب/يوم، 200K توكن/يوم)
+  'qwen/qwen3.8-27b',      // 1K طلب/يوم، 200K توكن/يوم
+  'openai/gpt-oss-20b'     // احتياط سريع
 ];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
   (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
@@ -12466,77 +12385,60 @@ function askGroq(userMsg, history) {
   return tryM(0);
 }
 
-function askGemini(userMsg, history) {
-  if (!GEMINI_KEY) return Promise.reject(new Error('no gemini key'));
-var models = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash-001',
-  'gemini-1.5-flash-002',
-  'gemini-1.5-flash-8b'
+var OR_STATIC = [   /* مجانية حالياً (أكتوبر 2026) — تتغير كثيراً، فنجيب القائمة الحية أيضاً */
+  'google/gemma-4-31b-it:free',
+  'qwen/qwen3.8-27b:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free'
 ];
-  var contents = [];
-  (history||[]).slice(-8).forEach(function(h){ contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: String(h.text||'').slice(0,600) }] }); });
-  contents.push({ role: 'user', parts: [{ text: buildSystemPrompt() + '\n\n---\n\nسؤال: ' + userMsg }] });
-  function tryM(i) {
-    if (i >= models.length) return Promise.reject(new Error('all gemini failed'));
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + GEMINI_KEY;
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: contents,
-        generationConfig: { temperature: 0.75, maxOutputTokens: 800 }
-      })
-    }).then(function(r){ return r.json().then(function(d){
-      if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
-      var c0 = d.candidates && d.candidates[0];
-      var t = c0 && c0.content && c0.content.parts && c0.content.parts.map(function(p){return p.text||'';}).join('');
-      if (!t) throw new Error('empty');
-      return t.trim();
-    }); }).catch(function(e){
-      console.warn('[Gemini ' + models[i] + ']', e.message);
-      return tryM(i + 1);
-    });
-  }
-  return tryM(0);
+var _orModels = null, _orLoading = null;
+function orFreeModels() {
+  if (_orModels) return Promise.resolve(_orModels);
+  if (_orLoading) return _orLoading;
+  _orLoading = fetch('https://openrouter.ai/api/v1/models').then(function(r){ return r.json(); }).then(function(d){
+    var live = (d.data || []).filter(function(m){
+      var pr = m.pricing || {};
+      return /:free$/.test(m.id) && Number(pr.prompt) === 0 && Number(pr.completion) === 0 &&
+             !/code|coder|stealth|alpha|safeguard|guard|embed|image|vision-only/i.test(m.id) &&
+             (m.context_length || 0) >= 16000;
+    }).map(function(m){ return m.id; });
+    var out = OR_STATIC.filter(function(id){ return live.indexOf(id) >= 0; });
+    live.forEach(function(id){ if (out.indexOf(id) < 0) out.push(id); });
+    _orModels = (out.length ? out : OR_STATIC).slice(0, 6);   /* أقصى 6 محاولات: الحد المجاني ~50 طلب/يوم */
+    return _orModels;
+  }).catch(function(){ _orModels = OR_STATIC.slice(); return _orModels; });
+  return _orLoading;
 }
-
 function askOpenRouter(userMsg, history) {
   if (!OPENROUTER_KEY) return Promise.reject(new Error('no openrouter key'));
-var models = [
-  'google/gemini-2.0-flash-exp:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
-  'qwen/qwen-2.5-7b-instruct:free',
-  'mistralai/mistral-7b-instruct:free'
-];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
   (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
   msgs.push({ role: 'user', content: userMsg });
 
-  function tryM(i) {
-    if (i >= models.length) return Promise.reject(new Error('كل موديلات OpenRouter فشلت'));
-    return fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENROUTER_KEY },
-      body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 800 })
-    }).then(function(r){ return r.json().then(function(d){
-      if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
-      var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-      if (!t) throw new Error('empty');
-      console.log('[OpenRouter ✅]', models[i]);
-      return t.trim();
-    }); }).catch(function(e){
-      console.warn('[OpenRouter ❌]', models[i], e.message);
-      return tryM(i + 1);
-    });
-  }
-  return tryM(0);
+  return orFreeModels().then(function(models){
+    function tryM(i) {
+      if (i >= models.length) return Promise.reject(new Error('كل موديلات OpenRouter فشلت'));
+      return fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENROUTER_KEY },
+        body: JSON.stringify({ model: models[i], messages: msgs, temperature: 0.75, max_tokens: 1200, reasoning: { enabled: false } })
+      }).then(function(r){ return r.json().then(function(d){
+        if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
+        var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+        if (!t) throw new Error('empty');
+        console.log('[OpenRouter ✅]', models[i]);
+        return t.trim();
+      }); }).catch(function(e){
+        console.warn('[OpenRouter ❌]', models[i], e.message);
+        return tryM(i + 1);
+      });
+    }
+    return tryM(0);
+  });
 }
 function askAI(userMsg, history) {
   var chain = [];
   if (GROQ_KEY)       chain.push({ name: 'Groq',       fn: askGroq });
-  if (GEMINI_KEY)     chain.push({ name: 'Gemini',     fn: askGemini });
   if (OPENROUTER_KEY) chain.push({ name: 'OpenRouter', fn: askOpenRouter });
   if (!chain.length) return Promise.reject(new Error('no provider'));
   function tryN(i) {
@@ -12857,7 +12759,6 @@ function saveSettings() {
 }
 function updateProviderStatus() {
   $('mzn-st-groq').className   = 'status ' + (GROQ_KEY ? 'on' : 'off');
-  $('mzn-st-gemini').className = 'status ' + (GEMINI_KEY ? 'on' : 'off');
   $('mzn-st-or').className     = 'status ' + (OPENROUTER_KEY ? 'on' : 'off');
   var vrs = $('mzn-st-vrs');
   if (vrs) vrs.className = 'status ' + (VOICERSS_KEY ? 'on' : 'off');
@@ -13026,9 +12927,9 @@ async function gem(parts,json){
   throw err}
 async function llm(p){
   if(GROQ_KEY){try{var r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
-    body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'user',content:p}],temperature:0.2})});
+    body:JSON.stringify({model:'openai/gpt-oss-120b',messages:[{role:'user',content:p}],temperature:0.2})});
     if(r.ok){var j=await r.json();return j.choices[0].message.content}}catch(e){}}
-  return gem([{text:p}],false)}
+  throw new Error('no llm available')}
 
 /* ── صلاحيات المساعد (للمدير فقط) ── */
 var CAPS={import:['استيراد','الفواتير','فواتير','فاتوره'],learn:['التعلم','تعليم','التعليم','تعلم'],prices:['الاسعار','اسعار']};
