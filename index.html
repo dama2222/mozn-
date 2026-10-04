@@ -10605,7 +10605,7 @@ window.closeSheet = closeSheet;
      
       <label>🎙️ الصوت</label>
       <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الوضع التلقائي يجرّب: Groq ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
+      <div class="hint">الوضع التلقائي يجرّب: Groq ← Edge العصبي ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
 
       <label>🎚️ سرعة الصوت</label>
       <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
@@ -10763,6 +10763,7 @@ function scoreVoice(v) {
 /* ملاحظة: القيم المخزّنة — orph:xxx = Groq ، gem:xxx = Gemini ، vrs:xx-xx = VoiceRSS ، اسم عادي = صوت المتصفح ، فارغ = تلقائي */
 var ORPH = [['noura','نورة (أنثى)'],['lulwa','لولوة (أنثى)'],['aisha','عائشة (أنثى)'],['fahad','فهد (ذكر)'],['sultan','سلطان (ذكر)'],['abdullah','عبدالله (ذكر)']];
 var GEMV = [['Kore','كورا (أنثى)'],['Zephyr','زيفير (أنثى)'],['Aoede','أويدي (أنثى)'],['Leda','ليدا (أنثى)'],['Puck','باك (ذكر)'],['Charon','شارون (ذكر)'],['Fenrir','فنرير (ذكر)'],['Orus','أورس (ذكر)']];
+var EDGEV = [['ar-SA-ZariyahNeural','زارية (سعودية، أنثى)'],['ar-SA-HamedNeural','حامد (سعودي، ذكر)'],['ar-KW-NouraNeural','نورة (كويتية)'],['ar-KW-FahedNeural','فهد (كويتي)'],['ar-LY-ImanNeural','إيمان (ليبية)'],['ar-LY-OmarNeural','عمر (ليبي)'],['ar-EG-SalmaNeural','سلمى (مصرية)'],['ar-AE-FatimaNeural','فاطمة (إماراتية)']];
 var VRSV = [['ar-sa','سعودي'],['ar-eg','مصري'],['ar-kw','كويتي'],['ar-ly','ليبي']];
 function normVoice() {
   var n = C.voiceName || '';
@@ -10792,6 +10793,7 @@ function loadVoices() {
   auto.value = ''; auto.textContent = '✨ تلقائي (أفضل صوت متاح)';
   sel.appendChild(auto);
   if (GROQ_KEY)      addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي', ORPH, 'orph:');
+  if (edgeReady())   addVoiceGroup(sel, '🎧 أصوات عصبية مجانية (Edge)', EDGEV, 'edge:');
   if (GEMINI_KEY)    addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني', GEMV, 'gem:');
   if (VOICERSS_KEY)  addVoiceGroup(sel, '📞 VoiceRSS', VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
   if (arVoices.length) {
@@ -10829,7 +10831,7 @@ function splitSentences(text) {
 }
 /* ═══ MUZN VOICE v3 — سلسلة أصوات تلقائية: Groq Orpheus ← Gemini TTS ← VoiceRSS ← المتصفح ═══ */
 var GEM_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'], gemModel = null;
-var TTS_LIM = { groq: {max:190, n:4}, gemini: {max:600, n:2}, voicerss: {max:800, n:1} };
+var TTS_LIM = { groq: {max:190, n:4}, edge: {max:400, n:3}, gemini: {max:600, n:2}, voicerss: {max:800, n:1} };
 var spkId = 0, spkAudio = null, spkCache = {}, spkCacheKeys = [], ttsDown = {}, orphHinted = false, _unlocked = false;
 
 function ttsClean(t) {
@@ -10900,6 +10902,15 @@ async function synGemini(text, voice) {
   }
   throw last || httpErr('Gemini TTS failed', 500);
 }
+function edgeReady() { try { return !!(M() && M().adapter && M().adapter.sb); } catch(e) { return false; } }
+async function synEdge(text, voice) {
+  var r = await M().adapter.sb.functions.invoke('edge-tts', { body: { text: text, voice: voice, rate: C.rate || 1 } });
+  if (r.error || !r.data || !r.data.audio) {
+    var st = r.error && r.error.context && r.error.context.status;
+    throw httpErr('Edge TTS ' + ((r.error && r.error.message) || (r.data && r.data.error) || 'failed'), st || 500);
+  }
+  return 'data:audio/mpeg;base64,' + r.data.audio;
+}
 async function synVRS(text, lang) {
   var r = await fetch('https://api.voicerss.org/', {
     method: 'POST',
@@ -10916,7 +10927,7 @@ async function synVRS(text, lang) {
 async function ttsSynth(p, text, voice) {
   var k = p + '|' + voice + '|' + text;
   if (spkCache[k]) return spkCache[k];
-  var u = p === 'groq' ? await synGroq(text, voice) : p === 'gemini' ? await synGemini(text, voice) : await synVRS(text, voice);
+  var u = p === 'groq' ? await synGroq(text, voice) : p === 'edge' ? await synEdge(text, voice) : p === 'gemini' ? await synGemini(text, voice) : await synVRS(text, voice);
   spkCache[k] = u; spkCacheKeys.push(k);
   if (spkCacheKeys.length > 25) {
     var o = spkCacheKeys.shift();
@@ -10929,26 +10940,27 @@ async function ttsSynth(p, text, voice) {
 /* ── اختيار المزوّد ── */
 function ttsAvail(p) {
   if ((ttsDown[p] || 0) > Date.now()) return false;
-  return p === 'groq' ? !!GROQ_KEY : p === 'gemini' ? !!GEMINI_KEY : !!VOICERSS_KEY;
+  return p === 'groq' ? !!GROQ_KEY : p === 'edge' ? edgeReady() : p === 'gemini' ? !!GEMINI_KEY : !!VOICERSS_KEY;
 }
 function ttsChain() {
   var n = normVoice(), order = [];
   if (n.indexOf('orph:') === 0) order.push('groq');
+  else if (n.indexOf('edge:') === 0) order.push('edge');
   else if (n.indexOf('gem:') === 0) order.push('gemini');
   else if (n.indexOf('vrs:') === 0) order.push('voicerss');
   else if (n) return [];                       /* اختار صوت متصفح بالاسم */
-  ['groq', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
+  ['groq', 'edge', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
   return order.filter(ttsAvail);
 }
 function ttsVoiceFor(p) {
-  var n = normVoice(), pre = { groq: 'orph:', gemini: 'gem:', voicerss: 'vrs:' }[p];
+  var n = normVoice(), pre = { groq: 'orph:', edge: 'edge:', gemini: 'gem:', voicerss: 'vrs:' }[p];
   if (n.indexOf(pre) === 0) return n.slice(pre.length);
-  return { groq: 'noura', gemini: 'Kore', voicerss: 'ar-sa' }[p];
+  return { groq: 'noura', edge: 'ar-SA-ZariyahNeural', gemini: 'Kore', voicerss: 'ar-sa' }[p];
 }
 function ttsFail(p, e) {
   console.warn('[TTS ' + p + ' ❌]', e && e.message);
   var s = e && e.status;
-  ttsDown[p] = Date.now() + (s === 429 ? 60000 : (s === 400 || s === 401 || s === 403) ? 30 * 60000 : 2 * 60000);
+  ttsDown[p] = Date.now() + (s === 429 ? 60000 : (s === 400 || s === 401 || s === 403 || s === 404) ? 30 * 60000 : 2 * 60000);
   if (p === 'groq' && (s === 400 || s === 403) && !orphHinted) {
     orphHinted = true;
     try { botSay('ℹ️ صوت Groq ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground. مؤقتاً أستخدم صوت بديل.'); } catch(x){}
