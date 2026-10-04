@@ -10653,6 +10653,7 @@ async function loadAIKeys() {
         if (row.key === 'groq_key'       && row.value) GROQ_KEY = row.value;
         if (row.key === 'gemini_key'     && row.value) GEMINI_KEY = row.value;
         if (row.key === 'openrouter_key' && row.value) OPENROUTER_KEY = row.value;
+       if (row.key === 'voicerss_key' && row.value) VOICERSS_KEY = row.value;
       });
       var p = [];
       if (GROQ_KEY) p.push('Groq');
@@ -10798,8 +10799,66 @@ function splitSentences(text) {
     .replace(/—/g, '،').replace(/\s+/g, ' ').trim();
   return clean.split(/(?<=[.!؟،:])\s+/).filter(function(s){ return s.trim().length > 1; });
 }
+/* ═══ كاش الصوت ═══ */
+var _ttsCache = {};
+var _currentAudio = null;
+
+/* ═══ VoiceRSS — صوت طبيعي (الأساسي) ═══ */
+async function speakVoiceRSS(text) {
+  if (!VOICERSS_KEY) throw new Error('VoiceRSS غير مُفعّل');
+
+  var clean = String(text||'')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+    .replace(/\s+/g, ' ').trim()
+    .slice(0, 900);
+  if (!clean) return;
+
+  var cacheKey = clean.slice(0, 120);
+  if (_ttsCache[cacheKey]) { playAudioUrl(_ttsCache[cacheKey]); return; }
+
+  var params = new URLSearchParams({
+    key: VOICERSS_KEY,
+    hl: 'ar-sa',
+    v: 'Hamza',
+    src: clean,
+    c: 'MP3',
+    f: '44khz_16bit_stereo',
+    b64: 'false'
+  });
+
+  var url = 'https://api.voicerss.org/?' + params.toString();
+  _ttsCache[cacheKey] = url;
+  playAudioUrl(url);
+}
+
+function playAudioUrl(url) {
+  stopSpeak();
+  _currentAudio = new Audio(url);
+  _currentAudio.volume = 1;
+  _currentAudio.play().catch(function(e){ console.warn('[TTS]:', e.message); });
+}
+
+/* ═══ المتحدث الرئيسي ═══ */
 function speak(text) {
-  if (!C.voice || !window.speechSynthesis) return;
+  if (!C.voice) return;
+
+  /* VoiceRSS أولاً */
+  if (typeof VOICERSS_KEY !== 'undefined' && VOICERSS_KEY) {
+    speakVoiceRSS(text).catch(function(err) {
+      console.warn('[VoiceRSS ❌]', err.message, '→ browser');
+      speakBrowser(text);
+    });
+    return;
+  }
+
+  /* احتياطي: Web Speech API */
+  speakBrowser(text);
+}
+
+/* ═══ احتياطي: أصوات المتصفح ═══ */
+function speakBrowser(text) {
+  if (!window.speechSynthesis) return;
   try {
     var parts = splitSentences(text);
     if (!parts.length) return;
@@ -10815,7 +10874,15 @@ function speak(text) {
     });
   } catch(e){}
 }
-function stopSpeak() { if (window.speechSynthesis) try { speechSynthesis.cancel(); } catch(e){} }
+
+/* ═══ إيقاف الصوت ═══ */
+function stopSpeak() {
+  if (_currentAudio) {
+    try { _currentAudio.pause(); _currentAudio.currentTime = 0; } catch(e){}
+    _currentAudio = null;
+  }
+  if (window.speechSynthesis) try { speechSynthesis.cancel(); } catch(e){}
+}
 
 /* ═══ قراءة البيانات ═══ */
 function saleTotal(h) { return (h.items||[]).reduce(function(s,it){ return s + (it.qty*it.price - (it.discount||0)); }, 0); }
