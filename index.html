@@ -11188,6 +11188,7 @@ function has(text) {
 function anyHas(t, arr) { for (var i=0;i<arr.length;i++) if (has(t, arr[i])) return true; return false; }
 
 function detectIntent(raw) {
+  var u = me();
   var t = norm(raw); var s = {};
   function add(k, w) { s[k] = (s[k]||0) + w; }
 
@@ -11246,6 +11247,173 @@ function detectIntent(raw) {
   return { intent: best, score: bs };
 }
 
+/* ═══════════════════════════════════════════════════════════
+   👥 HR ذكي — مهام، أهداف، مكافآت، عواطف
+   ═══════════════════════════════════════════════════════════ */
+function generateDailyTasks(userName) {
+  var u = me();
+  var isAdmin = u && u.role === 'admin';
+  var tasks = [];
+  if (canAccess('production') || isAdmin) {
+    var m = M(), s = store();
+    var lowProducts = (s.products||[]).filter(function(p){
+      if (!p.min_stock) return false;
+      var q = safe(function(){ return m.stockWH(s, p.id); }, 0);
+      return q < p.min_stock;
+    });
+    var since30 = new Date(); since30.setDate(since30.getDate() - 30);
+    var since30str = since30.getFullYear()+'-'+String(since30.getMonth()+1).padStart(2,'0')+'-'+String(since30.getDate()).padStart(2,'0');
+    lowProducts.forEach(function(p){
+      var demanded = 0;
+      (s.sale_items_flat||[]).forEach(function(it){
+        if (it.product_id === p.id && it.date >= since30str) demanded += it.qty;
+      });
+      var stock = safe(function(){ return m.stockWH(s, p.id); }, 0);
+      var need = Math.max(p.min_stock - stock, 0);
+      var suggested = Math.max(need, Math.ceil(demanded / 30));
+      var priority = demanded >= 500 ? 'عاجل 🔴' : demanded >= 200 ? 'مرتفع 🟠' : 'عادي 🟡';
+      tasks.push({
+        type: 'production', priority: priority,
+        title: 'أنتج ' + p.name, quantity: suggested,
+        reason: 'الطلب ' + demanded + ' وحدة/30 يوم، والمخزون ' + stock + ' من ' + p.min_stock
+      });
+    });
+  }
+  if (canAccess('collections') || canAccess('sales') || isAdmin) {
+    overdueCustomers().slice(0, 5).forEach(function(x){
+      tasks.push({ type: 'collection', priority: 'عالي 🟠',
+        title: 'حصّل من ' + x.c.name, amount: x.remaining,
+        reason: 'متأخر' + (x.due ? ' منذ ' + x.due : '') });
+    });
+  }
+  if (canAccess('distributors') || isAdmin) {
+    var nd = distsNotRemittedToday();
+    if (nd.length > 0 && nd.length <= 5) {
+      nd.forEach(function(d){
+        tasks.push({ type: 'remit', priority: 'عادي 🟡',
+          title: 'تابع مع ' + d.name, reason: 'لم يسلّم اليوم' });
+      });
+    }
+  }
+  if (canAccess('purchases') || isAdmin) {
+    var m2 = M(), s2 = store();
+    var lowMats = (s2.materials||[]).filter(function(mt){
+      if (!mt.min_stock) return false;
+      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
+      return q < mt.min_stock;
+    });
+    lowMats.forEach(function(mt){
+      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
+      var need = Math.max(mt.min_stock - q, 0);
+      tasks.push({ type: 'purchase', priority: 'مرتفع 🟠',
+        title: 'اشترِ ' + mt.name, quantity: need,
+        reason: 'المخزون ' + q + ' أقل من ' + mt.min_stock });
+    });
+  }
+  return tasks;
+}
+
+function calculateSmartTargets(userName) {
+  var u = me();
+  if (!u) return null;
+  var avg7  = avgDailySales(userName, 7);
+  var avg30 = avgDailySales(userName, 30);
+  var avg90 = avgDailySales(userName, 90);
+  var base = avg30 > 0 ? (avg30 * 0.5 + avg7 * 0.3 + avg90 * 0.2) : avg7;
+  if (base <= 0) base = 500;
+  if (getRole() === 'production') base = Math.max(base, 300);
+  var daily  = Math.ceil((base * 1.15) / 50) * 50;
+  return {
+    daily: daily, weekly: daily*7, monthly: daily*30,
+    avg7: Math.round(avg7), avg30: Math.round(avg30),
+    bonusRates: {
+      weekly:  [{pct:100,reward:1},{pct:120,reward:2},{pct:150,reward:3}],
+      monthly: [{pct:100,reward:2},{pct:120,reward:3.5},{pct:150,reward:5}]
+    }
+  };
+}
+
+function calculatePotentialBonus(userName, period) {
+  var t = calculateSmartTargets(userName);
+  if (!t) return null;
+  var target = period === 'week' ? t.weekly : t.monthly;
+  var u = me(); if (!u) return null;
+  var arr = period === 'week' ? salesWeek(u.name) : salesMonth(u.name);
+  var achieved = sumSales(arr);
+  var rates = period === 'week' ? t.bonusRates.weekly : t.bonusRates.monthly;
+  var bestReward = 0, nextTier = null;
+  for (var i = 0; i < rates.length; i++) {
+    var threshold = target * (rates[i].pct / 100);
+    if (achieved >= threshold) bestReward = rates[i].reward;
+    else { nextTier = { target: threshold, reward: rates[i].reward, needed: threshold - achieved }; break; }
+  }
+  return { period: period, target: target, achieved: achieved,
+    currentReward: bestReward, nextTier: nextTier,
+    percent: target > 0 ? Math.round(achieved / target * 100) : 0 };
+}
+
+function detectEmotion(text) {
+  var t = norm(text);
+  var emotions = {
+    frustrated: ['زعلان','زعلانة','متضايق','متضايقة','غاضب','تعبت','مليت','حزين','مكتئب','قلقان','خايف','محبط','سيء','صعب','تعبان'],
+    happy:      ['سعيد','مبسوط','فرحان','ممتاز','رائع','حلو','تمام','الحمدلله','مرتاح'],
+    confused:   ['مش فاهم','مش فاهمة','ما فهمت','معقد','مو واضح','مو مفهوم','احترت'],
+    angry:      ['مغضب','زفت','كرهت','مو زين','حقير','ظلم'],
+    tired:      ['مرهق','منهك','ملل','خلصت','انتهيت'],
+    hopeless:   ['مافي فايدة','ما ينفع','مستحيل','مستسلم','ما عاد']
+  };
+  for (var emo in emotions) {
+    for (var i = 0; i < emotions[emo].length; i++) {
+      if (t.indexOf(norm(emotions[emo][i])) >= 0) return emo;
+    }
+  }
+  return 'neutral';
+}
+
+function emotionalResponse(emotion, originalText) {
+  var u = me();
+  var name = u ? u.name.split(' ')[0] : '';
+  switch (emotion) {
+    case 'frustrated':
+      return '💙 أفهم إنك متضايق' + (name ? ' يا ' + name : '') + '.\n\nكلنا نمر بفترات صعبة. تقدر تقول لي السبب؟\n\n💡 وإذا فيه مشكلة مع الإدارة: **"شكوى: [تفاصيل]"**';
+    case 'angry':
+      return '😔 أعتذر إذا حصل شي ضايقك.\n\nخلنا نحلها بهدوء. اكتب: **"شكوى: [نص]"**';
+    case 'tired':
+      return '🤗 أعرف إن الشغل يتعب' + (name ? ' يا ' + name : '') + '.\n\nخذ بريك 5 دقايق، اشرب ماي، وارجع بقوة 💪';
+    case 'hopeless':
+      return '💪 لا لا، ما نوصل لهذي المرحلة!\n\nاكتب لي: إيش المشكلة؟ من متى؟ جربت إيش؟';
+    case 'confused':
+      return '🤔 عادي! اكتب لي إيش اللي مو واضح وأنا أبسطه لك خطوة بخطوة.\nأو اكتب **"اشرح لي"**.';
+    case 'happy':
+      return '🎉 ممتاز! سعيد إنك مبسوط. استمر!';
+    default:
+      return null;
+  }
+}
+
+var LEARNED_KEY = 'muzn_buddy_learned';
+function getLearnedFacts() {
+  try { var r = localStorage.getItem(LEARNED_KEY); return r ? JSON.parse(r) : []; }
+  catch(e) { return []; }
+}
+function saveLearnedFacts(facts) {
+  try { localStorage.setItem(LEARNED_KEY, JSON.stringify(facts)); } catch(e){}
+}
+function addLearnedFact(text, category) {
+  var facts = getLearnedFacts();
+  facts.unshift({ id: Date.now(), text: text, category: category || 'عام',
+    by: me() ? me().name : 'غير معروف', ts: Date.now() });
+  facts = facts.slice(0, 100);
+  saveLearnedFacts(facts);
+  return facts[0];
+}
+function getLearnedContext() {
+  var facts = getLearnedFacts();
+  if (!facts.length) return '';
+  return '\n\n📚 معلومات تعلمتها من المدير:\n' +
+    facts.slice(0, 15).map(function(f){ return '• ' + f.text; }).join('\n');
+}
+
 /* ═══ buildReply ═══ */
 function buildReply(intent, raw) {
   var u = me();
@@ -11260,7 +11428,8 @@ function buildReply(intent, raw) {
       return { text: t + ' ' + name + '! 🦉\nاسألني عن مبيعاتك، أرباحك، ديونك، أو أي شيء.' };
     }
     case 'help':
-      return { text: '🦉 *أنا مُزن — مساعدك الذكي.*\n\nاقدر أساعدك في:\n• 📊 مبيعاتك (اليوم/الأسبوع/الشهر/السنة)\n• 💰 الأرباح (للمدير)\n• 📅 تاريخ محدد: "مبيعات 10/3"\n• 💵 من دفع اليوم\n• 💳 الديون\n• 🎯 "اقترح لي هدف" أو "حدد هدفي 2000"\n• 🕐 "أغلق ورديتي"، "ورديتي اليوم"\n• ⚠️ "هل تأخرت اليوم"، "كم يوم غبت"\n• 🎁 "مكافآت الفريق"\n• 📈 "حلل أدائي"، "قارن الشهور"\n• 🧠 "استشارة" (للمدير)\n• 📦 المخزون\n• 📢 "شكوى: نص"\n\nاكتب أي سؤال ✨' };
+      return { text: '🦉 *أنا مُزن — مساعدك الذكي.*\n\nاقدر أساعدك في:\n• 📊 مبيعاتك (اليوم/الأسبوع/الشهر/السنة)\n• 💰 الأرباح (للمدير)\n• 📅 تاريخ محدد: "مبيعات 10/3"\n• 💵 من دفع اليوم\n• 💳 الديون\n• 🎯 "اقترح لي هدف"\n• 🕐 "أغلق ورديتي"، "ورديتي اليوم"\n• ⚠️ "هل تأخرت اليوم"\n• 🎁 "مكافآت الفريق"\n• 📈 "حلل أدائي"، "قارن الشهور"\n• 📋 "ماذا أفعل اليوم؟"\n• 🧠 "استشارة" (للمدير)\n• 📦 المخزون\n• 📢 "شكوى: نص"\n\nاكتب أي سؤال ✨' };
+
     case 'sales_year': {
       if (!canAccess('sales')) return { text: denyMsg('sales') };
       var s3 = store(); if (!s3) return { text: 'لا بيانات.' };
@@ -11396,9 +11565,8 @@ function buildReply(intent, raw) {
     case 'target_set': {
       var nm = raw.match(/(\d+(?:\.\d+)?)/);
       if (!nm || !u) return { text: 'اكتب: "حدد هدفي 2000"' };
-      var nt = parseFloat(nm[1]);
-      setTarget(u.name, nt);
-      return { text: '✅ هدفك: *' + fmt(nt) + ' ' + cn + '*' };
+      setTarget(u.name, parseFloat(nm[1]));
+      return { text: '✅ هدفك: *' + fmt(parseFloat(nm[1])) + ' ' + cn + '*' };
     }
     case 'target': {
       if (!u) return { text: 'سجّل دخولك.' };
@@ -11522,280 +11690,6 @@ function buildReply(intent, raw) {
       if (ls.products.length) { la.push('\n*منتجات:*'); ls.products.slice(0,8).forEach(function(p){ la.push('• ' + p.name + ' — ' + p.have); }); }
       if (ls.materials.length) { la.push('\n*مواد:*'); ls.materials.slice(0,8).forEach(function(x){ la.push('• ' + x.name + ' — ' + x.have); }); }
       return { text: la.join('\n') };
-   /* ═══════════════════════════════════════════════════════════
-   👥 HR ذكي — مهام، أهداف، مكافآت، عواطف
-   ═══════════════════════════════════════════════════════════ */
-
-/* ═══ 1) المهام اليومية الذكية ═══ */
-function generateDailyTasks(userName) {
-  var u = me();
-  var isAdmin = u && u.role === 'admin';
-  var tasks = [];
-
-  // ═══ أ) إنتاج — منتجات ناقصة + عليها طلب ═══
-  if (canAccess('production') || isAdmin) {
-    var m = M(), s = store();
-    var lowProducts = (s.products||[]).filter(function(p){
-      if (!p.min_stock) return false;
-      var q = safe(function(){ return m.stockWH(s, p.id); }, 0);
-      return q < p.min_stock;
-    });
-
-    // رتّب حسب: مبيعات آخر 30 يوم (الأكثر طلباً أول)
-    var since30 = new Date(); since30.setDate(since30.getDate() - 30);
-    var since30str = since30.getFullYear()+'-'+String(since30.getMonth()+1).padStart(2,'0')+'-'+String(since30.getDate()).padStart(2,'0');
-
-    lowProducts.forEach(function(p){
-      var demanded = 0;
-      (s.sale_items_flat||[]).forEach(function(it){
-        if (it.product_id === p.id && it.date >= since30str) demanded += it.qty;
-      });
-      var stock = safe(function(){ return m.stockWH(s, p.id); }, 0);
-      var need = Math.max(p.min_stock - stock, 0);
-      var suggested = Math.max(need, Math.ceil(demanded / 30));
-
-      var priority = demanded >= 500 ? 'عاجل 🔴' : demanded >= 200 ? 'مرتفع 🟠' : 'عادي 🟡';
-      tasks.push({
-        type: 'production',
-        priority: priority,
-        title: 'أنتج ' + p.name,
-        quantity: suggested,
-        reason: 'الطلب عليه ' + demanded + ' وحدة/30 يوم، والمخزون ' + stock + ' من ' + p.min_stock
-      });
-    });
-  }
-
-  // ═══ ب) تحصيل — عملاء متأخرون ═══
-  if (canAccess('collections') || canAccess('sales') || isAdmin) {
-    var ov = overdueCustomers();
-    ov.slice(0, 5).forEach(function(x){
-      tasks.push({
-        type: 'collection',
-        priority: 'عالي 🟠',
-        title: 'حصّل من ' + x.c.name,
-        amount: x.remaining,
-        reason: 'متأخر' + (x.due ? ' منذ ' + x.due : '')
-      });
-    });
-  }
-
-  // ═══ ج) بيع — موزعون لم يسلّموا ═══
-  if (canAccess('distributors') || isAdmin) {
-    var nd = distsNotRemittedToday();
-    if (nd.length > 0 && nd.length <= 5) {
-      nd.forEach(function(d){
-        tasks.push({
-          type: 'remit',
-          priority: 'عادي 🟡',
-          title: 'تابع مع ' + d.name,
-          reason: 'لم يسلّم اليوم'
-        });
-      });
-    }
-  }
-
-  // ═══ د) مشتريات — مواد خام ناقصة ═══
-  if (canAccess('purchases') || isAdmin) {
-    var m2 = M(), s2 = store();
-    var lowMats = (s2.materials||[]).filter(function(mt){
-      if (!mt.min_stock) return false;
-      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
-      return q < mt.min_stock;
-    });
-    lowMats.forEach(function(mt){
-      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
-      var need = Math.max(mt.min_stock - q, 0);
-      tasks.push({
-        type: 'purchase',
-        priority: 'مرتفع 🟠',
-        title: 'اشترِ ' + mt.name,
-        quantity: need,
-        reason: 'المخزون ' + q + ' أقل من الحد (' + mt.min_stock + ')'
-      });
-    });
-  }
-
-  return tasks;
-}
-
-/* ═══ 2) حساب الأهداف الذكية ═══ */
-function calculateSmartTargets(userName) {
-  var u = me();
-  if (!u) return null;
-
-  var avg7  = avgDailySales(userName, 7);
-  var avg30 = avgDailySales(userName, 30);
-  var avg90 = avgDailySales(userName, 90);
-  var base = avg30 > 0 ? (avg30 * 0.5 + avg7 * 0.3 + avg90 * 0.2) : avg7;
-  if (base <= 0) base = 500;
-
-  // خصّص حسب دوره
-  var role = getRole();
-  var isProd = role === 'production';
-  if (isProd) base = Math.max(base, 300);
-
-  var daily  = Math.ceil((base * 1.15) / 50) * 50;
-  var weekly = daily * 7;
-  var month  = daily * 30;
-
-  // نسب المكافآت (يمكن للمدير تعديلها)
-  var bonusRates = {
-    weekly: [
-      { pct: 100, reward: 1 },
-      { pct: 120, reward: 2 },
-      { pct: 150, reward: 3 }
-    ],
-    monthly: [
-      { pct: 100, reward: 2 },
-      { pct: 120, reward: 3.5 },
-      { pct: 150, reward: 5 }
-    ]
-  };
-
-  return {
-    daily: daily, weekly: weekly, monthly: month,
-    avg7: Math.round(avg7), avg30: Math.round(avg30),
-    bonusRates: bonusRates
-  };
-}
-
-/* ═══ 3) حساب المكافآت المحتملة ═══ */
-function calculatePotentialBonus(userName, period) {
-  var t = calculateSmartTargets(userName);
-  if (!t) return null;
-  var target = period === 'week' ? t.weekly : t.monthly;
-
-  var u = me();
-  if (!u) return null;
-  var arr = period === 'week' ? salesWeek(u.name) : salesMonth(u.name);
-  var achieved = sumSales(arr);
-
-  var rates = period === 'week' ? t.bonusRates.weekly : t.bonusRates.monthly;
-  var bestReward = 0;
-  var needed = 0;
-  var nextTier = null;
-
-  for (var i = 0; i < rates.length; i++) {
-    var threshold = target * (rates[i].pct / 100);
-    if (achieved >= threshold) {
-      bestReward = rates[i].reward;
-    } else {
-      nextTier = { target: threshold, reward: rates[i].reward, needed: threshold - achieved };
-      break;
-    }
-  }
-
-  return {
-    period: period,
-    target: target,
-    achieved: achieved,
-    currentReward: bestReward,
-    nextTier: nextTier,
-    percent: target > 0 ? Math.round(achieved / target * 100) : 0
-  };
-}
-
-/* ═══ 4) ذكاء عاطفي — كشف المشاعر ═══ */
-function detectEmotion(text) {
-  var t = norm(text);
-  var emotions = {
-    frustrated: ['زعلان','زعلانة','متضايق','متضايقة','غاضب','تعبت','مليت','حزين','مكتئب','قلقان','خايف','محبط','سيء','صعب','مشكلة كبيرة','تعبان'],
-    happy:      ['سعيد','مبسوط','فرحان','ممتاز','رائع','حلو','تمام','الحمدلله','مرتاح'],
-    confused:   ['مش فاهم','مش فاهمة','ما فهمت','صعب','معقد','مو واضح','مو مفهوم','احترت'],
-    angry:      ['غاضب','مغضب','زفت','سيء','كرهت','مو زين','حقير','ظلم'],
-    tired:      ['تعبان','مرهق','منهك','مليت','ملل','خلصت','انتهيت'],
-    hopeless:   ['مافي فايدة','ما ينفع','مستحيل','خلصت','مستسلم','ما عاد']
-  };
-
-  for (var emo in emotions) {
-    for (var i = 0; i < emotions[emo].length; i++) {
-      if (t.indexOf(norm(emotions[emo][i])) >= 0) return emo;
-    }
-  }
-  return 'neutral';
-}
-
-function emotionalResponse(emotion, originalText) {
-  var u = me();
-  var name = u ? u.name.split(' ')[0] : '';
-
-  switch (emotion) {
-    case 'frustrated':
-      return '💙 أفهم إنك متضايق' + (name ? ' يا ' + name : '') + '.\n\n' +
-             'كلنا نمر بفترات صعبة. خذ نفس عميق، وأنا معك.\n' +
-             'تقدر تقول لي السبب بالتفصيل؟ يمكن نقدر نحل شي.\n\n' +
-             '💡 وإذا الموضوع فيه خصم أو مشكلة مع الإدارة، أكتبلي: **"مشكلة: [تفاصيل]"** وأنا أوصلها للمدير بلطف.';
-
-    case 'angry':
-      return '😔 أعتذر إذا حصل شي ضايقك.\n\n' +
-             'خلنا نحاول نحل الموضوع بهدوء. اكتب لي التفاصيل وأنا:\n' +
-             '• أحللها\n' +
-             '• أوصلها للمدير بشكل مهني\n' +
-             '• وأتابع الرد معه\n\n' +
-             'اكتب: **"شكوى: [نص الشكوى]"**';
-
-    case 'tired':
-      return '🤗 أعرف إن الشغل يتعب' + (name ? ' يا ' + name : '') + '.\n\n' +
-             'بس تذكّر: تعبك اليوم هو نجاحك بكرة.\n' +
-             'خذ بريك 5 دقايق، اشرب ماي، وارجع بقوة 💪';
-
-    case 'hopeless':
-      return '💪 لا لا، ما نوصل لهذي المرحلة!\n\n' +
-             'خلني أفكر معك. اكتب لي:\n' +
-             '• إيش المشكلة بالضبط؟\n' +
-             '• من متى وهي؟\n' +
-             '• جربت إيش؟\n\n' +
-             'أنا متأكد إننا نلقى حل.';
-
-    case 'confused':
-      return '🤔 عادي ما تفهم! خلني أشرحلك.\n\n' +
-             'اكتب لي إيش الشي اللي مو واضح وأنا أبسطه لك خطوة بخطوة.\n' +
-             'أو اكتب **"اشرح لي"** لعرض كل الأوامر.';
-
-    case 'happy':
-      return '🎉 ممتاز! سعيد إنك مبسوط.\n\n' +
-             'استمر على هذي الروح، وإذا احتجت أي شي أنا هنا.';
-    case 'weekly_report': {
-      var rep = generateWeeklyReport();
-      if (!rep) return { text: 'لا توجد بيانات.' };
-      return { text: rep };
-    }
-    default:
-      return null;
-  }
-}
-
-/* ═══ 5) تعليم المدير للبومة ═══ */
-var LEARNED_KEY = 'muzn_buddy_learned';
-
-function getLearnedFacts() {
-  try {
-    var r = localStorage.getItem(LEARNED_KEY);
-    return r ? JSON.parse(r) : [];
-  } catch(e) { return []; }
-}
-function saveLearnedFacts(facts) {
-  try { localStorage.setItem(LEARNED_KEY, JSON.stringify(facts)); } catch(e){}
-}
-function addLearnedFact(text, category) {
-  var facts = getLearnedFacts();
-  facts.unshift({
-    id: Date.now(),
-    text: text,
-    category: category || 'عام',
-    by: me() ? me().name : 'غير معروف',
-    ts: Date.now()
-  });
-  // احفظ آخر 100 فقط
-  facts = facts.slice(0, 100);
-  saveLearnedFacts(facts);
-  return facts[0];
-}
-function getLearnedContext() {
-  var facts = getLearnedFacts();
-  if (!facts.length) return '';
-  return '\n\n📚 معلومات تعلمتها من المدير:\n' +
-    facts.slice(0, 15).map(function(f){ return '• ' + f.text; }).join('\n');
     }
     case 'requests': {
       if (!canAccess('purchases')) return { text: denyMsg('purchases') };
@@ -11826,18 +11720,12 @@ function getLearnedContext() {
       } catch(e){}
       return { text: '✅ تم إرسال شكواك.' };
     }
-    case 'who': return { text: '🦉 أنا *مُزن* — مساعدك الذكي.' };
-    case 'thanks': return { text: 'العفو 🌟!' };
-        case 'daily_tasks': {
+    case 'daily_tasks': {
       if (!u) return { text: 'سجّل دخولك.' };
       var tasks = generateDailyTasks(u.name);
-      if (!tasks.length) {
-        return { text: '🎉 *ما عندك مهام عاجلة اليوم!*\n\n' +
-                       'كل شيء تحت السيطرة. ركّز على البيع أو الإنتاج.' };
-      }
+      if (!tasks.length) return { text: '🎉 *ما عندك مهام عاجلة اليوم!*\n\nكل شيء تحت السيطرة.' };
       var byType = { production: [], collection: [], remit: [], purchase: [] };
       tasks.forEach(function(t){ (byType[t.type] = byType[t.type]||[]).push(t); });
-
       var lines = ['📋 *مهام اليوم المقترحة* (' + tasks.length + ')', ''];
       if (byType.production.length) {
         lines.push('🏭 *إنتاج:*');
@@ -11869,7 +11757,6 @@ function getLearnedContext() {
       }
       return { text: lines.join('\n') };
     }
-
     case 'smart_target': {
       if (!u) return { text: 'سجّل دخولك.' };
       var tg = calculateSmartTargets(u.name);
@@ -11886,63 +11773,42 @@ function getLearnedContext() {
               '🎁 *نظام المكافآت الأسبوعي:*\n' +
               tg.bonusRates.weekly.map(function(r){
                 return '• ' + r.pct + '% من الهدف → مكافأة ' + r.reward + '٪ من المبيعات';
-              }).join('\n') + '\n\n' +
-              '💡 للموافقة، أرسل: **"موافقة على الأهداف"** (يحتاج موافقة المدير)'
+              }).join('\n')
       };
     }
-
     case 'my_bonus': {
       if (!u) return { text: 'سجّل دخولك.' };
       var wb = calculatePotentialBonus(u.name, 'week');
       var mb = calculatePotentialBonus(u.name, 'month');
       var lines2 = ['🎁 *حالة مكافآتك*', ''];
-
-      // الأسبوع
       if (wb) {
         lines2.push('📆 *هذا الأسبوع:*');
         lines2.push('• الهدف: ' + fmt(wb.target) + ' ' + cn);
         lines2.push('• المحقق: ' + fmt(wb.achieved) + ' ' + cn + ' (' + wb.percent + '%)');
-        if (wb.currentReward > 0) {
-          lines2.push('• ✅ مكافأتك الحالية: *' + wb.currentReward + '٪* من مبيعاتك = ' + fmt(wb.achieved * wb.currentReward / 100) + ' ' + cn);
-        }
-        if (wb.nextTier) {
-          lines2.push('• 🎯 للمكافأة التالية (' + wb.nextTier.reward + '٪): باقي ' + fmt(wb.nextTier.needed) + ' ' + cn);
-        }
+        if (wb.currentReward > 0) lines2.push('• ✅ مكافأتك: *' + wb.currentReward + '٪* = ' + fmt(wb.achieved * wb.currentReward / 100) + ' ' + cn);
+        if (wb.nextTier) lines2.push('• 🎯 للمكافأة التالية: باقي ' + fmt(wb.nextTier.needed) + ' ' + cn);
         lines2.push('');
       }
-
-      // الشهر
       if (mb) {
         lines2.push('🗓️ *هذا الشهر:*');
         lines2.push('• الهدف: ' + fmt(mb.target) + ' ' + cn);
         lines2.push('• المحقق: ' + fmt(mb.achieved) + ' ' + cn + ' (' + mb.percent + '%)');
-        if (mb.currentReward > 0) {
-          lines2.push('• ✅ مكافأتك الحالية: *' + mb.currentReward + '٪* من مبيعاتك = ' + fmt(mb.achieved * mb.currentReward / 100) + ' ' + cn);
-        }
-        if (mb.nextTier) {
-          lines2.push('• 🎯 للمكافأة التالية: باقي ' + fmt(mb.nextTier.needed) + ' ' + cn);
-        }
+        if (mb.currentReward > 0) lines2.push('• ✅ مكافأتك: *' + mb.currentReward + '٪* = ' + fmt(mb.achieved * mb.currentReward / 100) + ' ' + cn);
+        if (mb.nextTier) lines2.push('• 🎯 للمكافأة التالية: باقي ' + fmt(mb.nextTier.needed) + ' ' + cn);
       }
-
       lines2.push('');
       lines2.push('💪 استمر — كل بيع يقربك أكثر!');
       return { text: lines2.join('\n') };
     }
-
     case 'learn_fact': {
       if (!u || u.role !== 'admin') return { text: '🔒 التعليم للمدير فقط.' };
       var factText = raw.replace(/(علمني|احفظ|تذكر|علمك|:)/gi, '').trim();
       if (!factText || factText.length < 3) {
         return { text: '📚 اكتب ما تريد تعليمي إياه.\n\nمثال: **"علمني: سعر الكركم 50 د.ل للكيلو"**' };
       }
-      var fact = addLearnedFact(factText, 'معلومة مدير');
-      return {
-        text: '✅ *تعلمت!*\n\n📝 "' + factText + '"\n\n' +
-              'سأتذكرها وأستخدمها في ردودي.\n' +
-              'تقدر تشوف كل اللي تعلمته بـ: **"ماذا تعلمت؟"**'
-      };
+      addLearnedFact(factText, 'معلومة مدير');
+      return { text: '✅ *تعلمت!*\n\n📝 "' + factText + '"\n\nتقدر تشوف كل اللي تعلمته بـ: **"ماذا تعلمت؟"**' };
     }
-
     case 'show_learned': {
       var facts = getLearnedFacts();
       if (!facts.length) return { text: '📚 لسّه ما علمتني شي. اكتب: **"علمني: [معلومة]"**' };
@@ -11954,15 +11820,19 @@ function getLearnedContext() {
       if (facts.length > 15) lf.push('\n... و' + (facts.length - 15) + ' معلومة أخرى');
       return { text: lf.join('\n') };
     }
-
     case 'advisory': {
       if (!u) return { text: 'سجّل دخولك.' };
       var adv = managerAdvice();
       if (!adv || !adv.length) adv = ['✅ كل شيء مستقر.'];
-      return {
-        text: '🧠 *استشارة مُزن*\n\n' + adv.map(function(t, i){ return (i+1) + '. ' + t; }).join('\n\n')
-      };
+      return { text: '🧠 *استشارة مُزن*\n\n' + adv.map(function(t, i){ return (i+1) + '. ' + t; }).join('\n\n') };
     }
+    case 'weekly_report': {
+      var rep = generateWeeklyReport();
+      if (!rep) return { text: 'لا توجد بيانات.' };
+      return { text: rep };
+    }
+    case 'who': return { text: '🦉 أنا *مُزن* — مساعدك الذكي.' };
+    case 'thanks': return { text: 'العفو 🌟!' };
     default: return { text: null };
   }
 }
@@ -12242,16 +12112,15 @@ function buildChips() {
   else if (role === 'sales' || role === 'collections') chips = ['مبيعاتي اليوم','مبيعاتي الشهر','من دفع اليوم','الديون','هدفي','اقترح لي هدف','ورديتي اليوم','هل تأخرت','كم يوم غبت','أغلق ورديتي','اشرح لي'];
   else if (role === 'distributors') chips = ['مبيعاتي اليوم','الديون','من لم يسلّم','ورديتي اليوم','هل تأخرت','اشرح لي'];
   else chips = ['مبيعاتي اليوم','هدفي','اشرح لي'];
+    chips.push('تقرير الأسبوع');
   chipsEl.innerHTML = '';
   chips.forEach(function(c){
     var b = document.createElement('button');
     b.textContent = c;
     b.onclick = function(){ sendMessage(c); };
     chipsEl.appendChild(b);
-   chips.push('تقرير الأسبوع');
   });
 }
-
 function smartGreeting() {
   var u = me();
   if (!u) return 'أهلاً 👋 سجّل دخولك.';
