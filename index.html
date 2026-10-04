@@ -11273,6 +11273,11 @@ function detectIntent(raw) {
   if (has(t,'هل انا مسجل') || has(t,'حضوري اليوم')) add('shift_status', 85);
   if (has(t,'هل تاخرت') || has(t,'تاخرت اليوم')) add('late_check', 100);
   if ((has(t,'كم يوم') && has(t,'غبت')) || has(t,'سجل حضوري') || has(t,'ايام غيابي')) add('absence_report', 100);
+    /* ═══ إضافة فواتير ═══ */
+  if ((has(t,'اضف') || has(t,'أضف') || has(t,'سجل') || has(t,'سجّل')) && (has(t,'فاتوره') || has(t,'فاتورة') || has(t,'بيع'))) add('add_sale_invoice', 200);
+  if ((has(t,'اضف') || has(t,'أضف')) && (has(t,'مشتريات') || has(t,'شراء'))) add('add_purchase_invoice', 200);
+  if ((has(t,'اضف') || has(t,'أضف')) && has(t,'سحب')) add('add_withdrawal_invoice', 200);
+  if ((has(t,'اضف') || has(t,'أضف')) && (has(t,'ورديه') || has(t,'وردية') || has(t,'انتاج'))) add('add_production_invoice', 200);
   /* ═══ مكافآت (أعلى وزن — قبل target) ═══ */
   if (has(t,'مكافاتي') || has(t,'مكافأتي') || has(t,'مكافات')) add('my_bonus', 150);
   if (has(t,'مكافاه') || has(t,'بونص')) add('my_bonus', 140);
@@ -11291,6 +11296,10 @@ function detectIntent(raw) {
   if ((has(t,'علمني') || has(t,'احفظ') || has(t,'تذكر') || has(t,'علمك')) && u && u.role === 'admin') add('learn_fact', 120);
   if (has(t,'ماذا تعلمت') || has(t,'ايش تعرف')) add('show_learned', 90);
   if (has(t,'مستشار') || has(t,'رايك') || has(t,'رأيك') || has(t,'شور')) add('advisory', 90);
+   /* ═══ طلبات تعديل (ترفض فوراً) ═══ */
+  if ((has(t,'اضف') || has(t,'أضف') || has(t,'ضيف')) && !has(t,'فاتوره') && !has(t,'فاتورة') && !has(t,'مشتريات') && !has(t,'شراء') && !has(t,'سحب') && !has(t,'ورديه') && !has(t,'وردية')) add('cannot_edit', 200);
+  if (has(t,'احذف') || has(t,'عدل') || has(t,'عدّل') || has(t,'الغي') || has(t,'ألغي')) add('cannot_edit', 200);
+
   var best = null, bs = 0;
   for (var k in s) if (s[k] > bs) { bs = s[k]; best = k; }
   return { intent: best, score: bs };
@@ -11880,8 +11889,134 @@ function buildReply(intent, raw) {
       if (!rep) return { text: 'لا توجد بيانات.' };
       return { text: rep };
     }
+         case 'add_sale_invoice': {
+      var data = extractInvoiceData(raw, 'sale');
+
+      // طابق الأسماء
+      var customer = data.customerName ? fuzzyFindCustomer(data.customerName) : null;
+      var distributor = data.distributorName ? fuzzyFindDistributor(data.distributorName) : null;
+
+      // طابق المنتجات
+      var matchedItems = [];
+      var unmatched = [];
+      data.items.forEach(function(it) {
+        var prod = fuzzyFindProduct(it.name);
+        if (prod) matchedItems.push({ product: prod, qty: it.qty, price: it.price || prod.price });
+        else unmatched.push(it.name);
+      });
+
+      // ابدأ رسالة الرد
+      var reply = ['📝 *إضافة فاتورة بيع*\n'];
+
+      if (customer) reply.push('✅ العميل: ' + customer.name);
+      else if (data.customerName) reply.push('⚠️ لم أجد عميلاً باسم "' + data.customerName + '"');
+      else reply.push('ℹ️ بدون عميل محدد');
+
+      if (distributor) reply.push('✅ الموزع: ' + distributor.name);
+      else if (data.distributorName) reply.push('⚠️ لم أجد موزعاً باسم "' + data.distributorName + '"');
+
+      reply.push('✅ نوع الدفع: ' + (data.type === 'cash' ? 'كاش' : data.type === 'bank' ? 'بنك' : 'آجل'));
+
+      if (matchedItems.length) {
+        reply.push('\n📦 *الأصناف:*');
+        matchedItems.forEach(function(it) {
+          reply.push('• ' + it.product.name + ' × ' + it.qty + ' بسعر ' + it.price);
+        });
+      }
+
+      if (unmatched.length) {
+        reply.push('\n❌ *لم أجد:*');
+        unmatched.forEach(function(n) { reply.push('• ' + n); });
+      }
+
+      reply.push('\n⚡ فتحت لك قسم المبيعات. راجع البيانات وأكمل الحفظ.');
+
+      // افتح القسم
+      setTimeout(function() {
+        if (typeof go === 'function') {
+          go('sales');
+          // لو فيه بيانات، املأ النموذج
+          setTimeout(function() {
+            try {
+              var custSel = document.getElementById('sh__customer_id');
+              if (custSel && customer) custSel.value = customer.id;
+
+              var distSel = document.getElementById('sh__distributor_id');
+              if (distSel && distributor) distSel.value = distributor.id;
+
+              if (data.type) {
+                var typeRadio = document.querySelector('input[name="sh__type"][value="' + data.type + '"]');
+                if (typeRadio) typeRadio.checked = true;
+              }
+
+              var linesContainer = document.getElementById('sales-lines');
+              if (linesContainer && matchedItems.length) {
+                matchedItems.forEach(function(it, idx) {
+                  if (idx > 0) {
+                    var addBtn = linesContainer.querySelector('[data-add]');
+                    if (addBtn) addBtn.click();
+                  }
+                  setTimeout(function() {
+                    var rows = linesContainer.querySelectorAll('.lineitem');
+                    var row = rows[idx];
+                    if (!row) return;
+                    var prodSel = row.querySelector('[data-f="product_id"]');
+                    var qtyIn = row.querySelector('[data-f="qty"]');
+                    var priceIn = row.querySelector('[data-f="price"]');
+                    if (prodSel) prodSel.value = it.product.id;
+                    if (qtyIn) qtyIn.value = it.qty;
+                    if (priceIn) priceIn.value = it.price;
+                  }, idx * 100);
+                });
+              }
+            } catch(e) { console.warn('[fill sale]', e); }
+          }, 400);
+        }
+      }, 300);
+
+      return { text: reply.join('\n') };
+    }
+
+    case 'add_purchase_invoice': {
+      if (typeof go === 'function') setTimeout(function(){ go('purchases'); }, 300);
+      return { text:
+        '📝 *إضافة فاتورة مشتريات*\n\n' +
+        '⚡ فتحت لك قسم المشتريات.\n' +
+        'أكمل البيانات واضغط "حفظ المشتريات".\n\n' +
+        '💡 نصيحة: بعد ما تسوي كم فاتورة، أقدر أضيفها لك تلقائياً في نسخة قادمة.'
+      };
+    }
+
+    case 'add_withdrawal_invoice': {
+      if (typeof go === 'function') setTimeout(function(){ go('withdrawals'); }, 300);
+      return { text:
+        '📦 *إضافة مسحوبة*\n\n' +
+        '⚡ فتحت لك قسم المسحوبات.\n' +
+        '⚠️ تذكر: لازم تمسح بطاقة الموزع أولاً، ثم أضف الأصناف.'
+      };
+    }
+
+    case 'add_production_invoice': {
+      if (typeof go === 'function') setTimeout(function(){ go('production'); }, 300);
+      return { text:
+        '🏭 *إضافة وردية إنتاج*\n\n' +
+        '⚡ فتحت لك قسم الإنتاج.\n' +
+        '⚠️ تأكد من تسجيل حضور الفريق أولاً، ثم أكمل بيانات الوردية.'
+      };
+    } 
     case 'who': return { text: '🦉 أنا *مُزن* — مساعدك الذكي.' };
     case 'thanks': return { text: 'العفو 🌟!' };
+       case 'cannot_edit': {
+      return { text:
+        '🚫 ما أقدر أعدّل أو أحذف البيانات الموجودة.\n\n' +
+        '💡 *لكن أقدر أساعدك في:*\n' +
+        '• **إضافة فاتورة بيع**: "أضف فاتورة بيع للعميل أحمد، كركم 10 بسعر 2.5 كاش"\n' +
+        '• **إضافة مشتريات**: "أضف فاتورة مشتريات دقلة 100 كيلو"\n' +
+        '• **إضافة مسحوبة**: "أضف مسحوبة لموزع أحمد"\n' +
+        '• **إضافة وردية**: "أضف وردية إنتاج اليوم"\n\n' +
+        'أو استخدم الأقسام في التطبيق مباشرة للتعديل والحذف.'
+      };
+    }
     default: return { text: null };
   }
 }
@@ -12121,7 +12256,121 @@ var CHIP_PHRASES = [
 function isKnownChip(text) {
   return CHIP_PHRASES.indexOf(String(text||'').trim()) >= 0;
 }
+/* ═══════════════════════════════════════════════════════════
+   📝 دوال إضافة الفواتير عبر المحادثة
+   ═══════════════════════════════════════════════════════════ */
 
+/* --- استخراج الأرقام والكلمات المفتاحية --- */
+function extractInvoiceData(text, type) {
+  var t = text;
+  var result = { items: [], customer: null, distributor: null, type: 'cash', notes: '' };
+
+  // 1) استخراج العميل
+  var custMatch = t.match(/(?:للعميل|لعميل|من|إلى)\s+([^\s,،\.]+(?:\s+[^\s,،\.]+)?)/);
+  if (custMatch) result.customerName = custMatch[1].trim();
+
+  // 2) استخراج الموزع
+  var distMatch = t.match(/(?:مع|عن طريق|من الموزع|الموزع)\s+([^\s,،\.]+(?:\s+[^\s,،\.]+)?)/);
+  if (distMatch) result.distributorName = distMatch[1].trim();
+
+  // 3) نوع الدفع
+  if (/كاش|نقد|نقدا|نقداً/.test(t)) result.type = 'cash';
+  else if (/بنك|تحويل/.test(t)) result.type = 'bank';
+  else if (/آجل|أجل|بالدين|دين/.test(t)) result.type = 'credit';
+
+  // 4) استخراج الأصناف — نمط "منتج كمية سعر"
+  // "خبز 10 بسعر 2.5" أو "خبز 10 × 2.5" أو "10 خبز 2.5"
+  var itemMatches = t.matchAll(/([\u0600-\u06FF\s]+?)\s*(\d+(?:\.\d+)?)\s*(?:بسعر|x|×|بـ|@)?\s*(\d+(?:\.\d+)?)?/g);
+  for (var m of itemMatches) {
+    var name = m[1].trim();
+    var qty = parseFloat(m[2]);
+    var price = m[3] ? parseFloat(m[3]) : null;
+    // تجاهل كلمات شائعة
+    if (/^(اضف|أضف|فاتوره|فاتورة|بيع|مبيعات|مشتريات|شراء|من|إلى|لل|مع|عن|طريق|ال|كاش|بنك|اجل|آجل)$/.test(name)) continue;
+    if (name.length < 2) continue;
+    if (qty > 0) result.items.push({ name: name, qty: qty, price: price });
+  }
+
+  return result;
+}
+
+/* --- البحث عن المنتج بالاسم التقريبي --- */
+function fuzzyFindProduct(name) {
+  var s = store(); if (!s || !name) return null;
+  var n = name.trim().toLowerCase();
+  // مطابقة تامة
+  var exact = s.products.find(function(p){ return p.name.toLowerCase() === n; });
+  if (exact) return exact;
+  // مطابقة جزئية
+  var partial = s.products.find(function(p){ return p.name.toLowerCase().indexOf(n) >= 0 || n.indexOf(p.name.toLowerCase()) >= 0; });
+  return partial || null;
+}
+
+function fuzzyFindCustomer(name) {
+  var s = store(); if (!s || !name) return null;
+  var n = name.trim().toLowerCase();
+  var exact = s.customers.find(function(c){ return c.name.toLowerCase() === n; });
+  if (exact) return exact;
+  var partial = s.customers.find(function(c){ return c.name.toLowerCase().indexOf(n) >= 0 || n.indexOf(c.name.toLowerCase()) >= 0; });
+  return partial || null;
+}
+
+function fuzzyFindDistributor(name) {
+  var s = store(); if (!s || !name) return null;
+  var n = name.trim().toLowerCase();
+  var exact = s.distributors.find(function(d){ return d.name.toLowerCase() === n; });
+  if (exact) return exact;
+  var partial = s.distributors.find(function(d){ return d.name.toLowerCase().indexOf(n) >= 0 || n.indexOf(d.name.toLowerCase()) >= 0; });
+  return partial || null;
+}
+
+/* --- فتح نموذج فاتورة بيع/شراء مع البيانات المستخرجة --- */
+function openInvoiceForm(type, data) {
+  if (type === 'sale' || type === 'sales') {
+    // انتقل لقسم المبيعات
+    if (typeof go === 'function') go('sales');
+    setTimeout(function() {
+      // املأ الحقول
+      var shf = window.__muzn && window.__muzn.forms ? null : null;
+      var forms = document.querySelectorAll('#v-sales form, #sales-head');
+      // املأ الحقول يدوياً
+      if (data.customer_id) {
+        var custSel = document.getElementById('sh__customer_id');
+        if (custSel) custSel.value = data.customer_id;
+      }
+      if (data.distributor_id) {
+        var distSel = document.getElementById('sh__distributor_id');
+        if (distSel) distSel.value = data.distributor_id;
+      }
+      if (data.type) {
+        var typeRadio = document.querySelector('input[name="sh__type"][value="' + data.type + '"]');
+        if (typeRadio) typeRadio.checked = true;
+      }
+      // املأ الأصناف
+      var linesContainer = document.getElementById('sales-lines');
+      if (linesContainer && data.items.length) {
+        data.items.forEach(function(it, idx) {
+          if (idx > 0) {
+            var addBtn = linesContainer.querySelector('[data-add]');
+            if (addBtn) addBtn.click();
+          }
+          setTimeout(function() {
+            var rows = linesContainer.querySelectorAll('.lineitem');
+            var row = rows[idx];
+            if (!row) return;
+            var prodSel = row.querySelector('[data-f="product_id"]');
+            var qtyIn = row.querySelector('[data-f="qty"]');
+            var priceIn = row.querySelector('[data-f="price"]');
+            if (prodSel && it.product_id) prodSel.value = it.product_id;
+            if (qtyIn) qtyIn.value = it.qty;
+            if (priceIn && it.price) priceIn.value = it.price;
+          }, idx * 80);
+        });
+      }
+    }, 500);
+  }
+}
+  
 function sendMessage(raw) {
   var text = String(raw||'').trim();
   if (!text) return;
