@@ -3889,7 +3889,18 @@ function renderSales(){
     }catch(e){
       console.error('[Bonus Sales] فشل:', e);
       bonusEl.innerHTML = '';
+   }
+      // 🆕 احتفال عند تحقيق الهدف
+  try {
+    var todayTotal = sum(salesToday(user.name), saleTotal);
+    var tgt = getTarget(user.name);
+    if (tgt && todayTotal >= tgt && !sessionStorage.getItem('mzn_celebrated_' + today())) {
+      sessionStorage.setItem('mzn_celebrated_' + today(), '1');
+      setTimeout(function() {
+        if (typeof toast === 'function') toast('🎉 مبروك! حققت هدف اليوم!', 'ok');
+      }, 1500);
     }
+  } catch(e) {}
   }
   
   const all = store.sales;
@@ -10073,7 +10084,52 @@ function startSmartSync(){
     _syncBusy = false;
   }, SYNC_INTERVAL_MS);
 }
-
+/* ═══ التقرير الأسبوعي ═══ */
+function generateWeeklyReport() {
+  var u = me(); if (!u) return null;
+  var isAdmin = u.role === 'admin';
+  var un = isAdmin ? null : u.name;
+  
+  var arr = salesWeek(un);
+  if (!arr.length) return 'لا توجد مبيعات هذا الأسبوع.';
+  
+  var total = sumSales(arr);
+  var count = arr.length;
+  var top = topProduct(arr);
+  var target = u ? (calculateSmartTargets(u.name) || {}).weekly : null;
+  
+  // المقارنة مع الأسبوع الماضي
+  var lastWeekStart = new Date();
+  lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+  var lastWeekEnd = new Date();
+  lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
+  var fd = function(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+  var lastArr = salesInRange(fd(lastWeekStart), fd(lastWeekEnd), un);
+  var lastTotal = sumSales(lastArr);
+  var change = lastTotal > 0 ? Math.round((total - lastTotal) / lastTotal * 100) : 0;
+  
+  var cn = cur();
+  var lines = ['📊 *التقرير الأسبوعي*', ''];
+  lines.push('• الفواتير: ' + count);
+  lines.push('• المبيعات: ' + fmt(total) + ' ' + cn);
+  if (top) lines.push('• الأكثر مبيعاً: ' + top.name + ' (' + top.qty + ')');
+  
+  if (lastTotal > 0) {
+    var arrow = change > 0 ? '📈' : (change < 0 ? '📉' : '➡️');
+    lines.push('• مقارنة بالأسبوع الماضي: ' + arrow + ' ' + (change > 0 ? '+' : '') + change + '%');
+  }
+  
+  if (target) {
+    var pct = Math.round(total / target * 100);
+    lines.push('');
+    lines.push('🎯 الهدف: ' + fmt(target) + ' ' + cn);
+    lines.push('📊 التحقيق: ' + pct + '%');
+    if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
+    else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
+  }
+  
+  return lines.join('\n');
+}
 /* =====================================================================
    boot
    ===================================================================== */
@@ -10464,64 +10520,158 @@ window.closeSheet = closeSheet;
 </style>
 
 <button id="mzn-fab" aria-label="افتح المساعد الذكي">
-  <svg class="mzn-body" viewBox="0 0 100 120" width="80" height="80">
+  <svg class="mzn-body" viewBox="0 0 120 145" width="85" height="100">
     <defs>
-      <linearGradient id="mznGold" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#F8E08A"/>
-        <stop offset="0.45" stop-color="#D4AF37"/>
-        <stop offset="1" stop-color="#8B6914"/>
-      </linearGradient>
-      <linearGradient id="mznGoldLight" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#FFF3C4"/>
-        <stop offset="1" stop-color="#E5C158"/>
-      </linearGradient>
-      <linearGradient id="mznNavy" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#1a2a5e"/>
-        <stop offset="1" stop-color="#0a1128"/>
-      </linearGradient>
-      <radialGradient id="mznEyeGlow" cx="0.35" cy="0.35" r="0.7">
-        <stop offset="0" stop-color="#3a5aae"/>
-        <stop offset="1" stop-color="#0a1128"/>
+      <radialGradient id="mzn3dHead" cx="0.35" cy="0.28" r="0.9">
+        <stop offset="0" stop-color="#FFF4B8"/>
+        <stop offset="0.3" stop-color="#E8C257"/>
+        <stop offset="0.65" stop-color="#B58823"/>
+        <stop offset="1" stop-color="#5A3A06"/>
       </radialGradient>
+      <radialGradient id="mzn3dBody" cx="0.4" cy="0.25" r="1.05">
+        <stop offset="0" stop-color="#FFE9A0"/>
+        <stop offset="0.4" stop-color="#D4AF37"/>
+        <stop offset="1" stop-color="#3A2A08"/>
+      </radialGradient>
+      <radialGradient id="mzn3dBelly" cx="0.4" cy="0.35" r="0.85">
+        <stop offset="0" stop-color="#FFF9DD"/>
+        <stop offset="0.55" stop-color="#EDD79A"/>
+        <stop offset="1" stop-color="#A8852F"/>
+      </radialGradient>
+      <radialGradient id="mzn3dEye" cx="0.35" cy="0.3" r="0.85">
+        <stop offset="0" stop-color="#5A8AC8"/>
+        <stop offset="0.45" stop-color="#1a2a5e"/>
+        <stop offset="1" stop-color="#030514"/>
+      </radialGradient>
+      <radialGradient id="mzn3dWing" cx="0.5" cy="0.3" r="0.9">
+        <stop offset="0" stop-color="#2A3D6E"/>
+        <stop offset="1" stop-color="#050a1c"/>
+      </radialGradient>
+      <linearGradient id="mzn3dBeak" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#F5C657"/>
+        <stop offset="0.5" stop-color="#B8860B"/>
+        <stop offset="1" stop-color="#6B4A08"/>
+      </linearGradient>
+      <filter id="mzn3dShadow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="2.2"/>
+        <feOffset dx="1" dy="3.5"/>
+        <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+        <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="mzn3dInner">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+        <feOffset dx="0" dy="1"/>
+        <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+        <feComposite operator="out" in2="SourceGraphic"/>
+        <feComposite in2="SourceGraphic" operator="over"/>
+      </filter>
     </defs>
-    <ellipse cx="50" cy="115" rx="26" ry="3.5" fill="rgba(0,0,0,.4)"/>
-    <path d="M16 60 Q6 82 16 102 Q26 92 28 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M84 60 Q94 82 84 102 Q74 92 72 70 Z" fill="url(#mznNavy)" stroke="#0a1128" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M20 72 Q16 82 20 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-    <path d="M80 72 Q84 82 80 92" stroke="#D4AF37" stroke-width="1.2" fill="none" opacity=".7"/>
-    <ellipse cx="50" cy="80" rx="32" ry="37" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
-    <ellipse cx="50" cy="84" rx="22" ry="27" fill="url(#mznGoldLight)" opacity=".85"/>
-    <path d="M36 74 Q40 80 36 86 Q40 92 36 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M44 72 Q48 78 44 84 Q48 90 44 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M50 71 Q54 77 50 83 Q54 89 50 95" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M56 72 Q60 78 56 84 Q60 90 56 96" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M64 74 Q60 80 64 86 Q60 92 64 98" stroke="#B8860B" stroke-width="1" fill="none" opacity=".55"/>
-    <path d="M27 42 Q20 18 30 8 Q40 22 42 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-    <path d="M73 42 Q80 18 70 8 Q60 22 58 38 Z" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.2" stroke-linejoin="round"/>
-    <circle cx="50" cy="43" r="33" fill="url(#mznGold)" stroke="#3a2a0a" stroke-width="2.5"/>
-    <path d="M50 30 Q34 32 29 46 Q27 56 38 61 Q45 64 50 61 Q55 64 62 61 Q73 56 71 46 Q66 32 50 30 Z" fill="url(#mznGoldLight)" stroke="#8B6914" stroke-width="1.5" stroke-linejoin="round"/>
-    <circle cx="37" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
-    <circle cx="63" cy="43" r="13.5" fill="none" stroke="#FFF3C4" stroke-width="1.5" opacity=".6"/>
-    <circle cx="37" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-    <circle cx="63" cy="43" r="13" fill="#fff" stroke="#0a1128" stroke-width="2"/>
-    <circle cx="37" cy="43" r="10" fill="url(#mznEyeGlow)"/>
-    <circle cx="63" cy="43" r="10" fill="url(#mznEyeGlow)"/>
-    <circle cx="37" cy="43" r="5" fill="#0a1128"/>
-    <circle cx="63" cy="43" r="5" fill="#0a1128"/>
-    <circle cx="40" cy="39" r="2.8" fill="#fff"/>
-    <circle cx="66" cy="39" r="2.8" fill="#fff"/>
-    <circle cx="34.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
-    <circle cx="60.5" cy="45" r="1.3" fill="#fff" opacity=".85"/>
-    <path d="M50 53 L43 63 Q50 67 57 63 Z" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M43 63 Q50 66 57 63" stroke="#3a2a0a" stroke-width="1.3" fill="none"/>
-    <ellipse cx="43" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-    <ellipse cx="57" cy="114" rx="6.5" ry="3.5" fill="#B8860B" stroke="#3a2a0a" stroke-width="1.5"/>
-    <path d="M40 113 L46 113 M40 116 L46 116" stroke="#3a2a0a" stroke-width="1.1"/>
-    <path d="M54 113 L60 113 M54 116 L60 116" stroke="#3a2a0a" stroke-width="1.1"/>
+
+    <!-- ظل تحت -->
+    <ellipse cx="60" cy="140" rx="30" ry="4" fill="rgba(0,0,0,.5)"/>
+
+    <!-- الأجنحة اليمنى واليسرى (كحلي) -->
+    <path d="M22 68 Q8 92 20 122 Q34 108 34 78 Z"
+          fill="url(#mzn3dWing)" stroke="#0a1128" stroke-width="1.8"
+          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
+    <path d="M98 68 Q112 92 100 122 Q86 108 86 78 Z"
+          fill="url(#mzn3dWing)" stroke="#0a1128" stroke-width="1.8"
+          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
+
+    <!-- ريش الأجنحة (خطوط ذهبية) -->
+    <path d="M28 80 Q24 92 28 106" stroke="#D4AF37" stroke-width="1.3" fill="none" opacity=".8"/>
+    <path d="M32 84 Q30 96 33 110" stroke="#D4AF37" stroke-width="1.1" fill="none" opacity=".6"/>
+    <path d="M92 80 Q96 92 92 106" stroke="#D4AF37" stroke-width="1.3" fill="none" opacity=".8"/>
+    <path d="M88 84 Q90 96 87 110" stroke="#D4AF37" stroke-width="1.1" fill="none" opacity=".6"/>
+
+    <!-- الجسم الرئيسي (كرة 3D) -->
+    <ellipse cx="60" cy="98" rx="36" ry="42"
+             fill="url(#mzn3dBody)" stroke="#3a2a08" stroke-width="2.2"
+             filter="url(#mzn3dShadow)"/>
+
+    <!-- البطن الفاتح -->
+    <ellipse cx="60" cy="102" rx="26" ry="32"
+             fill="url(#mzn3dBelly)" opacity=".9"/>
+
+    <!-- ريش الصدر (5 خطوط) -->
+    <path d="M44 88 Q48 96 44 104 Q48 112 44 120" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
+    <path d="M52 86 Q56 94 52 102 Q56 110 52 118" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
+    <path d="M60 85 Q64 93 60 101 Q64 109 60 117" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
+    <path d="M68 86 Q72 94 68 102 Q72 110 68 118" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
+    <path d="M76 88 Q80 96 76 104 Q80 112 76 120" stroke="#8B6914" stroke-width="1.1" fill="none" opacity=".6"/>
+
+    <!-- آذان / قرون البومة -->
+    <path d="M32 48 Q24 20 34 8 Q46 22 48 42 Z"
+          fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2"
+          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
+    <path d="M88 48 Q96 20 86 8 Q74 22 72 42 Z"
+          fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2"
+          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
+
+    <!-- داخل الآذان -->
+    <path d="M36 44 Q32 24 36 16 Q42 26 44 40 Z" fill="#5A3A06" opacity=".6"/>
+    <path d="M84 44 Q88 24 84 16 Q78 26 76 40 Z" fill="#5A3A06" opacity=".6"/>
+
+    <!-- الرأس (كرة 3D) -->
+    <circle cx="60" cy="52" r="38"
+            fill="url(#mzn3dHead)" stroke="#3a2a08" stroke-width="2.2"
+            filter="url(#mzn3dShadow)"/>
+
+    <!-- تاج الرأس (بروز خفيف) -->
+    <path d="M60 20 Q70 22 76 30 Q65 28 60 28 Q55 28 44 30 Q50 22 60 20 Z"
+          fill="url(#mzn3dHead)" opacity=".5"/>
+
+    <!-- وجه/قناع الوجه -->
+    <path d="M60 34 Q42 36 36 52 Q33 66 46 72 Q53 76 60 73 Q67 76 74 72 Q87 66 84 52 Q78 36 60 34 Z"
+          fill="url(#mzn3dBelly)" stroke="#8B6914" stroke-width="1.4"
+          stroke-linejoin="round" opacity=".95"/>
+
+    <!-- حلقات ذهبية حول العينين -->
+    <circle cx="44" cy="52" r="16" fill="none" stroke="#FFF4B8" stroke-width="1.8" opacity=".7"/>
+    <circle cx="76" cy="52" r="16" fill="none" stroke="#FFF4B8" stroke-width="1.8" opacity=".7"/>
+
+    <!-- العيون (كرة 3D) -->
+    <circle cx="44" cy="52" r="15.5"
+            fill="#fff" stroke="#0a1128" stroke-width="2.2"/>
+    <circle cx="76" cy="52" r="15.5"
+            fill="#fff" stroke="#0a1128" stroke-width="2.2"/>
+
+    <!-- قزحية -->
+    <circle cx="44" cy="52" r="11.5" fill="url(#mzn3dEye)"/>
+    <circle cx="76" cy="52" r="11.5" fill="url(#mzn3dEye)"/>
+
+    <!-- بؤبؤ -->
+    <circle cx="44" cy="52" r="5.5" fill="#030510"/>
+    <circle cx="76" cy="52" r="5.5" fill="#030510"/>
+
+    <!-- بريق العين الكبير -->
+    <circle cx="48" cy="47" r="3.4" fill="#fff"/>
+    <circle cx="80" cy="47" r="3.4" fill="#fff"/>
+    <!-- بريق العين الصغير -->
+    <circle cx="41" cy="56" r="1.6" fill="#fff" opacity=".85"/>
+    <circle cx="73" cy="56" r="1.6" fill="#fff" opacity=".85"/>
+
+    <!-- ظل داخلي للعيون (يعمق المظهر) -->
+    <circle cx="44" cy="52" r="15.5" fill="url(#mzn3dEye)" opacity=".15"/>
+    <circle cx="76" cy="52" r="15.5" fill="url(#mzn3dEye)" opacity=".15"/>
+
+    <!-- المنقار 3D -->
+    <path d="M60 65 L50 79 Q60 85 70 79 Z"
+          fill="url(#mzn3dBeak)" stroke="#3a2a08" stroke-width="1.8"
+          stroke-linejoin="round" filter="url(#mzn3dShadow)"/>
+    <!-- خط المنتصف -->
+    <path d="M50 79 Q60 82 70 79" stroke="#3a2a08" stroke-width="1.3" fill="none"/>
+
+    <!-- الأقدام -->
+    <ellipse cx="52" cy="139" rx="7.5" ry="4"
+             fill="#B8860B" stroke="#3a2a08" stroke-width="1.4"/>
+    <ellipse cx="68" cy="139" rx="7.5" ry="4"
+             fill="#B8860B" stroke="#3a2a08" stroke-width="1.4"/>
+    <path d="M48 137 L56 137 M48 141 L56 141" stroke="#3a2a08" stroke-width="1"/>
+    <path d="M64 137 L72 137 M64 141 L72 141" stroke="#3a2a08" stroke-width="1"/>
   </svg>
   <span class="mzn-badge" id="mzn-badge" hidden>0</span>
 </button>
-
 <div id="mzn-chat" class="mzn-chat" role="dialog" aria-modal="true">
   <div class="mzn-chat-bg" id="mzn-chat-bg"></div>
   <div class="mzn-panel">
@@ -11081,7 +11231,16 @@ function detectIntent(raw) {
   if (has(t,'حلل') && has(t,'انتاج')) add('analyze_production', 90);
   if (has(t,'استشاره') || has(t,'نصيحه') || has(t,'شور')) add('consultant', 90);
   if (has(t,'قارن') && (has(t,'الشهر') || has(t,'الماضي'))) add('compare', 90);
-
+   if (has(t,'تقرير') && (has(t,'اسبوع') || has(t,'الأسبوع'))) add('weekly_report', 100);
+  /* ═══ HR ذكي ═══ */
+  if (has(t,'ماذا') && (has(t,'افعل') || has(t,'أفعل')) && has(t,'اليوم')) add('daily_tasks', 110);
+  if (has(t,'ماذا افعل') || has(t,'ماذا أفعل') || has(t,'ايش اسوي') || has(t,'ايش أسوي')) add('daily_tasks', 100);
+  if (has(t,'مهامي') || has(t,'مهام اليوم')) add('daily_tasks', 100);
+  if ((has(t,'تارقت') || has(t,'هدف')) && (has(t,'مطلوب') || has(t,'اليوم') || has(t,'الاسبوع') || has(t,'الشهر'))) add('smart_target', 100);
+  if (has(t,'مكافاتي') || has(t,'مكافأتي') || has(t,'كم مكافاتي')) add('my_bonus', 100);
+  if ((has(t,'علمني') || has(t,'احفظ') || has(t,'تذكر') || has(t,'علمك')) && u && u.role === 'admin') add('learn_fact', 120);
+  if (has(t,'ماذا تعلمت') || has(t,'ايش تعرف')) add('show_learned', 90);
+  if (has(t,'مستشار') || has(t,'رايك') || has(t,'رأيك') || has(t,'شور')) add('advisory', 90);
   var best = null, bs = 0;
   for (var k in s) if (s[k] > bs) { bs = s[k]; best = k; }
   return { intent: best, score: bs };
@@ -11363,6 +11522,280 @@ function buildReply(intent, raw) {
       if (ls.products.length) { la.push('\n*منتجات:*'); ls.products.slice(0,8).forEach(function(p){ la.push('• ' + p.name + ' — ' + p.have); }); }
       if (ls.materials.length) { la.push('\n*مواد:*'); ls.materials.slice(0,8).forEach(function(x){ la.push('• ' + x.name + ' — ' + x.have); }); }
       return { text: la.join('\n') };
+   /* ═══════════════════════════════════════════════════════════
+   👥 HR ذكي — مهام، أهداف، مكافآت، عواطف
+   ═══════════════════════════════════════════════════════════ */
+
+/* ═══ 1) المهام اليومية الذكية ═══ */
+function generateDailyTasks(userName) {
+  var u = me();
+  var isAdmin = u && u.role === 'admin';
+  var tasks = [];
+
+  // ═══ أ) إنتاج — منتجات ناقصة + عليها طلب ═══
+  if (canAccess('production') || isAdmin) {
+    var m = M(), s = store();
+    var lowProducts = (s.products||[]).filter(function(p){
+      if (!p.min_stock) return false;
+      var q = safe(function(){ return m.stockWH(s, p.id); }, 0);
+      return q < p.min_stock;
+    });
+
+    // رتّب حسب: مبيعات آخر 30 يوم (الأكثر طلباً أول)
+    var since30 = new Date(); since30.setDate(since30.getDate() - 30);
+    var since30str = since30.getFullYear()+'-'+String(since30.getMonth()+1).padStart(2,'0')+'-'+String(since30.getDate()).padStart(2,'0');
+
+    lowProducts.forEach(function(p){
+      var demanded = 0;
+      (s.sale_items_flat||[]).forEach(function(it){
+        if (it.product_id === p.id && it.date >= since30str) demanded += it.qty;
+      });
+      var stock = safe(function(){ return m.stockWH(s, p.id); }, 0);
+      var need = Math.max(p.min_stock - stock, 0);
+      var suggested = Math.max(need, Math.ceil(demanded / 30));
+
+      var priority = demanded >= 500 ? 'عاجل 🔴' : demanded >= 200 ? 'مرتفع 🟠' : 'عادي 🟡';
+      tasks.push({
+        type: 'production',
+        priority: priority,
+        title: 'أنتج ' + p.name,
+        quantity: suggested,
+        reason: 'الطلب عليه ' + demanded + ' وحدة/30 يوم، والمخزون ' + stock + ' من ' + p.min_stock
+      });
+    });
+  }
+
+  // ═══ ب) تحصيل — عملاء متأخرون ═══
+  if (canAccess('collections') || canAccess('sales') || isAdmin) {
+    var ov = overdueCustomers();
+    ov.slice(0, 5).forEach(function(x){
+      tasks.push({
+        type: 'collection',
+        priority: 'عالي 🟠',
+        title: 'حصّل من ' + x.c.name,
+        amount: x.remaining,
+        reason: 'متأخر' + (x.due ? ' منذ ' + x.due : '')
+      });
+    });
+  }
+
+  // ═══ ج) بيع — موزعون لم يسلّموا ═══
+  if (canAccess('distributors') || isAdmin) {
+    var nd = distsNotRemittedToday();
+    if (nd.length > 0 && nd.length <= 5) {
+      nd.forEach(function(d){
+        tasks.push({
+          type: 'remit',
+          priority: 'عادي 🟡',
+          title: 'تابع مع ' + d.name,
+          reason: 'لم يسلّم اليوم'
+        });
+      });
+    }
+  }
+
+  // ═══ د) مشتريات — مواد خام ناقصة ═══
+  if (canAccess('purchases') || isAdmin) {
+    var m2 = M(), s2 = store();
+    var lowMats = (s2.materials||[]).filter(function(mt){
+      if (!mt.min_stock) return false;
+      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
+      return q < mt.min_stock;
+    });
+    lowMats.forEach(function(mt){
+      var q = safe(function(){ return m2.materialStock(s2, mt.id); }, 0);
+      var need = Math.max(mt.min_stock - q, 0);
+      tasks.push({
+        type: 'purchase',
+        priority: 'مرتفع 🟠',
+        title: 'اشترِ ' + mt.name,
+        quantity: need,
+        reason: 'المخزون ' + q + ' أقل من الحد (' + mt.min_stock + ')'
+      });
+    });
+  }
+
+  return tasks;
+}
+
+/* ═══ 2) حساب الأهداف الذكية ═══ */
+function calculateSmartTargets(userName) {
+  var u = me();
+  if (!u) return null;
+
+  var avg7  = avgDailySales(userName, 7);
+  var avg30 = avgDailySales(userName, 30);
+  var avg90 = avgDailySales(userName, 90);
+  var base = avg30 > 0 ? (avg30 * 0.5 + avg7 * 0.3 + avg90 * 0.2) : avg7;
+  if (base <= 0) base = 500;
+
+  // خصّص حسب دوره
+  var role = getRole();
+  var isProd = role === 'production';
+  if (isProd) base = Math.max(base, 300);
+
+  var daily  = Math.ceil((base * 1.15) / 50) * 50;
+  var weekly = daily * 7;
+  var month  = daily * 30;
+
+  // نسب المكافآت (يمكن للمدير تعديلها)
+  var bonusRates = {
+    weekly: [
+      { pct: 100, reward: 1 },
+      { pct: 120, reward: 2 },
+      { pct: 150, reward: 3 }
+    ],
+    monthly: [
+      { pct: 100, reward: 2 },
+      { pct: 120, reward: 3.5 },
+      { pct: 150, reward: 5 }
+    ]
+  };
+
+  return {
+    daily: daily, weekly: weekly, monthly: month,
+    avg7: Math.round(avg7), avg30: Math.round(avg30),
+    bonusRates: bonusRates
+  };
+}
+
+/* ═══ 3) حساب المكافآت المحتملة ═══ */
+function calculatePotentialBonus(userName, period) {
+  var t = calculateSmartTargets(userName);
+  if (!t) return null;
+  var target = period === 'week' ? t.weekly : t.monthly;
+
+  var u = me();
+  if (!u) return null;
+  var arr = period === 'week' ? salesWeek(u.name) : salesMonth(u.name);
+  var achieved = sumSales(arr);
+
+  var rates = period === 'week' ? t.bonusRates.weekly : t.bonusRates.monthly;
+  var bestReward = 0;
+  var needed = 0;
+  var nextTier = null;
+
+  for (var i = 0; i < rates.length; i++) {
+    var threshold = target * (rates[i].pct / 100);
+    if (achieved >= threshold) {
+      bestReward = rates[i].reward;
+    } else {
+      nextTier = { target: threshold, reward: rates[i].reward, needed: threshold - achieved };
+      break;
+    }
+  }
+
+  return {
+    period: period,
+    target: target,
+    achieved: achieved,
+    currentReward: bestReward,
+    nextTier: nextTier,
+    percent: target > 0 ? Math.round(achieved / target * 100) : 0
+  };
+}
+
+/* ═══ 4) ذكاء عاطفي — كشف المشاعر ═══ */
+function detectEmotion(text) {
+  var t = norm(text);
+  var emotions = {
+    frustrated: ['زعلان','زعلانة','متضايق','متضايقة','غاضب','تعبت','مليت','حزين','مكتئب','قلقان','خايف','محبط','سيء','صعب','مشكلة كبيرة','تعبان'],
+    happy:      ['سعيد','مبسوط','فرحان','ممتاز','رائع','حلو','تمام','الحمدلله','مرتاح'],
+    confused:   ['مش فاهم','مش فاهمة','ما فهمت','صعب','معقد','مو واضح','مو مفهوم','احترت'],
+    angry:      ['غاضب','مغضب','زفت','سيء','كرهت','مو زين','حقير','ظلم'],
+    tired:      ['تعبان','مرهق','منهك','مليت','ملل','خلصت','انتهيت'],
+    hopeless:   ['مافي فايدة','ما ينفع','مستحيل','خلصت','مستسلم','ما عاد']
+  };
+
+  for (var emo in emotions) {
+    for (var i = 0; i < emotions[emo].length; i++) {
+      if (t.indexOf(norm(emotions[emo][i])) >= 0) return emo;
+    }
+  }
+  return 'neutral';
+}
+
+function emotionalResponse(emotion, originalText) {
+  var u = me();
+  var name = u ? u.name.split(' ')[0] : '';
+
+  switch (emotion) {
+    case 'frustrated':
+      return '💙 أفهم إنك متضايق' + (name ? ' يا ' + name : '') + '.\n\n' +
+             'كلنا نمر بفترات صعبة. خذ نفس عميق، وأنا معك.\n' +
+             'تقدر تقول لي السبب بالتفصيل؟ يمكن نقدر نحل شي.\n\n' +
+             '💡 وإذا الموضوع فيه خصم أو مشكلة مع الإدارة، أكتبلي: **"مشكلة: [تفاصيل]"** وأنا أوصلها للمدير بلطف.';
+
+    case 'angry':
+      return '😔 أعتذر إذا حصل شي ضايقك.\n\n' +
+             'خلنا نحاول نحل الموضوع بهدوء. اكتب لي التفاصيل وأنا:\n' +
+             '• أحللها\n' +
+             '• أوصلها للمدير بشكل مهني\n' +
+             '• وأتابع الرد معه\n\n' +
+             'اكتب: **"شكوى: [نص الشكوى]"**';
+
+    case 'tired':
+      return '🤗 أعرف إن الشغل يتعب' + (name ? ' يا ' + name : '') + '.\n\n' +
+             'بس تذكّر: تعبك اليوم هو نجاحك بكرة.\n' +
+             'خذ بريك 5 دقايق، اشرب ماي، وارجع بقوة 💪';
+
+    case 'hopeless':
+      return '💪 لا لا، ما نوصل لهذي المرحلة!\n\n' +
+             'خلني أفكر معك. اكتب لي:\n' +
+             '• إيش المشكلة بالضبط؟\n' +
+             '• من متى وهي؟\n' +
+             '• جربت إيش؟\n\n' +
+             'أنا متأكد إننا نلقى حل.';
+
+    case 'confused':
+      return '🤔 عادي ما تفهم! خلني أشرحلك.\n\n' +
+             'اكتب لي إيش الشي اللي مو واضح وأنا أبسطه لك خطوة بخطوة.\n' +
+             'أو اكتب **"اشرح لي"** لعرض كل الأوامر.';
+
+    case 'happy':
+      return '🎉 ممتاز! سعيد إنك مبسوط.\n\n' +
+             'استمر على هذي الروح، وإذا احتجت أي شي أنا هنا.';
+    case 'weekly_report': {
+      var rep = generateWeeklyReport();
+      if (!rep) return { text: 'لا توجد بيانات.' };
+      return { text: rep };
+    }
+    default:
+      return null;
+  }
+}
+
+/* ═══ 5) تعليم المدير للبومة ═══ */
+var LEARNED_KEY = 'muzn_buddy_learned';
+
+function getLearnedFacts() {
+  try {
+    var r = localStorage.getItem(LEARNED_KEY);
+    return r ? JSON.parse(r) : [];
+  } catch(e) { return []; }
+}
+function saveLearnedFacts(facts) {
+  try { localStorage.setItem(LEARNED_KEY, JSON.stringify(facts)); } catch(e){}
+}
+function addLearnedFact(text, category) {
+  var facts = getLearnedFacts();
+  facts.unshift({
+    id: Date.now(),
+    text: text,
+    category: category || 'عام',
+    by: me() ? me().name : 'غير معروف',
+    ts: Date.now()
+  });
+  // احفظ آخر 100 فقط
+  facts = facts.slice(0, 100);
+  saveLearnedFacts(facts);
+  return facts[0];
+}
+function getLearnedContext() {
+  var facts = getLearnedFacts();
+  if (!facts.length) return '';
+  return '\n\n📚 معلومات تعلمتها من المدير:\n' +
+    facts.slice(0, 15).map(function(f){ return '• ' + f.text; }).join('\n');
     }
     case 'requests': {
       if (!canAccess('purchases')) return { text: denyMsg('purchases') };
@@ -11395,6 +11828,141 @@ function buildReply(intent, raw) {
     }
     case 'who': return { text: '🦉 أنا *مُزن* — مساعدك الذكي.' };
     case 'thanks': return { text: 'العفو 🌟!' };
+        case 'daily_tasks': {
+      if (!u) return { text: 'سجّل دخولك.' };
+      var tasks = generateDailyTasks(u.name);
+      if (!tasks.length) {
+        return { text: '🎉 *ما عندك مهام عاجلة اليوم!*\n\n' +
+                       'كل شيء تحت السيطرة. ركّز على البيع أو الإنتاج.' };
+      }
+      var byType = { production: [], collection: [], remit: [], purchase: [] };
+      tasks.forEach(function(t){ (byType[t.type] = byType[t.type]||[]).push(t); });
+
+      var lines = ['📋 *مهام اليوم المقترحة* (' + tasks.length + ')', ''];
+      if (byType.production.length) {
+        lines.push('🏭 *إنتاج:*');
+        byType.production.slice(0, 5).forEach(function(t){
+          lines.push('• ' + t.priority + ' — ' + t.title + ' (' + t.quantity + ')');
+          lines.push('  💡 ' + t.reason);
+        });
+        lines.push('');
+      }
+      if (byType.collection.length) {
+        lines.push('💰 *تحصيل:*');
+        byType.collection.slice(0, 5).forEach(function(t){
+          lines.push('• ' + t.title + ' — ' + fmt(t.amount) + ' ' + cn);
+          lines.push('  💡 ' + t.reason);
+        });
+        lines.push('');
+      }
+      if (byType.purchase.length) {
+        lines.push('🛒 *مشتريات:*');
+        byType.purchase.slice(0, 5).forEach(function(t){
+          lines.push('• ' + t.title + ' (' + t.quantity + ')');
+          lines.push('  💡 ' + t.reason);
+        });
+        lines.push('');
+      }
+      if (byType.remit.length) {
+        lines.push('📦 *متابعة:*');
+        byType.remit.forEach(function(t){ lines.push('• ' + t.title); });
+      }
+      return { text: lines.join('\n') };
+    }
+
+    case 'smart_target': {
+      if (!u) return { text: 'سجّل دخولك.' };
+      var tg = calculateSmartTargets(u.name);
+      if (!tg) return { text: 'لا توجد بيانات كافية.' };
+      return {
+        text: '🎯 *الأهداف الذكية لك*\n\n' +
+              '*مبني على أدائك الفعلي:*\n' +
+              '• متوسط 7 أيام: ' + fmt(tg.avg7) + ' ' + cn + '/يوم\n' +
+              '• متوسط 30 يوم: ' + fmt(tg.avg30) + ' ' + cn + '/يوم\n\n' +
+              '*الأهداف المقترحة:*\n' +
+              '• 📅 يومي: *' + fmt(tg.daily) + ' ' + cn + '*\n' +
+              '• 📆 أسبوعي: *' + fmt(tg.weekly) + ' ' + cn + '*\n' +
+              '• 🗓️ شهري: *' + fmt(tg.monthly) + ' ' + cn + '*\n\n' +
+              '🎁 *نظام المكافآت الأسبوعي:*\n' +
+              tg.bonusRates.weekly.map(function(r){
+                return '• ' + r.pct + '% من الهدف → مكافأة ' + r.reward + '٪ من المبيعات';
+              }).join('\n') + '\n\n' +
+              '💡 للموافقة، أرسل: **"موافقة على الأهداف"** (يحتاج موافقة المدير)'
+      };
+    }
+
+    case 'my_bonus': {
+      if (!u) return { text: 'سجّل دخولك.' };
+      var wb = calculatePotentialBonus(u.name, 'week');
+      var mb = calculatePotentialBonus(u.name, 'month');
+      var lines2 = ['🎁 *حالة مكافآتك*', ''];
+
+      // الأسبوع
+      if (wb) {
+        lines2.push('📆 *هذا الأسبوع:*');
+        lines2.push('• الهدف: ' + fmt(wb.target) + ' ' + cn);
+        lines2.push('• المحقق: ' + fmt(wb.achieved) + ' ' + cn + ' (' + wb.percent + '%)');
+        if (wb.currentReward > 0) {
+          lines2.push('• ✅ مكافأتك الحالية: *' + wb.currentReward + '٪* من مبيعاتك = ' + fmt(wb.achieved * wb.currentReward / 100) + ' ' + cn);
+        }
+        if (wb.nextTier) {
+          lines2.push('• 🎯 للمكافأة التالية (' + wb.nextTier.reward + '٪): باقي ' + fmt(wb.nextTier.needed) + ' ' + cn);
+        }
+        lines2.push('');
+      }
+
+      // الشهر
+      if (mb) {
+        lines2.push('🗓️ *هذا الشهر:*');
+        lines2.push('• الهدف: ' + fmt(mb.target) + ' ' + cn);
+        lines2.push('• المحقق: ' + fmt(mb.achieved) + ' ' + cn + ' (' + mb.percent + '%)');
+        if (mb.currentReward > 0) {
+          lines2.push('• ✅ مكافأتك الحالية: *' + mb.currentReward + '٪* من مبيعاتك = ' + fmt(mb.achieved * mb.currentReward / 100) + ' ' + cn);
+        }
+        if (mb.nextTier) {
+          lines2.push('• 🎯 للمكافأة التالية: باقي ' + fmt(mb.nextTier.needed) + ' ' + cn);
+        }
+      }
+
+      lines2.push('');
+      lines2.push('💪 استمر — كل بيع يقربك أكثر!');
+      return { text: lines2.join('\n') };
+    }
+
+    case 'learn_fact': {
+      if (!u || u.role !== 'admin') return { text: '🔒 التعليم للمدير فقط.' };
+      var factText = raw.replace(/(علمني|احفظ|تذكر|علمك|:)/gi, '').trim();
+      if (!factText || factText.length < 3) {
+        return { text: '📚 اكتب ما تريد تعليمي إياه.\n\nمثال: **"علمني: سعر الكركم 50 د.ل للكيلو"**' };
+      }
+      var fact = addLearnedFact(factText, 'معلومة مدير');
+      return {
+        text: '✅ *تعلمت!*\n\n📝 "' + factText + '"\n\n' +
+              'سأتذكرها وأستخدمها في ردودي.\n' +
+              'تقدر تشوف كل اللي تعلمته بـ: **"ماذا تعلمت؟"**'
+      };
+    }
+
+    case 'show_learned': {
+      var facts = getLearnedFacts();
+      if (!facts.length) return { text: '📚 لسّه ما علمتني شي. اكتب: **"علمني: [معلومة]"**' };
+      var lf = ['📚 *ما تعلمته منك* (' + facts.length + ')', ''];
+      facts.slice(0, 15).forEach(function(f, i){
+        lf.push((i+1) + '. ' + f.text);
+        lf.push('   _' + f.by + ' — ' + new Date(f.ts).toLocaleDateString('ar') + '_');
+      });
+      if (facts.length > 15) lf.push('\n... و' + (facts.length - 15) + ' معلومة أخرى');
+      return { text: lf.join('\n') };
+    }
+
+    case 'advisory': {
+      if (!u) return { text: 'سجّل دخولك.' };
+      var adv = managerAdvice();
+      if (!adv || !adv.length) adv = ['✅ كل شيء مستقر.'];
+      return {
+        text: '🧠 *استشارة مُزن*\n\n' + adv.map(function(t, i){ return (i+1) + '. ' + t; }).join('\n\n')
+      };
+    }
     default: return { text: null };
   }
 }
@@ -11431,11 +11999,33 @@ function buildSystemPrompt() {
   if (tgt) ctx.هدفي = { القيمة: tgt, أنجزت: r3(sumSales(sT)) };
   var lc = isLateToday();
   if (lc && !lc.noShift) ctx.ورديتي = { بدأت: lc.time, متأخر: lc.late, مغلقة: lc.closed };
+  var tasks = u ? generateDailyTasks(un) : [];
+  var targets = u ? calculateSmartTargets(un) : null;
+  var learned = getLearnedContext();
+
   return [
     'أنت "مُزن" 🦉 — مساعد ذكي ودود في MUZN Operations (إدارة مبيعات وإنتاج في ليبيا).',
+    '',
     'شخصيتك: عربي ودود، محفّز، مختصر. أرقام حقيقية فقط. إيموجي باعتدال.',
-    '📊 البيانات الآن:', JSON.stringify(ctx, null, 2),
-    'قواعد: دور المستخدم "' + role + '". العملة: ' + cn + '. لا تخترع أرقاماً. أجب بالعربية.'
+    'ستايل: تتكلم كإنسان حقيقي، تتفهم مشاعر الموظف، تساعد بالحلول.',
+    '',
+    '📊 البيانات الآن:',
+    JSON.stringify(ctx, null, 2),
+    '',
+    '📋 المهام المقترحة اليوم:',
+    tasks.length ? tasks.slice(0, 8).map(function(t){ return '• ' + t.title + ' — ' + t.reason; }).join('\n') : '• لا مهام',
+    '',
+    '🎯 الأهداف:',
+    targets ? ('يومي: ' + r3(targets.daily) + ' | أسبوعي: ' + r3(targets.weekly) + ' | شهري: ' + r3(targets.monthly)) : 'غير محددة',
+    learned,
+    '',
+    '⚠️ قواعد:',
+    '• دور المستخدم "' + role + '" — احترم الصلاحيات',
+    '• العملة: ' + cn,
+    '• لا تخترع أرقاماً — استخدم ما في السياق فقط',
+    '• استخدم المعلومات المُتعلَّمة من المدير إن وُجدت',
+    '• إذا كان المستخدم متضايقاً، تعاطف معه أولاً قبل الحل',
+    '• أجب بالعربية الليبية/الفصحى المبسّطة'
   ].join('\n');
 }
 
@@ -11601,7 +12191,20 @@ function sendMessage(raw) {
   inputEl.value = '';
   C.history = (C.history || []).slice(-20);
   C.history.push({ role: 'user', text: text, ts: Date.now() });
-
+ 
+  // 🆕 كشف المشاعر أولاً
+  var emotion = detectEmotion(text);
+  if (emotion !== 'neutral' && emotion !== 'happy') {
+    var emoReply = emotionalResponse(emotion, text);
+    if (emoReply) {
+      setTimeout(function() {
+        botSay(emoReply, { face: 'thinking' });
+      }, 200);
+      C.history.push({ role: 'bot', text: emoReply, ts: Date.now() });
+      saveCfg();
+      return;
+    }
+  }
   var det = detectIntent(text);
   var quick = buildReply(det.intent, text);
   if (quick && quick.text && det.score >= 60) {
@@ -11645,6 +12248,7 @@ function buildChips() {
     b.textContent = c;
     b.onclick = function(){ sendMessage(c); };
     chipsEl.appendChild(b);
+   chips.push('تقرير الأسبوع');
   });
 }
 
@@ -11761,7 +12365,20 @@ function boot() {
   buildChips();
   updateBadge();
   setInterval(updateBadge, 30000);
-
+  // 🆕 تذكير بالوردية كل ساعة
+  setInterval(function() {
+    var u = me(); if (!u) return;
+    var lc = isLateToday();
+    if (lc && lc.noShift) {
+      var h = new Date().getHours();
+      // تذكير فقط بين 8ص و 6م
+      if (h >= 8 && h <= 18) {
+        try {
+          if (window.toast) window.toast('🕐 ما سجّلت حضورك اليوم — افتح البومة', 'err');
+        } catch(e) {}
+      }
+    }
+  }, 60 * 60 * 1000); // كل ساعة
   // ✅ استدعِ تحميل المفاتيح من Supabase
   loadAIKeys();
 
