@@ -11441,12 +11441,12 @@ function buildSystemPrompt() {
 
 function askGroq(userMsg, history) {
   if (!GROQ_KEY) return Promise.reject(new Error('no groq key'));
-    var models = [
-    'allam-2-7b',
-    'openai/gpt-oss-120b',
-    'openai/gpt-oss-20b',
-    'qwen/qwen3-8-27b'
-  ];
+   var models = [
+  'openai/gpt-oss-120b',   // ⭐ أقوى
+  'allam-2-7b',             // ⭐ الأفضل عربي
+  'openai/gpt-oss-20b',
+  'qwen/qwen3-8-27b'
+];
   var msgs = [{ role: 'system', content: buildSystemPrompt() }];
   (history||[]).slice(-8).forEach(function(h){ msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text||'').slice(0,800) }); });
   msgs.push({ role: 'user', content: userMsg });
