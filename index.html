@@ -10605,7 +10605,7 @@ window.closeSheet = closeSheet;
      
       <label>🎙️ الصوت</label>
       <select id="mzn-voice-select"><option>— اختر —</option></select>
-      <div class="hint">الأصوات الطبيعية (🌟) تحتاج مفتاح Groq؛ وإن تعذّرت يرجع الصوت لصوت المتصفح تلقائياً.</div>
+      <div class="hint">الوضع التلقائي يجرّب: Groq ← Gemini ← VoiceRSS ← صوت المتصفح. إذا فشل مزوّد ينتقل للي بعده تلقائياً.</div>
 
       <label>🎚️ سرعة الصوت</label>
       <input type="range" id="mzn-voice-rate" min="0.7" max="1.4" step="0.05" value="1">
@@ -10666,6 +10666,7 @@ async function loadAIKeys() {
 
       // حدّث نقاط الحالة في الإعدادات
       try { updateProviderStatus(); } catch(e){}
+      try { loadVoices(); } catch(e){}
 
       // أبلغ البومة
       try {
@@ -10751,66 +10752,65 @@ var fab, chatEl, bodyEl, chipsEl, inputEl, sendEl, micEl, voiceBtn, statusEl, ba
 
 /* ═══ الصوت ═══ */
 var arVoices = [];
+function scoreVoice(v) {
+  var n = (v.name || '').toLowerCase(), s = 0;
+  if (/neural|natural|online/.test(n)) s += 10;
+  if (/microsoft|google/.test(n)) s += 3;
+  if (/saudi|ar-sa|hamed|zariyah/.test(n)) s += 2;
+  if (v.localService === false) s += 1;
+  return s;
+}
+/* ملاحظة: القيم المخزّنة — orph:xxx = Groq ، gem:xxx = Gemini ، vrs:xx-xx = VoiceRSS ، اسم عادي = صوت المتصفح ، فارغ = تلقائي */
+var ORPH = [['noura','نورة (أنثى)'],['lulwa','لولوة (أنثى)'],['aisha','عائشة (أنثى)'],['fahad','فهد (ذكر)'],['sultan','سلطان (ذكر)'],['abdullah','عبدالله (ذكر)']];
+var GEMV = [['Kore','كورا (أنثى)'],['Zephyr','زيفير (أنثى)'],['Aoede','أويدي (أنثى)'],['Leda','ليدا (أنثى)'],['Puck','باك (ذكر)'],['Charon','شارون (ذكر)'],['Fenrir','فنرير (ذكر)'],['Orus','أورس (ذكر)']];
+var VRSV = [['ar-sa','سعودي'],['ar-eg','مصري'],['ar-kw','كويتي'],['ar-ly','ليبي']];
+function normVoice() {
+  var n = C.voiceName || '';
+  if (/\((Groq|VoiceRSS)\)$/.test(n)) return '';   /* قيم قديمة من نسخ سابقة */
+  return n;
+}
+function addVoiceGroup(sel, label, items, prefix) {
+  var g = document.createElement('optgroup');
+  g.label = label;
+  items.forEach(function(v){
+    var o = document.createElement('option');
+    o.value = prefix + v[0]; o.textContent = v[1];
+    g.appendChild(o);
+  });
+  sel.appendChild(g);
+}
 function loadVoices() {
-  if (!window.speechSynthesis) return;
-  var vs = speechSynthesis.getVoices() || [];
-  arVoices = vs.filter(function(v){ return v.lang && v.lang.toLowerCase().indexOf('ar') === 0; });
-  arVoices.sort(function(a, b){ return scoreVoice(b) - scoreVoice(a); });
-
+  if (window.speechSynthesis) {
+    var vs = speechSynthesis.getVoices() || [];
+    arVoices = vs.filter(function(v){ return v.lang && v.lang.toLowerCase().indexOf('ar') === 0; });
+    arVoices.sort(function(a, b){ return scoreVoice(b) - scoreVoice(a); });
+  }
   var sel = $('mzn-voice-select');
   if (!sel) return;
   sel.innerHTML = '';
-
-  /* 🆕 مجموعة Groq الطبيعية */
-  if (GROQ_KEY) {
-    var groqGroup = document.createElement('optgroup');
-    groqGroup.label = '🌟 أصوات طبيعية (Groq)';
-    ['نورة','لولو','عائشة','فهد','سلطان','عبدالله'].forEach(function(n){
-      var o = document.createElement('option');
-      o.value = n + ' (Groq)';
-      o.textContent = n;
-      groqGroup.appendChild(o);
-    });
-    sel.appendChild(groqGroup);
-  }
-
-  /* 🆕 VoiceRSS */
-  if (VOICERSS_KEY) {
-    var vrsGroup = document.createElement('optgroup');
-    vrsGroup.label = '📞 VoiceRSS';
-    [['Hamza','حمزة (سعودي)'],['Zeina','زينة (سعودي)'],['Nizar','نزار (فصحى)']].forEach(function(v){
-      var o = document.createElement('option');
-      o.value = v[0] + ' (VoiceRSS)';
-      o.textContent = v[1];
-      vrsGroup.appendChild(o);
-    });
-    sel.appendChild(vrsGroup);
-  }
-
-  /* أصوات المتصفح */
+  var auto = document.createElement('option');
+  auto.value = ''; auto.textContent = '✨ تلقائي (أفضل صوت متاح)';
+  sel.appendChild(auto);
+  if (GROQ_KEY)      addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي', ORPH, 'orph:');
+  if (GEMINI_KEY)    addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني', GEMV, 'gem:');
+  if (VOICERSS_KEY)  addVoiceGroup(sel, '📞 VoiceRSS', VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
   if (arVoices.length) {
     var brGroup = document.createElement('optgroup');
     brGroup.label = '💻 أصوات المتصفح';
     arVoices.forEach(function(v){
       var opt = document.createElement('option');
-      opt.value = v.name;
-      opt.textContent = v.name + ' (' + v.lang + ')';
+      opt.value = v.name; opt.textContent = v.name + ' (' + v.lang + ')';
       brGroup.appendChild(opt);
     });
     sel.appendChild(brGroup);
   }
-
-  if (C.voiceName) {
-    sel.value = C.voiceName;
-  } else {
-    /* الافتراضي: Groq إن وُجد، وإلا VoiceRSS، وإلا المتصفح */
-    if (GROQ_KEY) sel.value = 'نورة (Groq)';
-    else if (VOICERSS_KEY) sel.value = 'Hamza (VoiceRSS)';
-    else if (arVoices[0]) sel.value = arVoices[0].name;
-  }
+  var want = normVoice();
+  sel.value = want;
+  if (sel.value !== want) sel.value = '';
+}
 function getSelectedVoice() {
   if (!arVoices.length) return null;
-  var name = C.voiceName || ($('mzn-voice-select') && $('mzn-voice-select').value);
+  var name = normVoice() || ($('mzn-voice-select') && $('mzn-voice-select').value) || '';
   if (name) for (var i=0;i<arVoices.length;i++) if (arVoices[i].name === name) return arVoices[i];
   return arVoices[0];
 }
@@ -10827,129 +10827,185 @@ function splitSentences(text) {
     .replace(/—/g, '،').replace(/\s+/g, ' ').trim();
   return clean.split(/(?<=[.!؟،:])\s+/).filter(function(s){ return s.trim().length > 1; });
 }
-/* ═══ كاش الصوت ═══ */
-var _ttsCache = {};
-var _currentAudio = null;
+/* ═══ MUZN VOICE v3 — سلسلة أصوات تلقائية: Groq Orpheus ← Gemini TTS ← VoiceRSS ← المتصفح ═══ */
+var GEM_MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'], gemModel = null;
+var TTS_LIM = { groq: {max:190, n:4}, gemini: {max:600, n:2}, voicerss: {max:800, n:1} };
+var spkId = 0, spkAudio = null, spkCache = {}, spkCacheKeys = [], ttsDown = {}, orphHinted = false, _unlocked = false;
 
-/* ═══ VoiceRSS — صوت طبيعي (الأساسي) ═══ */
-async function speakVoiceRSS(text) {
-  if (!VOICERSS_KEY) throw new Error('VoiceRSS غير مُفعّل');
-
-  var clean = String(text||'')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-    .replace(/\s+/g, ' ').trim()
-    .slice(0, 900);
-  if (!clean) return;
-
-  var cacheKey = clean.slice(0, 120);
-  if (_ttsCache[cacheKey]) { playAudioUrl(_ttsCache[cacheKey]); return; }
-
-  var params = new URLSearchParams({
-    key: VOICERSS_KEY,
-    hl: 'ar-sa',
-    v: 'Hamza',
-    src: clean,
-    c: 'MP3',
-    f: '44khz_16bit_stereo',
-    b64: 'false'
+function ttsClean(t) {
+  var c = String(t||'').replace(/\*([^*]+)\*/g,'$1').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu,'')
+    .replace(/^[•\-\d]+[.)]?\s+/gm,'').replace(/[•|_#~`]/g,' ').replace(/د\.ل|LYD/g,' دينار ').replace(/\s*—\s*/g,'، ')
+    .replace(/\n+/g,'. ').replace(/\s+/g,' ').trim();
+  var cu = '' + cur();
+  if (cu && cu.length > 0 && cu !== 'د.ل') c = c.split(cu).join(' ' + (/د\.?ك/.test(cu) ? 'دينار' : cu) + ' ');
+  return c;
+}
+function ttsChunks(t, max) {
+  var s = t.split(/(?<=[.!؟?،:؛])\s+/), out = [], cur_ = '';
+  s.forEach(function(p){
+    while (p.length > max) {
+      var cut = p.lastIndexOf(' ', max); if (cut < 60) cut = max;
+      if (cur_) { out.push(cur_); cur_ = ''; }
+      out.push(p.slice(0, cut).trim()); p = p.slice(cut).trim();
+    }
+    if (!p) return;
+    if ((cur_ + ' ' + p).trim().length <= max) cur_ = (cur_ + ' ' + p).trim(); else { out.push(cur_); cur_ = p; }
   });
-
-  var url = 'https://api.voicerss.org/?' + params.toString();
-  _ttsCache[cacheKey] = url;
-  playAudioUrl(url);
+  if (cur_) out.push(cur_);
+  return out.filter(function(x){ return x.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'').length > 1; });
 }
+function httpErr(msg, status) { var e = new Error(msg); e.status = status; return e; }
 
-function playAudioUrl(url) {
-  stopSpeak();
-  _currentAudio = new Audio(url);
-  _currentAudio.volume = 1;
-  _currentAudio.play().catch(function(e){ console.warn('[TTS]:', e.message); });
-}
-
-/* ═══ كاش الصوت ═══ */
-var _ttsCache = {};
-var _currentAudio = null;
-var _ttsProviders = ['groq', 'voicerss', 'browser'];
-var _ttsProviderIndex = 0;
-
-/* ═══ 1) Groq TTS ═══ */
-async function speakGroqTTS(text) {
-  if (!GROQ_KEY) throw new Error('Groq key missing');
-
-  var clean = String(text||'')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-    .replace(/\s+/g, ' ').trim()
-    .slice(0, 500);
-  if (!clean) return;
-
-  var cacheKey = 'groq_' + clean.slice(0, 80);
-  if (_ttsCache[cacheKey]) { playAudioUrl(_ttsCache[cacheKey]); return; }
-
-  var voice = C.voiceName && C.voiceName.indexOf('Groq') >= 0
-    ? C.voiceName.replace(' (Groq)', '')
-    : 'نورة';
-
-  var resp = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+/* ── المزوّدون ── */
+async function synGroq(text, voice) {
+  var r = await fetch('https://api.groq.com/openai/v1/audio/speech', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + GROQ_KEY
-    },
-    body: JSON.stringify({
-      model: 'canopylabs/orpheus-arabic-saudi',
-      input: clean,
-      voice: voice,
-      response_format: 'wav'
-    })
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + GROQ_KEY },
+    body: JSON.stringify({ model: 'canopylabs/orpheus-arabic-saudi', voice: voice, input: text, response_format: 'wav' })
   });
-
-  if (!resp.ok) {
-    var err = await resp.text().catch(function(){ return ''; });
-    throw new Error('Groq TTS ' + resp.status + ': ' + err.slice(0, 80));
+  if (!r.ok) throw httpErr('Groq TTS HTTP ' + r.status, r.status);
+  return URL.createObjectURL(await r.blob());
+}
+function pcmToWavUrl(b64, rate) {
+  var bin = atob(b64), n = bin.length, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+  function w(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+  w(0,'RIFF'); v.setUint32(4, 36 + n, true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36,'data'); v.setUint32(40, n, true);
+  var u8 = new Uint8Array(buf, 44); for (var i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+async function synGemini(text, voice) {
+  var models = gemModel ? [gemModel] : GEM_MODELS, last = null;
+  for (var i = 0; i < models.length; i++) {
+    var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_KEY },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: text }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } }
+      })
+    });
+    if (!r.ok) {
+      last = httpErr('Gemini TTS HTTP ' + r.status, r.status);
+      if (r.status === 404 || r.status === 429 || r.status === 503) continue;   /* جرّب النموذج التالي */
+      throw last;
+    }
+    var j = await r.json(), parts = (((j.candidates || [])[0] || {}).content || {}).parts || [], d = null;
+    parts.forEach(function(p){ if (p.inlineData && p.inlineData.data) d = p.inlineData; });
+    if (!d) { last = httpErr('Gemini TTS: no audio', 500); continue; }
+    gemModel = models[i];
+    var m = /rate=(\d+)/.exec(d.mimeType || '');
+    return pcmToWavUrl(d.data, m ? +m[1] : 24000);
   }
-
-  var blob = await resp.blob();
-  var url = URL.createObjectURL(blob);
-  _ttsCache[cacheKey] = url;
-  playAudioUrl(url);
+  throw last || httpErr('Gemini TTS failed', 500);
+}
+async function synVRS(text, lang) {
+  var r = await fetch('https://api.voicerss.org/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ key: VOICERSS_KEY, hl: lang, src: text, c: 'MP3', f: '44khz_16bit_mono', b64: 'true' }).toString()
+  });
+  var t = await r.text();
+  /* VoiceRSS يرجّع الأخطاء كنص "ERROR: ..." بحالة 200 — لازم نتحقق من الرد */
+  if (!r.ok || t.indexOf('data:audio') !== 0) {
+    throw httpErr('VoiceRSS: ' + t.slice(0, 80), /limit/i.test(t) ? 429 : /key/i.test(t) ? 403 : 500);
+  }
+  return t;
+}
+async function ttsSynth(p, text, voice) {
+  var k = p + '|' + voice + '|' + text;
+  if (spkCache[k]) return spkCache[k];
+  var u = p === 'groq' ? await synGroq(text, voice) : p === 'gemini' ? await synGemini(text, voice) : await synVRS(text, voice);
+  spkCache[k] = u; spkCacheKeys.push(k);
+  if (spkCacheKeys.length > 25) {
+    var o = spkCacheKeys.shift();
+    if (spkCache[o] && spkCache[o].indexOf('blob:') === 0) { try { URL.revokeObjectURL(spkCache[o]); } catch(e){} }
+    delete spkCache[o];
+  }
+  return u;
 }
 
-/* ═══ 2) VoiceRSS ═══ */
-async function speakVoiceRSS(text) {
-  if (!VOICERSS_KEY) throw new Error('VoiceRSS key missing');
-
-  var clean = String(text||'')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-    .replace(/\s+/g, ' ').trim()
-    .slice(0, 900);
-  if (!clean) return;
-
-  var cacheKey = 'vrs_' + clean.slice(0, 80);
-  if (_ttsCache[cacheKey]) { playAudioUrl(_ttsCache[cacheKey]); return; }
-  /* اختر صوت VoiceRSS */
-  var vrsVoice = 'Hamza';
-  if (C.voiceName && C.voiceName.indexOf('VoiceRSS') >= 0) {
-    vrsVoice = C.voiceName.replace(' (VoiceRSS)', '');
+/* ── اختيار المزوّد ── */
+function ttsAvail(p) {
+  if ((ttsDown[p] || 0) > Date.now()) return false;
+  return p === 'groq' ? !!GROQ_KEY : p === 'gemini' ? !!GEMINI_KEY : !!VOICERSS_KEY;
+}
+function ttsChain() {
+  var n = normVoice(), order = [];
+  if (n.indexOf('orph:') === 0) order.push('groq');
+  else if (n.indexOf('gem:') === 0) order.push('gemini');
+  else if (n.indexOf('vrs:') === 0) order.push('voicerss');
+  else if (n) return [];                       /* اختار صوت متصفح بالاسم */
+  ['groq', 'gemini', 'voicerss'].forEach(function(p){ if (order.indexOf(p) < 0) order.push(p); });
+  return order.filter(ttsAvail);
+}
+function ttsVoiceFor(p) {
+  var n = normVoice(), pre = { groq: 'orph:', gemini: 'gem:', voicerss: 'vrs:' }[p];
+  if (n.indexOf(pre) === 0) return n.slice(pre.length);
+  return { groq: 'noura', gemini: 'Kore', voicerss: 'ar-sa' }[p];
+}
+function ttsFail(p, e) {
+  console.warn('[TTS ' + p + ' ❌]', e && e.message);
+  var s = e && e.status;
+  ttsDown[p] = Date.now() + (s === 429 ? 60000 : (s === 400 || s === 401 || s === 403) ? 30 * 60000 : 2 * 60000);
+  if (p === 'groq' && (s === 400 || s === 403) && !orphHinted) {
+    orphHinted = true;
+    try { botSay('ℹ️ صوت Groq ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground. مؤقتاً أستخدم صوت بديل.'); } catch(x){}
   }
-  var params = new URLSearchParams({
-    key: VOICERSS_KEY,
-    hl: 'ar-sa',
-    v: vrsVoice,
-    src: clean,
-    c: 'MP3',
-    f: '44khz_16bit_stereo',
-    b64: 'false'
-  });
-
-  var url = 'https://api.voicerss.org/?' + params.toString();
-  _ttsCache[cacheKey] = url;
-  playAudioUrl(url);
 }
 
-/* ═══ 3) Web Speech (احتياطي) ═══ */
+/* ── التشغيل ── */
+function unlockAudio() {
+  if (_unlocked) return; _unlocked = true;
+  try {
+    spkAudio = spkAudio || new Audio();
+    spkAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+    var p = spkAudio.play(); if (p && p.catch) p.catch(function(){});
+  } catch(e){}
+}
+['pointerdown', 'touchstart', 'keydown'].forEach(function(ev){ document.addEventListener(ev, unlockAudio, { once: true, passive: true }); });
+
+function playUrl(url) {
+  return new Promise(function(res, rej){
+    spkAudio = spkAudio || new Audio();
+    spkAudio.onended = function(){ res(); };
+    spkAudio.onerror = function(){ rej(new Error('audio error')); };
+    spkAudio.src = url;
+    var rt = Math.min(1.5, Math.max(0.7, Number(C.rate) || 1));
+    spkAudio.defaultPlaybackRate = rt; spkAudio.playbackRate = rt;
+    if (fab) fab.classList.add('talking');
+    var p = spkAudio.play(); if (p && p.catch) p.catch(rej);
+  });
+}
+async function playParts(id, p, parts) {
+  var voice = ttsVoiceFor(p), pending = ttsSynth(p, parts[0], voice);
+  for (var i = 0; i < parts.length; i++) {
+    var url;
+    try { url = await pending; } catch (e) { if (i === 0) throw e; return; }   /* فشل جزء لاحق: نوقف بدون تكرار الكلام */
+    if (id !== spkId) return;
+    pending = i + 1 < parts.length ? ttsSynth(p, parts[i + 1], voice) : null;
+    if (pending) pending.catch(function(){});
+    await playUrl(url);
+    if (id !== spkId) return;
+  }
+}
+async function playChain(id, text, clean, chain) {
+  for (var k = 0; k < chain.length; k++) {
+    var p = chain[k], lim = TTS_LIM[p], parts = ttsChunks(clean, lim.max).slice(0, lim.n);
+    if (!parts.length) return;
+    try { await playParts(id, p, parts); if (id === spkId && fab) fab.classList.remove('talking'); return; }
+    catch (e) {
+      if (id !== spkId) return;
+      if (e && e.name === 'NotAllowedError') { if (fab) fab.classList.remove('talking'); return; }   /* المتصفح منع التشغيل التلقائي */
+      ttsFail(p, e);
+    }
+  }
+  if (fab) fab.classList.remove('talking');
+  if (id === spkId) speakBrowser(text);
+}
+
+/* ═══ 3) Web Speech (احتياطي أخير) ═══ */
 function speakBrowser(text) {
   if (!window.speechSynthesis) return;
   try {
@@ -10968,62 +11024,21 @@ function speakBrowser(text) {
   } catch(e){}
 }
 
-/* ═══ المشغل الصوتي ═══ */
-function playAudioUrl(url) {
-  stopSpeak();
-  _currentAudio = new Audio(url);
-  _currentAudio.crossOrigin = 'anonymous';
-  _currentAudio.volume = 1;
-  _currentAudio.play().catch(function(e){ console.warn('[TTS]:', e.message); });
-}
-
-/* ═══ المتحدث الرئيسي — سلسلة تلقائية ═══ */
+/* ═══ المتحدث الرئيسي ═══ */
 function speak(text) {
   if (!C.voice) return;
-
-  // جرّب Groq أولاً
-  if (GROQ_KEY) {
-    speakGroqTTS(text).then(function(){
-      // نجح
-    }).catch(function(e1){
-      console.warn('[TTS] Groq ❌', e1.message);
-
-      // جرّب VoiceRSS
-      if (VOICERSS_KEY) {
-        speakVoiceRSS(text).then(function(){
-          // نجح
-        }).catch(function(e2){
-          console.warn('[TTS] VoiceRSS ❌', e2.message);
-          // Web Speech كملاذ أخير
-          speakBrowser(text);
-        });
-      } else {
-        // لا يوجد VoiceRSS → Web Speech
-        speakBrowser(text);
-      }
-    });
-    return;
-  }
-
-  // لا يوجد Groq → جرّب VoiceRSS
-  if (VOICERSS_KEY) {
-    speakVoiceRSS(text).catch(function(e){
-      console.warn('[TTS] VoiceRSS ❌', e.message);
-      speakBrowser(text);
-    });
-    return;
-  }
-
-  // ملاذ أخير: Web Speech
-  speakBrowser(text);
+  var clean = ttsClean(text); if (!clean) return;
+  stopSpeak();
+  var chain = ttsChain();
+  if (!chain.length) return speakBrowser(text);
+  playChain(spkId, text, clean, chain);
 }
 
 /* ═══ إيقاف كل الأصوات ═══ */
 function stopSpeak() {
-  if (_currentAudio) {
-    try { _currentAudio.pause(); _currentAudio.currentTime = 0; } catch(e){}
-    _currentAudio = null;
-  }
+  spkId++;
+  try { if (spkAudio) { spkAudio.onended = null; spkAudio.onerror = null; spkAudio.pause(); } } catch(e){}
+  if (fab) fab.classList.remove('talking');
   if (window.speechSynthesis) try { speechSynthesis.cancel(); } catch(e){}
 }
 
@@ -13322,75 +13337,6 @@ function greetLogin(){var u=me();if(!u)return;var k='owl_g_'+u.id;try{if(session
   if(me()&&store()){clearInterval(w);greetLogin();setInterval(tickOwl,2000);setInterval(checkTarget,60000)}
   else if(++n>120)clearInterval(w)},1000)})();
 
-/* ═══ MUZN VOICE v2 — صوت طبيعي عبر Groq Orpheus (سعودي) + احتياطي المتصفح ═══ */
-var ORPH=[['noura','نورة (أنثى)'],['lulwa','لولوة (أنثى)'],['aisha','عائشة (أنثى)'],['fahad','فهد (ذكر)'],['sultan','سلطان (ذكر)'],['abdullah','عبدالله (ذكر)']];
-var TTS_MODEL='canopylabs/orpheus-arabic-saudi',TTS_MAX=190,TTS_CHUNKS=4;
-var spkId=0,spkAudio=null,orphDownUntil=0,orphHinted=false,spkCache={},spkCacheKeys=[],_unlocked=false;
-function ttsVoice(){var n=C.voiceName||'';if(n.indexOf('orph:')===0)return n.slice(5);if(!n)return 'noura';return null}
-function ttsOn(){return !!GROQ_KEY&&Date.now()>orphDownUntil&&ttsVoice()!==null}
-function ttsClean(t){
-  var c=String(t||'').replace(/\*([^*]+)\*/g,'$1').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu,'')
-    .replace(/^[•\-\d]+[.)]?\s+/gm,'').replace(/[•|_#~`]/g,' ').replace(/د\.ل|LYD/g,' دينار ').replace(/\s*—\s*/g,'، ')
-    .replace(/\n+/g,'. ').replace(/\s+/g,' ').trim();
-  var cu=''+cur();if(cu&&cu.length>0&&cu!=='د.ل')c=c.split(cu).join(' '+(/د\.?ك/.test(cu)?'دينار':cu)+' ');
-  return c}
-function ttsChunks(t){
-  var s=t.split(/(?<=[.!؟?،:؛])\s+/),out=[],cur_='';
-  s.forEach(function(p){
-    while(p.length>TTS_MAX){var cut=p.lastIndexOf(' ',TTS_MAX);if(cut<60)cut=TTS_MAX;if(cur_){out.push(cur_);cur_=''}out.push(p.slice(0,cut).trim());p=p.slice(cut).trim()}
-    if(!p)return;
-    if((cur_+' '+p).trim().length<=TTS_MAX)cur_=(cur_+' '+p).trim();else{out.push(cur_);cur_=p}});
-  if(cur_)out.push(cur_);return out.filter(function(x){return x.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'').length>1})}
-async function ttsFetch(text,voice){
-  var k=voice+'|'+text;if(spkCache[k])return spkCache[k];
-  var r=await fetch('https://api.groq.com/openai/v1/audio/speech',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+GROQ_KEY},
-    body:JSON.stringify({model:TTS_MODEL,voice:voice,input:text,response_format:'wav'})});
-  if(!r.ok){var e=new Error('tts HTTP '+r.status);e.status=r.status;throw e}
-  var u=URL.createObjectURL(await r.blob());spkCache[k]=u;spkCacheKeys.push(k);
-  if(spkCacheKeys.length>25){var old=spkCacheKeys.shift();try{URL.revokeObjectURL(spkCache[old])}catch(e){}delete spkCache[old]}
-  return u}
-function unlockAudio(){if(_unlocked)return;_unlocked=true;try{
-  spkAudio=spkAudio||new Audio();spkAudio.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-  var p=spkAudio.play();if(p&&p.catch)p.catch(function(){})}catch(e){}}
-['pointerdown','touchstart','keydown'].forEach(function(ev){document.addEventListener(ev,unlockAudio,{once:true,passive:true})});
-var _speakBrowser=speak,_stopBrowser=stopSpeak;
-function ttsFail(e){
-  console.warn('[TTS]',e&&e.message);
-  orphDownUntil=Date.now()+((e&&(e.status===429))?60000:(e&&(e.status===400||e.status===403||e.status===401))?30*60000:2*60000);
-  if(e&&(e.status===400||e.status===403)&&!orphHinted){orphHinted=true;
-    try{botSay('ℹ️ الصوت الطبيعي ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground (باستخدام نفس حساب المفتاح). مؤقتاً أستخدم صوت المتصفح.')}catch(x){}}}
-speak=function(text){
-  if(!C.voice)return;
-  var clean=ttsClean(text);if(!clean)return;
-  if(!ttsOn()){return _speakBrowser(text)}
-  stopSpeak();var id=spkId,voice=ttsVoice(),parts=ttsChunks(clean).slice(0,TTS_CHUNKS);if(!parts.length)return;
-  spkAudio=spkAudio||new Audio();var next=ttsFetch(parts[0],voice);
-  (async function play(i,pending){
-    try{
-      var url=await pending;if(id!==spkId)return;
-      var pf=i+1<parts.length?ttsFetch(parts[i+1],voice):null;if(pf)pf.catch(function(){});
-      spkAudio.onended=null;spkAudio.src=url;spkAudio.playbackRate=Math.min(1.5,Math.max(0.7,Number(C.rate)||1));
-      if(fab)fab.classList.add('talking');
-      await new Promise(function(res,rej){spkAudio.onended=res;spkAudio.onerror=function(){rej(new Error('audio error'))};
-        var p=spkAudio.play();if(p&&p.catch)p.catch(rej)});
-      if(id!==spkId)return;
-      if(pf)return play(i+1,pf);
-      if(fab)fab.classList.remove('talking');
-    }catch(e){
-      if(fab)fab.classList.remove('talking');if(id!==spkId)return;
-      if(i===0||e.status){ttsFail(e);if(i===0)_speakBrowser(parts.join(' '))}}
-  })(0,next)};
-stopSpeak=function(){spkId++;try{if(spkAudio){spkAudio.onended=null;spkAudio.pause()}}catch(e){}if(fab)fab.classList.remove('talking');_stopBrowser()};
-/* قائمة الأصوات: الطبيعية أولاً */
-var _lv=loadVoices;
-loadVoices=function(){_lv();var sel=$('mzn-voice-select');if(!sel)return;
-  var g=document.createElement('optgroup');g.label='🌟 أصوات طبيعية (Groq)';
-  ORPH.forEach(function(v){var o=document.createElement('option');o.value='orph:'+v[0];o.textContent=v[1];g.appendChild(o)});
-  sel.insertBefore(g,sel.firstChild);
-  var n=C.voiceName||'orph:noura';if(!sel.querySelector('option[value="'+n+'"]'))n='orph:noura';sel.value=n}
-var _gsv=getSelectedVoice;
-getSelectedVoice=function(){if((C.voiceName||'').indexOf('orph:')===0){return arVoices&&arVoices[0]||null}return _gsv()};
-if(window.speechSynthesis)speechSynthesis.onvoiceschanged=loadVoices;
 setTimeout(function(){try{loadVoices()}catch(e){}},3200);
 window.__owl=window.__owl||{};window.__owl.speak=speak;
 
