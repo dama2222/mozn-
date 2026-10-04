@@ -10130,6 +10130,52 @@ function generateWeeklyReport() {
   
   return lines.join('\n');
 }
+  /* ═══ التقرير الأسبوعي ═══ */
+function generateWeeklyReport() {
+  var u = me(); if (!u) return null;
+  var isAdmin = u.role === 'admin';
+  var un = isAdmin ? null : u.name;
+
+  var arr = salesWeek(un);
+  if (!arr.length) return 'لا توجد مبيعات هذا الأسبوع.';
+
+  var total = sumSales(arr);
+  var count = arr.length;
+  var top = topProduct(arr);
+  var target = u ? (calculateSmartTargets(u.name) || {}).weekly : null;
+
+  var lastWeekStart = new Date();
+  lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+  var lastWeekEnd = new Date();
+  lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
+  var fd = function(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+  var lastArr = salesInRange(fd(lastWeekStart), fd(lastWeekEnd), un);
+  var lastTotal = sumSales(lastArr);
+  var change = lastTotal > 0 ? Math.round((total - lastTotal) / lastTotal * 100) : 0;
+
+  var cn = cur();
+  var lines = ['📊 *التقرير الأسبوعي*', ''];
+  lines.push('• الفواتير: ' + count);
+  lines.push('• المبيعات: ' + fmt(total) + ' ' + cn);
+  if (top) lines.push('• الأكثر مبيعاً: ' + top.name + ' (' + top.qty + ')');
+
+  if (lastTotal > 0) {
+    var arrow = change > 0 ? '📈' : (change < 0 ? '📉' : '➡️');
+    lines.push('• مقارنة بالأسبوع الماضي: ' + arrow + ' ' + (change > 0 ? '+' : '') + change + '%');
+  }
+
+  if (target) {
+    var pct = Math.round(total / target * 100);
+    lines.push('');
+    lines.push('🎯 الهدف: ' + fmt(target) + ' ' + cn);
+    lines.push('📊 التحقيق: ' + pct + '%');
+    if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
+    else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
+  }
+
+  return lines.join('\n');
+}
+
 /* =====================================================================
    boot
    ===================================================================== */
@@ -11212,7 +11258,7 @@ function detectIntent(raw) {
   if (has(t,'متاخر')) add('debts', 70);
   if (has(t,'ديون الموزع') || has(t,'موزعين متاخرين')) add('dist_debts', 90);
   if (has(t,'هدفي') || has(t,'target') || has(t,'تارجت')) add('target', 100);
-  if (has(t,'هدف') && (has(t,'حدد') || has(t,'حط') || has(t,'عين'))) add('target_set', 110);
+  if (has(t,'هدف') && (has(t,'حدد') || has(t,'حط') || has(t,'عين'))) add('target_set', 100);
   if (has(t,'هدف')) add('target', 60);
   if (has(t,'مخزون') || has(t,'نواقص') || has(t,'ناقص')) add('stock', 90);
   if (has(t,'طلبات') || has(t,'طلب نواقص')) add('requests', 80);
@@ -11227,8 +11273,11 @@ function detectIntent(raw) {
   if (has(t,'هل انا مسجل') || has(t,'حضوري اليوم')) add('shift_status', 85);
   if (has(t,'هل تاخرت') || has(t,'تاخرت اليوم')) add('late_check', 100);
   if ((has(t,'كم يوم') && has(t,'غبت')) || has(t,'سجل حضوري') || has(t,'ايام غيابي')) add('absence_report', 100);
-  if (has(t,'مكافات') && (has(t,'الفريق') || has(t,'الشهر') || has(t,'الاسبوع'))) add('team_rewards', 90);
-  if (has(t,'حلل') && (has(t,'مبيعاتي') || has(t,'ادائي'))) add('analyze_self', 90);
+  /* ═══ مكافآت (أعلى وزن — قبل target) ═══ */
+  if (has(t,'مكافاتي') || has(t,'مكافأتي') || has(t,'مكافات')) add('my_bonus', 150);
+  if (has(t,'مكافاه') || has(t,'بونص')) add('my_bonus', 140);
+  if ((has(t,'مكافات') || has(t,'مكافاه')) && (has(t,'الهدف') || has(t,'هدف'))) add('my_bonus', 200);
+  if (has(t,'بعد') && has(t,'الهدف') && has(t,'مكاف')) add('my_bonus', 200);  if (has(t,'حلل') && (has(t,'مبيعاتي') || has(t,'ادائي'))) add('analyze_self', 90);
   if (has(t,'حلل') && has(t,'انتاج')) add('analyze_production', 90);
   if (has(t,'استشاره') || has(t,'نصيحه') || has(t,'شور')) add('consultant', 90);
   if (has(t,'قارن') && (has(t,'الشهر') || has(t,'الماضي'))) add('compare', 90);
@@ -12054,6 +12103,25 @@ function botSay(text, opts) {
   }, delay);
 }
 
+/* ═══ قائمة الأزرار الجاهزة ═══ */
+var CHIP_PHRASES = [
+  // مدير
+  'مبيعات اليوم','مبيعات الشهر','مبيعات السنة','أرباح','من دفع اليوم',
+  'من لم يسلّم','الديون','مكافآت الفريق','استشارة','المخزون',
+  'اقترح لي هدف','قارن الشهور','تقرير الأسبوع','اشرح لي',
+  // إنتاج
+  'مبيعاتي اليوم','مبيعاتي الشهر','هدفي','حلل أدائي','ورديتي اليوم',
+  'هل تأخرت','كم يوم غبت','أغلق ورديتي',
+  // مخزون
+  'طلبات النواقص',
+  // موزعين
+  'من لم يسلّم','هل تأخرت'
+];
+
+function isKnownChip(text) {
+  return CHIP_PHRASES.indexOf(String(text||'').trim()) >= 0;
+}
+
 function sendMessage(raw) {
   var text = String(raw||'').trim();
   if (!text) return;
@@ -12061,8 +12129,8 @@ function sendMessage(raw) {
   inputEl.value = '';
   C.history = (C.history || []).slice(-20);
   C.history.push({ role: 'user', text: text, ts: Date.now() });
- 
-  // 🆕 كشف المشاعر أولاً
+
+  /* 🆕 1) كشف المشاعر أولاً */
   var emotion = detectEmotion(text);
   if (emotion !== 'neutral' && emotion !== 'happy') {
     var emoReply = emotionalResponse(emotion, text);
@@ -12075,15 +12143,20 @@ function sendMessage(raw) {
       return;
     }
   }
-  var det = detectIntent(text);
-  var quick = buildReply(det.intent, text);
-  if (quick && quick.text && det.score >= 60) {
-    botSay(quick.text, { progress: quick.progress });
-    C.history.push({ role: 'bot', text: quick.text, ts: Date.now() });
-    saveCfg();
-    return;
+
+  /* 🆕 2) ضغط زر جاهز → القاعدة المحلية (سريع) */
+  if (isKnownChip(text)) {
+    var det = detectIntent(text);
+    var quick = buildReply(det.intent, text);
+    if (quick && quick.text) {
+      botSay(quick.text, { progress: quick.progress });
+      C.history.push({ role: 'bot', text: quick.text, ts: Date.now() });
+      saveCfg();
+      return;
+    }
   }
 
+  /* 🆕 3) كتابة حرة → AI أولاً (يفكر في الجملة) */
   statusEl.textContent = '🤔 يفكّر...';
   askAI(text, C.history.slice(0, -1))
     .then(function(reply){
@@ -12093,6 +12166,7 @@ function sendMessage(raw) {
     })
     .catch(function(err){
       console.warn('[AI final]', err.message);
+      // احتياطي محلي
       var det2 = detectIntent(text);
       var r = buildReply(det2.intent, text);
       if (r && r.text) botSay(r.text);
