@@ -10792,10 +10792,10 @@ function loadVoices() {
   var auto = document.createElement('option');
   auto.value = ''; auto.textContent = '✨ تلقائي (أفضل صوت متاح)';
   sel.appendChild(auto);
-  if (GROQ_KEY)      addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي', ORPH, 'orph:');
-  if (edgeReady())   addVoiceGroup(sel, '🎧 أصوات عصبية مجانية (Edge)', EDGEV, 'edge:');
-  if (GEMINI_KEY)    addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني', GEMV, 'gem:');
-  if (VOICERSS_KEY)  addVoiceGroup(sel, '📞 VoiceRSS', VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
+  addVoiceGroup(sel, '🌟 Groq — صوت سعودي طبيعي' + (GROQ_KEY ? '' : ' (يحتاج مفتاح)'), ORPH, 'orph:');
+  addVoiceGroup(sel, '🎧 أصوات عصبية مجانية (Edge)', EDGEV, 'edge:');
+  addVoiceGroup(sel, '💎 Gemini — صوت طبيعي مجاني' + (GEMINI_KEY ? '' : ' (يحتاج مفتاح)'), GEMV, 'gem:');
+  addVoiceGroup(sel, '📞 VoiceRSS' + (VOICERSS_KEY ? '' : ' (يحتاج مفتاح)'), VRSV.map(function(v){ return [v[0], 'VoiceRSS ' + v[1]]; }), 'vrs:');
   if (arVoices.length) {
     var brGroup = document.createElement('optgroup');
     brGroup.label = '💻 أصوات المتصفح';
@@ -10906,8 +10906,10 @@ function edgeReady() { try { return !!(M() && M().adapter && M().adapter.sb); } 
 async function synEdge(text, voice) {
   var r = await M().adapter.sb.functions.invoke('edge-tts', { body: { text: text, voice: voice, rate: C.rate || 1 } });
   if (r.error || !r.data || !r.data.audio) {
-    var st = r.error && r.error.context && r.error.context.status;
-    throw httpErr('Edge TTS ' + ((r.error && r.error.message) || (r.data && r.data.error) || 'failed'), st || 500);
+    var st = r.error && r.error.context && r.error.context.status, detail = '';
+    try { if (r.error && r.error.context && r.error.context.json) detail = (await r.error.context.json()).error || ''; } catch(x){}
+    window.__edgeErr = detail || (r.error && r.error.message) || 'failed';
+    throw httpErr('Edge TTS: ' + window.__edgeErr, st === 404 ? 404 : 500);
   }
   return 'data:audio/mpeg;base64,' + r.data.audio;
 }
@@ -10961,6 +10963,10 @@ function ttsFail(p, e) {
   console.warn('[TTS ' + p + ' ❌]', e && e.message);
   var s = e && e.status;
   ttsDown[p] = Date.now() + (s === 429 ? 60000 : (s === 400 || s === 401 || s === 403 || s === 404) ? 30 * 60000 : 2 * 60000);
+  if (p === 'edge' && window.__edgeErr && !window.__edgeHinted) {
+    window.__edgeHinted = true;
+    try { botSay('ℹ️ صوت Edge ما اشتغل — رسالة الخطأ: ' + window.__edgeErr + ' (أرسلها للمطوّر). أستخدم صوت بديل مؤقتاً.'); } catch(x){}
+  }
   if (p === 'groq' && (s === 400 || s === 403) && !orphHinted) {
     orphHinted = true;
     try { botSay('ℹ️ صوت Groq ما اشتغل — غالباً لازم تقبل شروط نموذج Orpheus العربي مرة وحدة من Groq Playground. مؤقتاً أستخدم صوت بديل.'); } catch(x){}
