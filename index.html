@@ -798,38 +798,36 @@ function discountsFor(st,kind,refId){
 function totalDiscountsFor(st,kind,refId){
   return sum(discountsFor(st,kind,refId),d=>d.amount);
 }
-function taxRateForDays(days){
-  const c=(store&&store.company)||{};
-  if(!c.tax_enabled)return 0;
-  const grace=c.tax_grace_days!=null?c.tax_grace_days:7;
-  if(days<=grace)return 0;
-  const rate=c.tax_monthly_rate!=null?c.tax_monthly_rate:2;
-  const months=Math.ceil((days-grace)/30);
-  return r2(rate*months);
-}
-function computeInvoiceTax(st,customer,header){
-  if(!customer)return {days:0,rate:0,amount:0};
-  const terms=customer.terms||14;
-  const dueDate=addDays(header.date,terms);
-  const days=diffDays(today(),dueDate);
-  if(days<=0)return {days:0,rate:0,amount:0,due:dueDate};
-  const rate=taxRateForDays(days);
-  if(rate<=0)return {days,rate:0,amount:0,due:dueDate};
-  const base=sum(header.items,saleItemNet);
-  return {days,rate,amount:r2(base*rate/100),due:dueDate};
-}
-function customerTaxBalance(st,c){
-  const invs=st.sale_items_flat.filter(s=>s.customer_id===c.id&&s.type==='credit');
-  const byHeader={};invs.forEach(it=>{(byHeader[it.header_id]=byHeader[it.header_id]||{date:it.date,items:[]}).items.push(it)});
-  const b=custBal(st,c,true);
-  if(b.remaining<=0.009)return {total:0,items:[]};
-  let total=0;const items=[];
-  for(const hid in byHeader){
-    const h=byHeader[hid];
-    const tax=computeInvoiceTax(st,c,{date:h.date,items:h.items});
-    if(tax.amount>0){total=r2(total+tax.amount);items.push({header_id:hid,date:h.date,days:tax.days,rate:tax.rate,amount:tax.amount,due:tax.due})}
+/* غرامة التأخير: تُحتسب يومياً على الرصيد غير المسدّد من كل فاتورة آجلة،
+   بعد (مدة سداد العميل + أيام السماح). المعدل اليومي = النسبة الشهرية ÷ 30.
+   السداد يُوزَّع على أقدم فاتورة أولاً، وما زاد عن أصل الدين يُسدّد الغرامة. */
+function lateFeeCalc(st,c,wFrom,wTo){
+  const co=st.company||{};
+  if(!co.tax_enabled)return 0;
+  const grace=co.tax_grace_days!=null?Number(co.tax_grace_days):7;
+  const rate=(co.tax_monthly_rate!=null?Number(co.tax_monthly_rate):2)/30/100;
+  if(!(rate>0))return 0;
+  const DAY=x=>Math.round(parseD(x).getTime()/864e5);
+  const invs=st.sale_items_flat.filter(x=>x.customer_id===c.id&&x.type==='credit');
+  if(!invs.length)return 0;
+  const by={};invs.forEach(it=>{(by[it.header_id]=by[it.header_id]||{date:it.date,ts:it.ts||0,amount:0}).amount+=saleItemNet(it)});
+  const heads=Object.values(by).sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+  const terms=(c.terms||14)+grace;
+  let cum=0;heads.forEach(h=>{cum+=h.amount;h.cum=cum;h.start=DAY(addDays(h.date,terms))+1});
+  const pays=st.payments.filter(p=>p.customer_id===c.id).map(p=>({d:DAY(p.date),a:p.amount}));
+  const tEnd=Math.min(DAY(today()),wTo?DAY(wTo):Infinity),tStart=wFrom?DAY(wFrom):-Infinity;
+  const pts=new Set();heads.forEach(h=>pts.add(h.start));pays.forEach(p=>pts.add(p.d));
+  if(isFinite(tStart))pts.add(tStart);
+  pts.add(tEnd+1);
+  const arr=Array.from(pts).sort((a,b)=>a-b);
+  let fee=0;
+  for(let k=0;k<arr.length-1;k++){
+    const b0=arr[k],b1=Math.min(arr[k+1],tEnd+1),from=Math.max(b0,tStart),len=b1-from;
+    if(len<=0)continue;
+    const P=sum(pays.filter(p=>p.d<=b0),p=>p.a);
+    heads.forEach(h=>{if(h.start<=b0){fee+=Math.min(h.amount,Math.max(h.cum-P,0))*rate*len}});
   }
-  return {total,items};
+  return r2(fee);
 }
 function custBal(st,c,_skipTax){
   const invs=st.sale_items_flat.filter(s=>s.customer_id===c.id&&s.type==='credit').sort((a,b)=>a.date.localeCompare(b.date)||(a.ts||0)-(b.ts||0));
@@ -838,14 +836,15 @@ function custBal(st,c,_skipTax){
   const total=sum(invs,saleItemNet),paid=sum(st.payments.filter(p=>p.customer_id===c.id),p=>p.amount);
   const rem=r2(total-paid);let left=paid,due=null;
   for(const h of heads){const a=sum(h.items,saleItemNet);if(left>=a-1e-9){left-=a;continue}due=addDays(h.date,c.terms||14);break}
-  const discTotal=totalDiscountsFor(st,'customer',c.id);
-  const afterDisc=r2(Math.max(rem-discTotal,0));
+  const discTotal=totalDiscountsFor(st,'customer',c.id);          // الخصم/الرسم على العميل يُضاف إلى دينه
+  const principal=r2(Math.max(rem+discTotal,0));
+  const fee=_skipTax?0:lateFeeCalc(st,c);
+  const owed=r2(Math.max(total+discTotal+fee-paid,0));              // الإجمالي المطلوب = الدين + الغرامة
+  const feeUnpaid=r2(Math.max(owed-principal,0));
   let bucket='paid';
-  if(afterDisc>0.009){const t=today();bucket=(!due||due<t)?'overdue':(due<=addDays(t,7)?'week':'later')}
-  if(_skipTax)return{total,paid,remaining:Math.max(afterDisc,0),discounts:discTotal,remainingWithTax:Math.max(afterDisc,0),tax:0,taxItems:[],bucket,due};
-  const taxInfo=customerTaxBalance(st,c);
-  const remainingTax=r2(Math.max(afterDisc,0)+taxInfo.total);
-  return{total,paid,remaining:Math.max(afterDisc,0),discounts:discTotal,remainingWithTax:remainingTax,tax:taxInfo.total,taxItems:taxInfo.items,bucket,due};
+  if(principal>0.009){const t=today();bucket=(!due||due<t)?'overdue':(due<=addDays(t,7)?'week':'later')}
+  else if(feeUnpaid>0.009)bucket='overdue';
+  return{total,paid,remaining:principal,discounts:discTotal,remainingWithTax:owed,tax:feeUnpaid,taxItems:[],bucket,due,feeAccrued:fee};
 }
 function periodOf(st,d){
   const t=today(),now=new Date();
@@ -2741,6 +2740,23 @@ document.addEventListener('focusin',e=>{
 /* =====================================================================
    lineBuilder
    ===================================================================== */
+
+/* بحث المنتج بأول الحروف (يتجاهل التشكيل والهمزات) — الأولوية: بداية الاسم، ثم بداية أي كلمة، ثم الاحتواء */
+const psNorm=x=>String(x||'').toLowerCase().replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').trim();
+function filterProductSelect(sel,q){
+  const nq=psNorm(q),all=opt.products(),cur=sel.value;
+  let list=all;
+  if(nq){
+    const n=p=>psNorm(p[1]);
+    const t1=all.filter(p=>n(p).startsWith(nq));
+    const t2=all.filter(p=>t1.indexOf(p)<0&&n(p).split(/\s+/).some(w=>w.startsWith(nq)));
+    const t3=all.filter(p=>t1.indexOf(p)<0&&t2.indexOf(p)<0&&n(p).indexOf(nq)>=0);
+    list=t1.concat(t2,t3);
+  }
+  sel.innerHTML=[['',list.length?'اختر...':'— لا نتائج —']].concat(list).map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('');
+  sel.value=(nq&&list.length)?list[0][0]:(list.some(p=>p[0]===cur)?cur:'');
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
+}
 function lineBuilder(container,kind){
   const rows=[];
   const FIELDS={
@@ -2776,7 +2792,8 @@ function lineBuilder(container,kind){
         const fid='li_'+id+'_'+f.k,full=f.full?' style="grid-column:1/-1"':'';
         if(f.type==='select'){
           const opts=(f.nophd?f.options():[['','اختر...']].concat(f.options()));
-          return '<div'+full+'><label class="fl" style="margin-top:4px">'+escHtml(f.label)+'</label><select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>';
+          const srch=f.k==='product_id'?'<input class="in" data-ps type="search" placeholder="🔍 ابحث بأول حروف اسم المنتج" autocomplete="off" style="margin-bottom:4px">':'';
+          return '<div'+full+'><label class="fl" style="margin-top:4px">'+escHtml(f.label)+'</label>'+srch+'<select class="in" id="'+fid+'" data-f="'+f.k+'">'+opts.map(o=>'<option value="'+escHtml(o[0])+'">'+escHtml(o[1])+'</option>').join('')+'</select></div>';
         }
         return '<div'+full+'><label class="fl" style="margin-top:4px">'+escHtml(f.label)+'</label><input class="in" id="'+fid+'" data-f="'+f.k+'" type="'+f.type+'"'+(f.type==='number'?' inputmode="decimal" min="0" step="'+(f.step||'any')+'"':'')+' value="'+escHtml(f.v)+'"></div>';
       }).join('')+'</div></div>';
@@ -2808,6 +2825,11 @@ function lineBuilder(container,kind){
     });
     container.querySelector('[data-add]').onclick=addRow;
   }
+  container.addEventListener('input',e=>{
+    const t=e.target;if(!t||!t.hasAttribute||!t.hasAttribute('data-ps'))return;
+    const row=t.closest('.lineitem'),sel=row&&row.querySelector('select[data-f="product_id"]');
+    if(sel)filterProductSelect(sel,t.value);
+  });
   addRow();
   return{
     addRow:addRow,
@@ -2843,7 +2865,7 @@ function lbAddScanned(container,fill){
 }
 
 const opt={
-  products:()=>store.products.map(p=>[p.id,p.name]),
+  products:()=>store.products.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar')).map(p=>[p.id,p.name]),
   materials:()=>store.materials.map(m=>[m.id,m.name]),
   distributors:()=>store.distributors.map(d=>[d.id,d.name]),
   customers:()=>store.customers.map(c=>[c.id,c.name]),
@@ -2946,13 +2968,18 @@ function deleteItemConfirm(headerTable,hid,iid,cnt){
 }
 function deleteTicketConfirm(headerTable,hid){
   if(!requireDelete())return;
-  confirmSheet('حذف الفاتورة كاملة؟','حذف',async()=>{
+  confirmSheet('حذف الفاتورة كاملة؟ (تُحذف معها المكافآت غير المدفوعة المرتبطة بها)','حذف',async()=>{
+    const awards=(store.bonus_awards||[]).filter(a=>a.reference_id===hid&&a.status!=='paid');
     const ok=await tryCommit(
       draft=>{
         draft[headerTable]=draft[headerTable].filter(x=>x.id!==hid);
+        if(awards.length)draft.bonus_awards=(draft.bonus_awards||[]).filter(a=>!awards.some(x=>x.id===a.id));
         draft.audit.unshift(auditRow('حذف','فاتورة'));
       },
-      async()=>{await adapter.deleteTicket(headerTable,hid)}
+      async()=>{
+        for(const a of awards){try{await adapter.deleteSimple('bonus_awards',a.id)}catch(e){console.warn(e)}}
+        await adapter.deleteTicket(headerTable,hid)
+      }
     );
     if(ok)toast('تم','ok');
   });
@@ -3700,11 +3727,11 @@ function invoiceText(cid,hid){
     const pays=store.payments.filter(p=>p.customer_id===cid).sort((a,b)=>a.date.localeCompare(b.date));
     if(pays.length){L.push('');L.push('سندات القبض:');pays.forEach(p=>L.push('• '+p.date+' — '+fmt(p.amount)+' '+cur()+' ('+(CH_AR[p.channel]||p.channel)+')'))}
     L.push('');L.push('إجمالي المدفوع بسندات القبض: '+fmt(bal.paid)+' '+cur());
-    if(bal.discounts>0)L.push('خصومات: '+fmt(bal.discounts)+' '+cur());
-    if(bal.tax>0)L.push('ضريبة تأخير: '+fmt(bal.tax)+' '+cur());
+    if(bal.discounts>0)L.push('رسوم/خصومات مضافة: '+fmt(bal.discounts)+' '+cur());
+    if(bal.tax>0)L.push('غرامة تأخير: '+fmt(bal.tax)+' '+cur());
     L.push('المتبقي على العميل: '+fmt(bal.remainingWithTax)+' '+cur());
   }else if(list[0]&&list[0].type==='credit'){
-    L.push('الرصيد المتبقي على العميل (كل الفواتير الآجلة): '+fmt(bal.remaining)+' '+cur());
+    L.push('الرصيد المتبقي على العميل (كل الفواتير الآجلة): '+fmt(bal.remainingWithTax)+' '+cur());
   }
   L.push('');L.push('شاكرين تعاملكم — '+co);
   return L.join('\n');
@@ -3720,13 +3747,13 @@ function invoiceHTML(cid,hid){
   if(hid==='all'){
     const pays=store.payments.filter(p=>p.customer_id===cid).sort((a,b)=>a.date.localeCompare(b.date));
     foot+='<div><span>المدفوع بسندات القبض</span><b>'+fmt(bal.paid)+' '+e(cur())+'</b></div>'+
-      (bal.discounts>0?'<div><span>خصومات</span><b>'+fmt(bal.discounts)+' '+e(cur())+'</b></div>':'')+
-      (bal.tax>0?'<div><span>ضريبة تأخير</span><b>'+fmt(bal.tax)+' '+e(cur())+'</b></div>':'')+
+      (bal.discounts>0?'<div><span>رسوم/خصومات مضافة</span><b>'+fmt(bal.discounts)+' '+e(cur())+'</b></div>':'')+
+      (bal.tax>0?'<div><span>غرامة تأخير</span><b>'+fmt(bal.tax)+' '+e(cur())+'</b></div>':'')+
       '<div class="rem"><span>المتبقي على العميل</span><b>'+fmt(bal.remainingWithTax)+' '+e(cur())+'</b></div></div>'+
       (pays.length?'<h3>سندات القبض</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th></tr></thead><tbody>'+
         pays.map(p=>'<tr><td>'+e(p.date)+'</td><td>'+fmt(p.amount)+' '+e(cur())+'</td><td>'+e(CH_AR[p.channel]||p.channel)+'</td></tr>').join('')+'</tbody></table>':'');
   }else{
-    foot+=(list[0]&&list[0].type==='credit'?'<div class="rem"><span>الرصيد المتبقي (كل الفواتير الآجلة)</span><b>'+fmt(bal.remaining)+' '+e(cur())+'</b></div>':'')+'</div>';
+    foot+=(list[0]&&list[0].type==='credit'?'<div class="rem"><span>الرصيد المتبقي (كل الفواتير الآجلة)</span><b>'+fmt(bal.remainingWithTax)+' '+e(cur())+'</b></div>':'')+'</div>';
   }
   return '<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>'+e(hid==='all'?'كشف حساب — ':'فاتورة — ')+e(c.name)+'</title><style>'+
     "body{font-family:'Cairo','Segoe UI',Tahoma,sans-serif;color:#111;margin:24px;font-size:14px}h1{margin:0 0 4px;font-size:22px}h2{margin:0 0 14px;font-size:16px;color:#444}h3{margin:18px 0 6px;font-size:15px}h3 small{color:#666;font-weight:600}"+
@@ -4330,17 +4357,18 @@ function renderProduction(){
       {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
       {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
       {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
-      {h:'', f:r=>r.due>0.009?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
+      {h:'', f:r=>(r.due>0.009&&isA())?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
     ], dueRows, 'opdue', 'لا مستحقات')+
     '<h2 style="margin:22px 0 10px">سجلات الورديات</h2><div class="cal" id="cal-prod">'+calHTML('prod',prodCalCfg())+'</div>';
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-oppay]');if(!b)return;operatorPaySheet(b.dataset.oppay)});
 function operatorPaySheet(opId){
-  if(!requirePerm('production'))return;
+  if(!isA()){toast('تسديد مستحقات المشغّلين للمدير فقط','err');return}
   const o=store.operators.find(x=>x.id===opId),due=operatorDue(store,opId);
   openSheet('<h3>تسديد — '+escHtml(o.name)+'</h3><p class="muted">المستحق: '+fmt(due)+' '+cur()+'</p><div id="op-form"></div>');
   mountForm(byId('op-form'),'op',[{k:'amount',label:'المبلغ',type:'number',step:'0.001'},{k:'note',label:'ملاحظة',type:'text'}],
     {label:'تأكيد',submit:async v=>{
+      if(!isA()){toast('للمدير فقط','err');return false}
       if(v.amount<=0){toast('مبلغ غير صحيح','err');return false}
       if(v.amount>due+0.001){toast('أكبر من المستحق','err');return false}
       const row={id:uuid(),date:today(),operator_id:opId,amount:v.amount,note:v.note,by:user.name,ts:Date.now()};
@@ -7004,11 +7032,27 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-wddel]');if(!b)return;
   if(!requireDelete())return;
   const id=b.dataset.wddel;
-  confirmSheet('حذف السجل؟','حذف',async()=>{
+  confirmSheet('حذف السجل؟ (سيُحذف تشيكه من عمليات الموزع تلقائياً)','حذف',async()=>{
+    const plan=(store.withdrawal_confirmations||[]).filter(x=>x.withdrawal_id===id||(x.items||[]).some(i=>i.withdrawal_id===id))
+      .map(cf=>({cf,left:(cf.items||[]).filter(i=>i.withdrawal_id!==id)}));
     const ok=await tryCommit(
-      draft=>{draft.withdrawals=draft.withdrawals.filter(x=>x.id!==id);draft.audit.unshift(auditRow('حذف','سحب'))},
-      async()=>{await adapter.deleteSimple('withdrawals',id)},
-      {rerender:['withdrawals','overview','sales']}
+      draft=>{
+        draft.withdrawals=draft.withdrawals.filter(x=>x.id!==id);
+        plan.forEach(p=>{
+          const d=(draft.withdrawal_confirmations||[]).find(x=>x.id===p.cf.id);if(!d)return;
+          if(!p.left.length)draft.withdrawal_confirmations=draft.withdrawal_confirmations.filter(x=>x.id!==p.cf.id);
+          else{d.items=p.left;if(d.withdrawal_id===id)d.withdrawal_id=p.left[0].withdrawal_id}
+        });
+        draft.audit.unshift(auditRow('حذف','سحب'))
+      },
+      async()=>{
+        for(const p of plan){
+          if(!p.left.length)await adapter.deleteSimple('withdrawal_confirmations',p.cf.id);
+          else await adapter.updateSimple('withdrawal_confirmations',p.cf.id,{items:p.left,withdrawal_id:p.cf.withdrawal_id===id?p.left[0].withdrawal_id:p.cf.withdrawal_id});
+        }
+        await adapter.deleteSimple('withdrawals',id);
+      },
+      {rerender:['withdrawals','overview','sales','distributors','dist_ops']}
     );
     if(ok)toast('تم','ok');
   });
@@ -7147,7 +7191,7 @@ function mountCollections(){
         if(qf){
           qf.set('customer_id', customer.id);
           const bal = custBal(store, customer);
-          toast('✅ ' + customer.name + ' — المتبقي: ' + fmt(bal.remaining),'ok');
+          toast('✅ ' + customer.name + ' — الإجمالي المطلوب: ' + fmt(bal.remainingWithTax),'ok');
         }
       },
       store, toast, escHtml, adapter, user, uuid, closeSheet, openSheet
@@ -7190,7 +7234,7 @@ function mountCollections(){
     }});
   };
   mountForm(byId('col-form'),'qf',[
-    {k:'customer_id',label:'العميل',type:'select',options:()=>store.customers.map(c=>({c,b:custBal(store,c)})).filter(x=>x.b.remaining>0).map(x=>[x.c.id,x.c.name+' — '+fmt(x.b.remaining)+' '+cur()])},
+    {k:'customer_id',label:'العميل',type:'select',options:()=>store.customers.map(c=>({c,b:custBal(store,c)})).filter(x=>x.b.remainingWithTax>0.009).map(x=>[x.c.id,x.c.name+' — '+fmt(x.b.remainingWithTax)+' '+cur()+(x.b.tax>0?' (شاملة غرامة '+fmt(x.b.tax)+')':'')])},
     {k:'amount',label:'المبلغ المستلم',type:'number',step:'0.001'},
     {k:'channel',label:'طريقة السداد',type:'radio',options:[['bank','تحويل بنكي'],['cash','نقداً للمندوب'],['pos','نقاط البيع']]},
     {k:'distributor_id',label:'المندوب (مطلوب للنقد)',type:'select',options:opt.distributors,ph:'المندوب'}
@@ -7200,7 +7244,7 @@ function mountCollections(){
     if(!c){toast('اختر العميل','err');return false}
     const b=custBal(store,c);
     if(v.amount<=0){toast('مبلغ غير صحيح','err');return false}
-    if(v.amount>b.remaining+0.001){toast('أكبر من المتبقي ('+fmt(b.remaining)+')','err');return false}
+    if(v.amount>b.remainingWithTax+0.001){toast('أكبر من الإجمالي المطلوب ('+fmt(b.remainingWithTax)+')','err');return false}
     if(!v.channel){toast('اختر الطريقة','err');return false}
     if(v.channel==='cash'&&!v.distributor_id){toast('حدّد المندوب','err');return false}
     const row={id:uuid(),date:today(),customer_id:c.id,amount:v.amount,channel:v.channel,distributor_id:v.distributor_id||null,by:user.name,ts:Date.now()};
@@ -7209,7 +7253,7 @@ function mountCollections(){
       async()=>{await adapter.saveSimple('payments',row)},
       {rerender:['collections','overview','distributors']}
     );
-    if(ok)toast(b.remaining-v.amount<=0.009?'تم السداد بالكامل':'تم','ok');
+    if(ok)toast(b.remainingWithTax-v.amount<=0.009?'تم السداد بالكامل':'تم','ok');
     return ok;
   }});
 }
@@ -7239,8 +7283,8 @@ function renderCollections(){
   const cols=BUCKETS.filter(b=>f==='all'||b[0]===f);
   byId('kanban').innerHTML=cols.map(b=>{
     const items=bals.filter(x=>x.b.bucket===b[0]);
-    return '<div class="col'+(cols.length===1?' full':'')+'"><div class="col-h"><div>'+b[1]+'</div><span>'+money(sum(items,x=>x.b.remaining))+'</span></div>'+
-      items.map(x=>'<div style="margin-top:8px"><button class="kcard" data-cust="'+x.c.id+'"><b>'+escHtml(x.c.name)+'</b><small>'+escHtml(dn(x.c.distributor_id))+' · '+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+(x.b.due&&b[0]!=='paid'?' · '+x.b.due:'')+'</small></button>'+
+    return '<div class="col'+(cols.length===1?' full':'')+'"><div class="col-h"><div>'+b[1]+'</div><span>'+money(sum(items,x=>x.b.remainingWithTax))+'</span></div>'+
+      items.map(x=>'<div style="margin-top:8px"><button class="kcard" data-cust="'+x.c.id+'"><b>'+escHtml(x.c.name)+'</b><small>'+escHtml(dn(x.c.distributor_id))+' · '+fmt(x.b.remainingWithTax)+' '+cur()+(x.b.tax>0?' (منها غرامة '+fmt(x.b.tax)+')':'')+(x.b.due&&b[0]!=='paid'?' · '+x.b.due:'')+'</small></button>'+
         ((b[0]==='overdue'||b[0]==='week')?'<button class="btn-ghost sm" style="width:100%;margin-top:4px" data-wa-cust="'+x.c.id+'">📱 إرسال واتساب للعميل</button>':'')+
         '<button class="btn-ghost sm" style="width:100%;margin-top:4px" data-invexp="'+x.c.id+'">📄 تصدير فاتورة العميل</button>'+
         '</div>').join('')+'</div>';
@@ -7251,9 +7295,9 @@ function renderCollections(){
     {h:'المنطقة',f:x=>escHtml(x.c.region||'—')},
     {h:'المندوب',f:x=>escHtml(dn(x.c.distributor_id))},
     {h:'إجمالي',f:x=>fmt(x.b.total),cls:'nw'},
-    {h:'خصومات',f:x=>x.b.discounts>0?'<span class="dn">-'+fmt(x.b.discounts)+'</span>':'—',cls:'nw'},
-    {h:'ضريبة تأخير',f:x=>x.b.tax>0?'<b class="warn">'+fmt(x.b.tax)+'</b>':'—',cls:'nw'},
-    {h:'المتبقي',f:x=>'<b>'+fmt(x.b.remaining)+'</b>',cls:'nw'},
+    {h:'رسوم/خصومات مضافة',f:x=>x.b.discounts>0?'<span class="dn">+'+fmt(x.b.discounts)+'</span>':'—',cls:'nw'},
+    {h:'غرامة تأخير',f:x=>x.b.tax>0?'<b class="warn">'+fmt(x.b.tax)+'</b>':'—',cls:'nw'},
+    {h:'الإجمالي المطلوب',f:x=>'<b>'+fmt(x.b.remainingWithTax)+'</b>',cls:'nw'},
     {h:'',f:x=>'<button class="mini" data-invexp="'+x.c.id+'">📄 فاتورة</button>',cls:'nw'}
   ],rows,'ledger','لا حسابات');
   const pcols=[
@@ -7294,7 +7338,7 @@ function customerWhatsAppSheet(cid){
   list.slice(-5).forEach(inv=>{lines.push('• فاتورة '+inv.date+' — '+fmt(inv.amount)+' '+cur())});
   lines.push('');
   lines.push('المبلغ المتبقي: '+fmt(bal.remaining)+' '+cur());
-  if(bal.tax>0)lines.push('ضريبة تأخير: '+fmt(bal.tax)+' '+cur());
+  if(bal.tax>0){lines.push('غرامة تأخير: '+fmt(bal.tax)+' '+cur());lines.push('الإجمالي المطلوب: '+fmt(bal.remainingWithTax)+' '+cur())}
   if(bal.due)lines.push('تاريخ الاستحقاق: '+bal.due);
   lines.push('');
   lines.push('شاكرين تعاونكم — '+store.company.name);
@@ -7934,7 +7978,7 @@ function renderOverview(){
   const noCost=S.products.filter(p=>!p.cost);
   let al='';
   if(overdue.length)al+='<div class="alert"><span class="badge red">ذمم عملاء متأخرة</span><p>'+escHtml(overdue.map(x=>x.c.name+' ('+fmt(x.b.remaining)+' '+cur()+')').join('، '))+'</p></div>';
-  if(totalTax>0)al+='<div class="alert"><span class="badge">ضريبة تأخير سداد</span><p>'+escHtml('الإجمالي: '+fmt(totalTax)+' '+cur())+'</p></div>';
+  if(totalTax>0)al+='<div class="alert"><span class="badge">غرامة تأخير سداد</span><p>'+escHtml('الإجمالي: '+fmt(totalTax)+' '+cur())+'</p></div>';
   if(lateDist.length)al+='<div class="alert"><span class="badge red">تأخر موزعين</span><p>'+escHtml(lateDist.map(x=>x.d.name+' — '+fmt(x.s.bal)+' '+cur()).join('، '))+'</p></div>';
   if(lowStock.length)al+='<div class="alert"><span class="badge">مخزون منخفض</span><p>'+escHtml(lowStock.map(p=>p.name+' ('+fmt(stockWH(S,p.id))+')').join('، '))+'</p></div>';
   if(lowMat.length)al+='<div class="alert"><span class="badge">مواد خام منخفضة</span><p>'+escHtml(lowMat.map(m=>m.name+' ('+fmt(materialStock(S,m.id))+')').join('، '))+'</p></div>';
@@ -7959,7 +8003,7 @@ function renderOverview(){
       k('الربح بعد المصروفات',fmt(r2(profit-expOv-payOv))+' '+cur(),'مصروفات '+fmt(expOv)+' · رواتب '+fmt(payOv),(profit-expOv-payOv)>=0?'up':'dn',true)+k('المبيعات',fmt(rev)+' '+cur(),invCount+' فاتورة (بسعر العميل)')+k('إيراد الشركة',fmt(coRev)+' '+cur(),'بسعر الجملة للموزع')+k('الإنتاج',fmt(prodU)+' <small>وحدة</small>','المجموع')+
       k('المشتريات',fmt(purch)+' '+cur(),'مواد')+k('المقبوض',fmt(cashIn)+' '+cur(),'نقد + بنك')+k('💵 نقد بالصندوق',fmt(cashBox)+' '+cur(),'كاش + سندات نقدية')+k('🏦 بنك / تحويل',fmt(bankIn)+' '+cur(),'بيع بنكي + تحويلات')+
       k('ذمم العملاء',fmt(outstanding)+' '+cur(),overdue.length?overdue.length+' متأخر':'لا متأخرات',overdue.length?'dn':'up')+
-      (totalTax>0?k('ضريبة تأخير','<span class="warn">'+fmt(totalTax)+'</span>',cur()+' مستحقة','warn'):'')+
+      (totalTax>0?k('غرامة تأخير','<span class="warn">'+fmt(totalTax)+'</span>',cur()+' مستحقة','warn'):'')+
       k('مستحق على الموزعين',fmt(dueTotal)+' '+cur(),'لم يُسلَّم',dueTotal>0?'warn':'up')+
       k('مستحق للموردين',fmt(supOwe)+' '+cur(),'آجلة',supOwe>0?'warn':'up')+
     '</div>'+(al?'<div style="margin:16px 0 0">'+al+'</div>':'')+
@@ -8294,9 +8338,9 @@ function mountManagement(){
     {k:'currency_symbol',label:'رمز العملة',value:()=>store.company.currency_symbol},
     {k:'currency_decimals',label:'الخانات العشرية',type:'select',nophd:true,options:[['0','0'],['2','2'],['3','3']],value:()=>String(store.company.currency_decimals)},
     {k:'week_day',label:'يوم التسليم الأسبوعي',type:'select',nophd:true,options:DAYS,value:()=>String(store.company.week_day)},
-    {k:'tax_enabled',label:'تفعيل ضريبة تأخير السداد',type:'toggle',value:()=>!!store.company.tax_enabled},
-    {k:'tax_grace_days',label:'فترة السماح (أيام)',type:'number',value:()=>store.company.tax_grace_days!=null?store.company.tax_grace_days:7},
-    {k:'tax_monthly_rate',label:'نسبة الضريبة الشهرية (%)',type:'number',step:'0.01',value:()=>store.company.tax_monthly_rate!=null?store.company.tax_monthly_rate:2},
+    {k:'tax_enabled',label:'تفعيل غرامة تأخير السداد',type:'toggle',value:()=>!!store.company.tax_enabled},
+    {k:'tax_grace_days',label:'أيام سماح إضافية بعد مدة السداد (0 = تبدأ الغرامة فور انتهاء المدة)',type:'number',value:()=>store.company.tax_grace_days!=null?store.company.tax_grace_days:7},
+    {k:'tax_monthly_rate',label:'نسبة الغرامة الشهرية % (تُحتسب يومياً = النسبة ÷ 30)',type:'number',step:'0.01',value:()=>store.company.tax_monthly_rate!=null?store.company.tax_monthly_rate:2},
     {k:'shift_early_threshold',label:'حد التنبيه المبكر (الساعة)',type:'number',value:()=>store.company.shift_early_threshold||5},
     {k:'shift_late_threshold',label:'حد تنبيه التأخير (الساعة)',type:'number',value:()=>store.company.shift_late_threshold||10}
   ],{label:'حفظ',submit:async v=>{
@@ -8307,7 +8351,7 @@ function mountManagement(){
       currency_decimals:Number(v.currency_decimals),
       week_day:Number(v.week_day),
       tax_enabled:!!v.tax_enabled,
-      tax_grace_days:Number(v.tax_grace_days)||7,
+      tax_grace_days:(v.tax_grace_days===''||isNaN(Number(v.tax_grace_days)))?7:Math.max(Number(v.tax_grace_days),0),
       tax_monthly_rate:Number(v.tax_monthly_rate)||0,
       shift_early_threshold:Number(v.shift_early_threshold)||5,
       shift_late_threshold:Number(v.shift_late_threshold)||10
@@ -9101,17 +9145,18 @@ function renderFinance(){
   const expT=r2(sum(exps,e=>e.amount)),payT=r2(sum(pays,p=>p.net));
   const opInc=r2(sum(S.shift_items_flat.filter(s=>inM(s.date)),s=>s.actual*pField(S,pOf(S,s.product_id),'incentive',s.ts)));
   const bonusPaid=r2(sum((S.bonus_awards||[]).filter(a=>a.status==='paid'&&a.paid_at&&iso(new Date(a.paid_at)).slice(0,7)===m),a=>Number(a.paid_amount||a.reward_amount)||0));
-  const custDisc=r2(sum((S.discounts||[]).filter(d=>d.kind==='customer'&&!d.cancelled&&inM(d.date)),d=>d.amount));
+  const mStart=m+'-01',mEnd=iso(new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0));
+  const feeRev=r2(sum(S.customers,c=>lateFeeCalc(S,c,mStart,mEnd)));
   const stockAdj=r2(sum((S.stock_adjustments||[]).filter(a=>inM(a.date)),a=>a.diff*stcUnitCost(a.kind,a.item_id,a.ts)));
-  const net=r2(gross-custDisc-expT-payT-opInc-bonusPaid+stockAdj);
+  const net=r2(gross+feeRev-expT-payT-opInc-bonusPaid+stockAdj);
   const kp=(l,v,sub,cls,wide)=>'<div class="kpi'+(wide?' wide':'')+'"><div class="lb">'+l+'</div><div class="val">'+v+'</div><div class="sub '+(cls||'mut')+'">'+(sub||'&nbsp;')+'</div></div>';
   const cats={};exps.forEach(e=>{cats[e.category||'أخرى']=(cats[e.category||'أخرى']||0)+e.amount});
   const catRows=Object.keys(cats).map(k=>({k,v:r2(cats[k])})).sort((a,b)=>b.v-a.v);
   box.innerHTML=
-    '<div class="kgrid">'+kp('صافي الربح',fmt(net)+' '+cur(),'ربح المبيعات '+fmt(gross)+' − خصومات عملاء '+fmt(custDisc)+' − مصروفات '+fmt(expT)+' − رواتب '+fmt(payT)+' − حوافز مشغّلين '+fmt(opInc)+' − مكافآت مدفوعة '+fmt(bonusPaid)+(stockAdj?' '+(stockAdj<0?'− خسارة':'+ مكسب')+' جرد '+fmt(Math.abs(stockAdj)):''),net>=0?'up':'dn',true)+
+    '<div class="kgrid">'+kp('صافي الربح',fmt(net)+' '+cur(),'ربح المبيعات '+fmt(gross)+' + غرامات تأخير '+fmt(feeRev)+' − مصروفات '+fmt(expT)+' − رواتب '+fmt(payT)+' − حوافز مشغّلين '+fmt(opInc)+' − مكافآت مدفوعة '+fmt(bonusPaid)+(stockAdj?' '+(stockAdj<0?'− خسارة':'+ مكسب')+' جرد '+fmt(Math.abs(stockAdj)):''),net>=0?'up':'dn',true)+
       kp('المصروفات',fmt(expT)+' '+cur(),exps.length+' عملية')+kp('الرواتب',fmt(payT)+' '+cur(),pays.length+' دفعة')+
       kp('حوافز المشغّلين',fmt(opInc)+' '+cur(),'مستحقة عن إنتاج الشهر')+kp('المكافآت المدفوعة',fmt(bonusPaid)+' '+cur(),'بونص مُسدَّد')+
-      kp('فروقات الجرد',(stockAdj>0?'+':'')+fmt(stockAdj)+' '+cur(),'بسعر التكلفة',stockAdj<0?'dn':'mut')+kp('خصومات العملاء',fmt(custDisc)+' '+cur(),'تخفيض على الذمم')+'</div>'+
+      kp('فروقات الجرد',(stockAdj>0?'+':'')+fmt(stockAdj)+' '+cur(),'بسعر التكلفة',stockAdj<0?'dn':'mut')+kp('غرامات التأخير (إيراد)',fmt(feeRev)+' '+cur(),'محسوبة يومياً على المتأخر')+'</div>'+
     (catRows.length?'<div class="sec-head"><h2>المصروفات حسب البند</h2></div>'+table([{h:'البند',f:r=>escHtml(r.k)},{h:'المجموع',f:r=>'<b>'+fmt(r.v)+'</b>',cls:'nw'}],catRows,'fincat'):'')+
     '<div class="sec-head"><h2>سجل المصروفات</h2></div>'+
     table([{h:'التاريخ',f:r=>'<bdi>'+escHtml(r.date)+'</bdi>',cls:'nw'},{h:'البند',f:r=>escHtml(r.category||'')+(r.note?'<small style="display:block;opacity:.7">'+escHtml(r.note)+'</small>':'')},
@@ -9734,7 +9779,7 @@ function openBellSheet(){
   const html=
     sec('مخزون منخفض',(a.lowStock||[]).map(p=>'<div class="lrow"><div>'+escHtml(p.name)+'<small>المتاح '+fmt(stockWH(store,p.id))+'</small></div></div>'))+
     sec('مواد خام منخفضة',(a.lowMat||[]).map(m=>'<div class="lrow"><div>'+escHtml(m.name)+'<small>المتاح '+fmt(materialStock(store,m.id))+'</small></div></div>'))+
-    sec('عملاء متأخرون',(a.overdue||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.c.name)+'<small>'+fmt(x.b.remaining)+' '+cur()+(x.b.tax>0?' + ضريبة '+fmt(x.b.tax):'')+'</small></div></div>'))+
+    sec('عملاء متأخرون',(a.overdue||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.c.name)+'<small>'+fmt(x.b.remainingWithTax)+' '+cur()+(x.b.tax>0?' (منها غرامة '+fmt(x.b.tax)+')':'')+'</small></div></div>'))+
     sec('موزعون متأخرون',(a.lateDist||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.d.name)+'<small>'+fmt(x.s.bal)+' '+cur()+'</small></div></div>'))+
     sec('خصومات حديثة',(a.discounts||[]).map(d=>{
       const name=d.kind==='customer'?cn(d.ref_id):d.kind==='operator'?nm('operators',d.ref_id):dn(d.ref_id);
@@ -10532,7 +10577,7 @@ document.addEventListener('click',e=>{
 }
   if(t.classList.contains('kcard')){
     const c=store.customers.find(x=>x.id===t.dataset.cust);
-    if(c&&custBal(store,c).remaining<=0){toast('مسدد بالكامل');return}
+    if(c&&custBal(store,c).remainingWithTax<=0.009){toast('مسدد بالكامل');return}
     forms.forEach(f=>{if(f.id==='qf')f.set('customer_id',t.dataset.cust)});
     byId('settle').scrollIntoView({behavior:'smooth',block:'start'});
     return;
@@ -12785,7 +12830,7 @@ function buildRichContext() {
         المنطقة: c.region || '—',
         المندوب: c.distributor_id ? dn(c.distributor_id) : 'بدون',
         المتبقي: r3(b.remaining + (b.tax || 0)),
-        ضريبة_التأخير: r3(b.tax || 0),
+        غرامة_التأخير: r3(b.tax || 0),
         الحالة: b.bucket === 'overdue' ? 'متأخر' :
                 b.bucket === 'week' ? 'مستحق خلال أسبوع' :
                 b.bucket === 'later' ? 'لاحق' : 'مسدد',
