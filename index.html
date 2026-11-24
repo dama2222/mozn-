@@ -311,7 +311,8 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
 <script>
 (function(){
 'use strict';
-
+const DEBUG = false;
+const LOG = DEBUG ? console : { log(){}, warn(){}, info(){}, error: console.error.bind(console) };
 /* =====================================================================
    إعدادات Push والمزامنة
    ===================================================================== */
@@ -419,7 +420,10 @@ function guardSave(btnId,key,fn){
     _SAVEBUSY[key]=true;
     const b=byId(btnId),old=b?b.textContent:'';
     if(b){b.disabled=true;b.textContent='⏳ جارٍ الحفظ…'}
-    try{await fn()}
+    try{
+      await fn();
+      sidClear(key);  // ✅ نظّف معرّفات الأمان بعد النجاح
+    }
     finally{_SAVEBUSY[key]=false;if(b){b.disabled=false;b.textContent=old}}
   };
 }
@@ -691,9 +695,11 @@ async function seedStore(){
   const supplier_payments=[sp(2,'مطاحن الوطنية',200,'bank','مدير النظام')];
   return {
     v:3,
-    company:{id:1,name:'MUZN Operations',currency_symbol:'د.ك',currency_decimals:3,week_day:4,demo:true,
-      tax_enabled:false,tax_grace_days:7,tax_monthly_rate:2,warehouse_lat:null,warehouse_lng:null,checkin_radius_m:300,
-      shift_early_threshold:5,shift_late_threshold:10},
+    company:{
+  id:1, name:'MUZN Operations', currency_symbol:'د.ك', currency_decimals:3, week_day:4, demo:true,
+  tax_enabled:false, tax_grace_days:7, tax_monthly_rate:2, tax_max_pct:30,
+  warehouse_lat:null, warehouse_lng:null, checkin_radius_m:300,
+  shift_early_threshold:5, shift_late_threshold:10},
     users,materials,products,distributors,customers,operators,suppliers,shifts,withdrawals,sales,payments,
     purchases,remittances,supplier_payments,notices:[],audit:[],attendance:[],checkins:[],
     dist_attendance:[],complaints:[],operator_payments:[],discounts:[],attendance_shifts:[],
@@ -708,7 +714,10 @@ async function seedStore(){
    ===================================================================== */
 const pOf=(st,id)=>st.products.find(x=>x.id===id);
 const mOf=(st,id)=>st.materials.find(x=>x.id===id);
-const saleItemNet=it=>r2(it.qty*it.price-(it.discount||0));
+const pn = id => { const p=pOf(store,id); return p?p.name:'—'; };
+const dn = id => { const d=(store.distributors||[]).find(x=>x.id===id); return d?d.name:'—'; };
+const nm = (table,id) => { const x=((store&&store[table])||[]).find(y=>y.id===id); return x?x.name:'—'; };
+const saleItemNet=it=>r2(Math.max(0, it.qty*it.price-(it.discount||0)));
 const saleItemCost=it=>r2(it.qty*(it.cost||0));
 const saleTotal=h=>sum(h.items,saleItemNet);
 /* إيراد الشركة = صافي سعر البيع (سعر واحد، لا سعر جملة) */
@@ -719,14 +728,16 @@ const saleItemCoRev=(it,did,ts)=>saleItemNet(it); /* سعر واحد للجمي�
    ===================================================================== */
 const TRACKED={products:['cost','price','incentive','material_qty'],materials:['cost']};
 const TRACK_AR={cost:'التكلفة',price:'سعر البيع',dist_price:'سعر البيع',incentive:'حافز الإنتاج/وحدة',material_qty:'كمية المادة/وحدة'};
-let _phC={src:null,len:-1,map:null};
+let _phC={sig:null,map:null};
 function phMap(st){
   const L=st.price_history||[];
-  if(_phC.src===L&&_phC.len===L.length&&_phC.map)return _phC.map;
+  const sig = L.length + '|' + L.reduce((s,x)=>s+','+x.ts, '');
+  if(_phC.sig===sig && _phC.map) return _phC.map;
   const m={};
   L.forEach(h=>{const k=h.kind+'|'+h.item_id+'|'+h.field;(m[k]=m[k]||[]).push(h)});
   Object.keys(m).forEach(k=>m[k].sort((a,b)=>(a.ts||0)-(b.ts||0)));
-  _phC={src:L,len:L.length,map:m};return m;
+  _phC={sig,map:m};
+  return m;
 }
 /* قيمة الحقل وقت المعاملة (ts). بدون سجل تاريخ → القيمة الحالية */
 function fieldAt(st,kind,id,field,ts,curVal){
@@ -840,6 +851,11 @@ function lateFeeCalc(st,c,wFrom,wTo){
     const P=sum(pays.filter(p=>p.d<=b0),p=>p.a);
     heads.forEach(h=>{if(h.start<=b0){fee+=Math.min(h.amount,Math.max(h.cum-P,0))*rate*len}});
   }
+   // ✅ سقف الغرامة: نسبة من أصل الدين
+  const MAX_PCT = (co.tax_max_pct != null) ? Number(co.tax_max_pct) : 30;
+  const principalTotal = sum(heads, h => h.amount);
+  const cap = principalTotal * MAX_PCT / 100;
+  if(fee > cap) fee = cap;
   return r2(fee);
 }
 function custBal(st,c,_skipTax){
@@ -898,12 +914,10 @@ function distributorProfit(st,did){
   const byProduct={};
   items.forEach(it=>{
     const p=pOf(st,it.product_id)||{};
-    const wholesale=pField(st,p,'dist_price',it.ts)||p.price||0;
-    const retail=it.price||0;
     const qty=it.qty||0;
     const disc=it.discount||0;
-    const rev=r2(qty*retail-disc);
-    const cst=rev;
+    const rev=r2(Math.max(0, qty*it.price-disc));
+    const cst=r2(qty*(it.cost||pField(st,p,'cost',it.ts)||0));
     const pf=r2(rev-cst);
     revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+pf);
     const k=it.product_id;
@@ -1640,7 +1654,15 @@ const LocalAdapter={
     const h=await sha256(usr.salt+'|'+p);
     return h===usr.hash?omit(usr,['salt','hash']):null;
   },
-  async setPassword(id,curp,nw){
+ async setPassword(id,curp,nw){
+  // ✅ تحقق القوة
+  if(!nw || nw.length < 8){
+    throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+  }
+  if(!/[A-Za-z]/.test(nw) || !/\d/.test(nw)){
+    throw new Error('يجب أن تحتوي على حرف ورقم على الأقل');
+  }
+  // ... باقي الدالة كما هي
     const usr=store.users.find(x=>x.id===id);
     const h=await sha256(usr.salt+'|'+curp);
     if(h!==usr.hash)return false;
@@ -1834,6 +1856,14 @@ const sb=window.supabase.createClient(url,key,{
   return profile;
 },
    async setPassword(id,curp,nw){
+  // ✅ تحقق القوة
+  if(!nw || nw.length < 8){
+    throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+  }
+  if(!/[A-Za-z]/.test(nw) || !/\d/.test(nw)){
+    throw new Error('يجب أن تحتوي على حرف ورقم على الأقل');
+  }
+  // ... باقي الدالة كما هي
   // 1. تحقق من كلمة المرور الحالية
   const { data: { user: authUser } } = await sb.auth.getUser();
   if(!authUser){
