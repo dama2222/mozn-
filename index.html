@@ -2888,6 +2888,11 @@ function mountForm(el,id,fields,o){
   const api={id,fields};
   const fid=k=>id+'__'+k;
   const fileData={};
+  let pendingUploads=0;
+  const setUploadBusy=busy=>{
+    const submit=el.querySelector('[data-submit]');
+    if(submit)submit.disabled=busy||pendingUploads>0;
+  };
   const dv=f=>{const v=typeof f.value==='function'?f.value():f.value;return v==null?'':v};
   const getOpts=f=>{
     const l=typeof f.options==='function'?f.options(api):(f.options||[]);
@@ -2976,11 +2981,19 @@ function mountForm(el,id,fields,o){
       if(adapter.mode==='cloud'&&adapter.uploadPhoto){
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path = (f.k==='photo_url'?'users/':'invoices/') + (user ? user.id : 'anon') + '/' + uuid() + '_' + safeName;
+        pendingUploads++;
+        setUploadBusy(true);
         toast('جارٍ رفع الصورة...');
         adapter.uploadPhoto(file,path).then(url=>{fileData[f.k]=url;preview();toast('تم رفع الصورة','ok')})
-          .catch(ex=>{console.error(ex);toast('تعذر رفع الصورة','err');inpEl.value=''});
+          .catch(ex=>{console.error(ex);toast('تعذر رفع الصورة','err');inpEl.value=''})
+          .finally(()=>{pendingUploads=Math.max(0,pendingUploads-1);setUploadBusy(false)});
       }else{
-        const rd=new FileReader();rd.onload=()=>{fileData[f.k]=rd.result;preview()};rd.readAsDataURL(file);
+        pendingUploads++;
+        setUploadBusy(true);
+        const rd=new FileReader();
+        rd.onload=()=>{fileData[f.k]=rd.result;preview();pendingUploads=Math.max(0,pendingUploads-1);setUploadBusy(false)};
+        rd.onerror=()=>{pendingUploads=Math.max(0,pendingUploads-1);setUploadBusy(false);toast('تعذرت قراءة الصورة','err')};
+        rd.readAsDataURL(file);
       }
     });
   });
@@ -3021,6 +3034,7 @@ function mountForm(el,id,fields,o){
 
   const btn=el.querySelector('[data-submit]');
   if(btn)btn.onclick=async()=>{
+    if(pendingUploads>0){toast('انتظر حتى يكتمل رفع الصورة','warn');return}
     btn.disabled=true;
     try{
       const r=await o.submit(api.vals(),api);
