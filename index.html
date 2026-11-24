@@ -11178,7 +11178,7 @@ byId('themeBtn').onclick=toggleTheme;
    ===================================================================== */
 /* 🔌 اتصال دائم بقاعدة البيانات: ضع مفتاح anon (العام) هنا مرة واحدة ليتصل كل من يفتح الصفحة تلقائياً دون إدخال.
    المفتاح العام (anon) مصمَّم ليكون ظاهراً في الواجهة — الحماية الفعلية عبر RLS وتسجيل الدخول. لا تضع service_role أبداً. */
-const DEFAULT_CLOUD={url:'https://njxfxdrcluyovkqsecol.supabase.co',key:''};
+const DEFAULT_CLOUD={url:'https://njxfxdrcluyovkqsecol.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qeGZ4ZHJjbHV5b3ZrcXNlY29sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMDkyNzEsImV4cCI6MjEwNTU4NTI3MX0.L1V-bqO1om6H1g9bSdkuRWjryhu5c_hiEEM7mZp7c0E'};
 function loadCloudCfg(){
   let c=null;
   try{const r=localStorage.getItem(CFGKEY);c=r?JSON.parse(r):null}catch(e){}
