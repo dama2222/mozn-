@@ -1689,6 +1689,7 @@ const MODS=[
   {id:'collections',t:'التحصيل والذمم',s:'التحصيل'},
   {id:'distributors',t:'الموزعون والتسليم',s:'الموزعون'},
   {id:'attendance_log',t:'سجل الحضور',s:'الحضور'},
+  {id:'prices',t:'أسعار المنتجات',s:'الأسعار'},
   {id:'analytics',t:'التحليلات',s:'تحليلات',admin:true},
   {id:'finance',t:'المالية (مصروفات ورواتب)',s:'المالية',admin:true},
   {id:'management',t:'الإدارة',s:'الإدارة',admin:true}
@@ -1728,6 +1729,9 @@ const allowed=()=>{
     } 
     if(m.id === 'stocktake'){
       return user.perms.indexOf('stocktake') >= 0;
+    }
+    if(m.id === 'prices'){
+      return isA() || (store.distributors||[]).some(d=>d.user_id===user.id) || user.perms.indexOf('prices')>=0;
     }
     // ✅ الأقسام العادية — حسب الصلاحيات
     return user.perms.indexOf(m.id) >= 0;
@@ -3929,6 +3933,7 @@ const SKEL={
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
+  prices:'<h1>أسعار المنتجات</h1><div id="prices-search-wrap"></div><div id="prices-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div><div class="card" style="margin-top:14px"><h2>🎁 قواعد البونص</h2><div id="mg-bonus-rules"></div></div><div class="card" style="margin-top:14px"><h2>🎁 المكافآت المحققة</h2><div id="mg-bonus-awards"></div></div>'
 };
 
@@ -9018,6 +9023,41 @@ document.addEventListener('click',e=>{
     if(ok)toast('تم','ok');
   });
 });
+/* =====================================================================
+   تبويب أسعار المنتجات
+   ===================================================================== */
+let _priceSearch='';
+function mountPrices(){
+  const wrap=byId('prices-search-wrap');
+  if(wrap)wrap.innerHTML='<input class="in" id="price-search" type="search" placeholder="🔍 ابحث في أسماء المنتجات" autocomplete="off" value="'+escHtml(_priceSearch)+'">';
+  const inp=byId('price-search');
+  if(inp)inp.addEventListener('input',()=>{_priceSearch=inp.value||'';renderPrices()});
+  renderPrices();
+}
+function renderPrices(){
+  const box=byId('prices-body');
+  if(!box)return;
+  const q=psNorm(_priceSearch);
+  let products=(store.products||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
+  if(q){
+    products=products.filter(p=>{
+      const name=psNorm(p.name||'');
+      return name.startsWith(q)||name.split(/\s+/).some(w=>w.startsWith(q)||w.indexOf(q)>=0)||name.indexOf(q)>=0;
+    });
+  }
+  if(!products.length){box.innerHTML='<div class="empty">لا توجد منتجات مطابقة</div>';return}
+  box.innerHTML='<div class="tw"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>سعر البيع</th>'+ (isA()?'<th></th>':'') +'</tr></thead><tbody>'+products.map(p=>
+    '<tr><td><b>'+escHtml(p.name||'')+'</b>'+ (p.barcode?'<small style="display:block;color:var(--muted)">'+escHtml(p.barcode)+'</small>':'') +'</td>'+
+    '<td>'+escHtml(p.unit||'حبة')+'</td><td><b>'+fmt(p.price||p.dist_price||0)+' '+escHtml(cur())+'</b></td>'+ (isA()?'<td><button class="mini" data-price-edit="'+escHtml(p.id)+'">تعديل</button></td>':'')+
+    '</tr>').join('')+'</tbody></table></div>';
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-price-edit]');
+  if(!b)return;
+  if(!isA())return toast('تعديل أسعار المنتجات للمدير فقط','err');
+  entSheet('products',b.dataset.priceEdit);
+});
+
 function mountManagement(){
   if(!isA())return;
   mountForm(byId('mg-company'),'cf',[
@@ -10133,6 +10173,7 @@ const MOUNT={
   collections:mountCollections,
   distributors:mountDistributors,
   attendance_log:mountAttendanceLog,
+  prices:mountPrices,
   management:mountManagement
 };
 const RENDER={
@@ -10151,6 +10192,7 @@ const RENDER={
   collections:renderCollections,
   distributors:renderDistributors,
   attendance_log:renderAttendanceLog,
+  prices:renderPrices,
   management:renderManagement
 };
 function renderAll(){
