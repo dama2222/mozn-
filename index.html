@@ -1147,15 +1147,12 @@ function calculateProductionBonuses(header, items){
       });
       baseAmount = incentiveTotal;
       rewardAmount = r2(incentiveTotal * (rule.reward_value - 1));
-    } else if(rule.reward_type === 'percent'){
-      // نسبة من قيمة الإنتاج (بالجملة)
-      const totalValue = sum(matchingItems, it => {
-        const p = pOf(store, it.product_id);
-        return p ? it.actual * (p.dist_price || p.price || 0) : 0;
-      });
-      baseAmount = totalValue;
-      rewardAmount = r2(totalValue * rule.reward_value / 100);
-    } else if(rule.reward_type === 'fixed'){
+      else if(rule.reward_type === 'fixed'){
+     } else if(rule.reward_type === 'percent'){
+  // نسبة من قيمة الإنتاج (بالجملة) — totalValue معرّفة أعلى الدالة
+  baseAmount = totalValue;
+  rewardAmount = r2(totalValue * rule.reward_value / 100);
+}
       rewardAmount = rule.reward_value;
     }
     
@@ -1611,73 +1608,6 @@ const allowed=()=>{
     return user.perms.indexOf(m.id) >= 0;
   });
 };
-// ==================== Offline Sync Queue ====================
-const OFFLINE_QUEUE_KEY = 'muzn_offline_queue_v1';
-
-const OfflineQueue = {
-  _queue(){ try{ return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY)||'[]'); } catch{ return []; } },
-  _save(q){ localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); },
-
-  async enqueue(op){
-    const q = this._queue();
-    q.push({ ...op, _id: uuid(), _ts: Date.now(), _tries: 0 });
-    this._save(q);
-    if('serviceWorker' in navigator && 'SyncManager' in window){
-      try{
-        const reg = await navigator.serviceWorker.ready;
-        await reg.sync.register('muzn-sync-queue');
-      }catch(e){}
-    }
-  },
-
-  async flush(){
-    if(adapter.mode !== 'cloud' || !navigator.onLine) return {ok:0, fail:0};
-    const q = this._queue();
-    if(!q.length) return {ok:0, fail:0};
-    let ok=0, fail=0;
-    const remaining = [];
-    for(const op of q){
-      try{
-        await this._exec(op);
-        ok++;
-      }catch(e){
-        op._tries++;
-        if(op._tries < 5){ remaining.push(op); }
-        fail++;
-        LOG.warn('Queue op failed', op, e);
-      }
-    }
-    this._save(remaining);
-    return {ok, fail};
-  },
-
-  async _exec(op){
-    switch(op.type){
-      case 'saveTicket': return adapter.saveTicket(op.headerTable, op.itemsTable, op.fk, op.header, op.items);
-      case 'editTicket': return adapter.editTicket(op.headerTable, op.itemsTable, op.fk, op.hid, op.hpatch, op.items, op.removedIds);
-      case 'saveSimple': return adapter.saveSimple(op.table, op.row);
-      case 'updateSimple': return adapter.updateSimple(op.table, op.id, op.patch);
-      case 'deleteSimple': return adapter.deleteSimple(op.table, op.id);
-      case 'deleteTicket': return adapter.deleteTicket(op.headerTable, op.id);
-      default: throw new Error('unknown op: '+op.type);
-    }
-  },
-
-  count(){ return this._queue().length; }
-};
-
-// أحداث الاتصال
-window.addEventListener('online', async () => {
-  toast('🌐 عاد الاتصال — جارٍ المزامنة…','ok');
-  const {ok, fail} = await OfflineQueue.flush();
-  if(ok > 0) toast(`✅ مزامنة ${ok} عملية`, 'ok');
-  if(fail > 0) toast(`⚠️ ${fail} فشلت — ستُعاد`, 'warn');
-  if(adapter.mode === 'cloud' && typeof reloadData === 'function') await reloadData();
-});
-
-window.addEventListener('offline', () => toast('📴 غير متصل — الحفظ محلي','warn'));
-
-const isNetworkErr = e => /Failed to fetch|NetworkError|timeout/i.test(e?.message||'');
 /* =====================================================================
    LocalAdapter
    ===================================================================== */
@@ -11384,7 +11314,110 @@ async function boot(){
       renderAll();
     }catch(ex){console.error(ex)}
   });
+// ==================== Offline Queue Wrapper ====================
+// ⚠️ هذا الجزء يغلّف adapter.saveTicket تلقائياً
+//     دون الحاجة لتعديل أي مكان آخر في الكود
 
+(function wrapAdapterWithOfflineQueue(){
+
+  // احفظ النسخة الأصلية
+  const _origSaveTicket     = adapter.saveTicket.bind(adapter);
+  const _origEditTicket     = adapter.editTicket.bind(adapter);
+  const _origSaveSimple     = adapter.saveSimple.bind(adapter);
+  const _origUpdateSimple   = adapter.updateSimple.bind(adapter);
+  const _origDeleteSimple   = adapter.deleteSimple.bind(adapter);
+  const _origDeleteTicket   = adapter.deleteTicket.bind(adapter);
+
+  // دالة مساعدة: هل الخطأ بسبب الشبكة؟
+  const isNetErr = e => /Failed to fetch|NetworkError|timeout|fetch failed/i.test(e?.message || '');
+
+  // 🔁 غلاف لكل دالة
+  adapter.saveTicket = async function(...args){
+    try{
+      return await _origSaveTicket(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [headerTable, itemsTable, fk, header, items] = args;
+        await OfflineQueue.enqueue({type:'saveTicket', headerTable, itemsTable, fk, header, items});
+        toast('📴 حُفظ محلياً — سيُزامن لاحقاً', 'warn');
+        return header.id;
+      }
+      throw e;
+    }
+  };
+
+  adapter.editTicket = async function(...args){
+    try{
+      return await _origEditTicket(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [headerTable, itemsTable, fk, hid, hpatch, items, removedIds] = args;
+        await OfflineQueue.enqueue({type:'editTicket', headerTable, itemsTable, fk, hid, hpatch, items, removedIds});
+        toast('📴 حُفظ محلياً', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.saveSimple = async function(...args){
+    try{
+      return await _origSaveSimple(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [table, row] = args;
+        await OfflineQueue.enqueue({type:'saveSimple', table, row});
+        toast('📴 حُفظ محلياً', 'warn');
+        return row.id;
+      }
+      throw e;
+    }
+  };
+
+  adapter.updateSimple = async function(...args){
+    try{
+      return await _origUpdateSimple(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [table, id, patch] = args;
+        await OfflineQueue.enqueue({type:'updateSimple', table, id, patch});
+        toast('📴 حُفظ محلياً', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.deleteSimple = async function(...args){
+    try{
+      return await _origDeleteSimple(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [table, id] = args;
+        await OfflineQueue.enqueue({type:'deleteSimple', table, id});
+        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.deleteTicket = async function(...args){
+    try{
+      return await _origDeleteTicket(...args);
+    }catch(e){
+      if(!navigator.onLine || isNetErr(e)){
+        const [headerTable, id] = args;
+        await OfflineQueue.enqueue({type:'deleteTicket', headerTable, id});
+        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  console.log('[Offline] ✅ Adapter wrapped — offline support enabled');
+})();
   // ✅ بدء المزامنة الذكية (5 ثوانٍ + Hash يشمل التعديلات)
   if(cfg) startSmartSync();
 
