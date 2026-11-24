@@ -6401,7 +6401,6 @@ function mountDistOps(){
   picker.onchange = () => renderDistOps();
   renderDistOps();
 }
-
 function renderDistOps(){
   const content = byId('dops-content');
   if(!content) return;
@@ -6444,7 +6443,8 @@ function renderDistOps(){
     .sort(byDate);
   const remitTotal = sum(remittances, r => r.amount);
   const customers = store.customers.filter(c => c.distributor_id === did);
-    // 🆕 سجلات التشيك
+  
+  // 🆕 سجلات التشيك
   const confirmations = (store.withdrawal_confirmations || [])
     .filter(c => c.distributor_id === did)
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -6454,8 +6454,33 @@ function renderDistOps(){
   const customerBals = customers.map(c => ({c, b: custBal(store, c)}));
   const overdueCustomers = customerBals.filter(x => x.b.bucket === 'overdue');
   const totalOverdue = sum(overdueCustomers, x => x.b.remaining);
+
+  // ✅ 1. حساب الراتب والأهداف مسبقاً (قبل بناء الـ HTML)
+  const sal = calcDistributorSalary(store, d);
+  let targetHTML = `
+    <div class="kv big" style="margin-top:10px">
+      <span>هدف اليوم</span>
+      <b>${fmt(sal.achievedD)} / ${fmt(sal.targetD)} ${cur()}</b>
+    </div>
+    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
+      <div style="background:var(--accent);height:100%;width:${Math.min(100, (sal.achievedD / (sal.targetD||1)) * 100)}%;border-radius:99px;"></div>
+    </div>
+
+    <div class="kv big">
+      <span>هدف الشهر</span>
+      <b>${fmt(sal.achievedM)} / ${fmt(sal.targetM)} ${cur()}</b>
+    </div>
+    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
+      <div style="background:var(--orange);height:100%;width:${Math.min(100, (sal.achievedM / (sal.targetM||1)) * 100)}%;border-radius:99px;"></div>
+    </div>
+
+    <div class="kv big" style="color:var(--red)">
+      <span>المستحق حسب الإنجاز</span>
+      <b>${fmt(sal.earned)} ${cur()} ${sal.deduction > 0 ? `(خصم ${fmt(sal.deduction)})` : ''}</b>
+    </div>
+  `;
   
-  // رأس الصفحة
+  // ✅ 2. بناء رأس الصفحة (مع إدراج targetHTML في المكان الصحيح)
   let html = '<div class="kgrid">' +
     '<div class="kpi wide"><div class="lb">💰 المطلوب منه الشركة</div>' +
       '<div class="val ' + (summary.bal > 0.009 ? 'dn' : 'up') + '">' +
@@ -6464,38 +6489,18 @@ function renderDistOps(){
     '</div>' +
     '<div class="kpi"><div class="lb">إجمالي المبيعات</div>' +
       '<div class="val">' + fmt(profit.revenue) + '</div></div>' +
-      // داخل دالة عرض عمليات الموزع
-  const d = store.distributors.find(x => x.id === myDistId); // أو أي طريقة تجلب بها الموزع
-  const sal = calcDistributorSalary(store, d);
-
-  // عرض الأرقام
-  let targetHTML = `
-    <div class="kv big">
-      <span>اليوم</span>
-      <b>${fmt(sal.achievedD)} / ${fmt(sal.targetD)} ${cur()}</b>
-    </div>
-    <!-- شريط تقدم اليوم -->
-    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
-      <div style="background:var(--accent);height:100%;width:${Math.min(100, (sal.achievedD / (sal.targetD||1)) * 100)}%;border-radius:99px;"></div>
-    </div>
-
-    <div class="kv big">
-      <span>الشهر</span>
-      <b>${fmt(sal.achievedM)} / ${fmt(sal.targetM)} ${cur()}</b>
-    </div>
-    <!-- شريط تقدم الشهر -->
-    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
-      <div style="background:var(--orange);height:100%;width:${Math.min(100, (sal.achievedM / (sal.targetM||1)) * 100)}%;border-radius:99px;"></div>
-    </div>
-
-    <div class="kv big" style="color:var(--red)">
-      <span>المستحق حسب الإنجاز الحالي</span>
-      <b>${fmt(sal.earned)} ${cur()} ${sal.deduction > 0 ? `(خصم ${fmt(sal.deduction)})` : ''}</b>
-    </div>
-  `;
+    '<div class="kpi"><div class="lb">صافي الربح للموزع</div>' +
+      '<div class="val ' + (profit.profit > 0 ? 'up' : 'dn') + '">' + fmt(profit.profit) + '</div></div>' +
+  '</div>' +
+  
+  // هنا نضع كرت الأهداف والراتب
+  '<div class="card" style="margin-top:12px; padding:14px">' +
+    '<h2 style="font-size:15px; margin-bottom:8px">🎯 الأهداف والراتب</h2>' +
+    targetHTML +
+  '</div>';
   
   // الشرائح
-    html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
+  html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
     '<button class="pill on" data-dopstab="overview">📊 نظرة عامة</button>' +
     (pendingConfirmations.length > 0 
       ? '<button class="pill" data-dopstab="confirmations" style="background:var(--orange);color:#fff">🔔 تشيكاتي (' + pendingConfirmations.length + ')</button>'
@@ -6516,17 +6521,15 @@ function renderDistOps(){
   html += '<div id="dops-body"></div>';
   content.innerHTML = html;
   
-    const data = { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
+  const data = { d, summary, discounts, totalDiscounts, profit, shifts, shiftStats,
     withdrawals, wdTotalQty, wdTotalValue, sales, salesTotal,
     remittances, remitTotal, customers, customerBals, overdueCustomers, totalOverdue,
     confirmations, pendingConfirmations, confirmedConfirmations, disputedConfirmations };
   
- // ربط الشرائح — طريقة أفضل
-const tabsEl = byId('dops-tabs');
-if(tabsEl){
-  // احفظ البيانات للاستخدام من المعالج العام
-  tabsEl._dopsData = data;
-}
+  const tabsEl = byId('dops-tabs');
+  if(tabsEl){
+    tabsEl._dopsData = data;
+  }
   
   renderDistOpsTab('overview', data);
 }
@@ -9655,7 +9658,6 @@ function renderAnalytics(){
   byId('analytics-body').innerHTML = 
     exportBtns + 
     '<div id="analytics-table-id">' + 
-    byId('analytics-body').innerHTML = 
     makeExportBar('analytics-full-view', 'analytics-report', 'تقرير التحليلات الشامل') +
     '<div id="analytics-full-view">' +
     '<div class="card"><div class="fgrid" style="grid-template-columns:'+(st.mode==='all'?'1fr':st.mode==='year'?'1fr 1fr':'1fr 1fr 1fr')+';margin:0">'+
