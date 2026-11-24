@@ -21,6 +21,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js">
 </script>
 <script src="barcode.js"></script>
@@ -2150,7 +2152,73 @@ function copyText(text){
   };
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done,fb);else fb();
 }
+/* =====================================================================
+   📥 نظام تصدير التقارير (Excel & PDF)
+   =====================================================================*/
+   const ExportEngine = {
+  toExcel(tableId, filename = 'report.xlsx') {
+    let el = document.getElementById(tableId);
+    if (!el) return toast('لا يوجد جدول للتصدير', 'err');
+    // إذا كانت الحاوية div، نبحث عن الجدول بداخلها
+    let targetTable = el.tagName === 'TABLE' ? el : el.querySelector('table');
+    if (!targetTable) return toast('لا يوجد جدول بداخل الحاوية', 'err');
+    
+    try {
+      const wb = XLSX.utils.table_to_book(targetTable, { sheet: "التقرير" });
+      XLSX.writeFile(wb, filename);
+      toast('✅ تم تصدير Excel بنجاح', 'ok');
+    } catch (e) {
+      console.error(e);
+      toast('فشل تصدير Excel', 'err');
+    }
+  },
 
+  toPDF(elementId, filename = 'report.pdf', title = 'تقرير MUZN') {
+    const el = document.getElementById(elementId);
+    if (!el) return toast('لا يوجد محتوى للتصدير', 'err');
+    const opt = { margin: 10, filename: filename, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+    toast('⏳ جارٍ إنشاء PDF...', 'ok');
+    const wrapper = document.createElement('div');
+    wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.color = '#000'; wrapper.style.direction = 'rtl';
+    wrapper.innerHTML = `<div style="text-align:center; margin-bottom:20px; border-bottom:2px solid #333; padding-bottom:10px;"><h2 style="margin:0;">${title}</h2><p style="margin:5px 0 0 0; font-size:12px; color:#555;">تاريخ الطباعة: ${today()}</p></div>`;
+    wrapper.appendChild(el.cloneNode(true));
+    html2pdf().set(opt).from(wrapper).save().then(() => toast('✅ تم تصدير PDF بنجاح', 'ok'));
+  },
+
+  // تصدير قسم معين إلى PDF
+  toPDF(elementId, filename = 'report.pdf', title = 'تقرير MUZN') {
+    const el = document.getElementById(elementId);
+    if (!el) return toast('لا يوجد محتوى للتصدير', 'err');
+    const opt = {
+      margin: 10, filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    toast('⏳ جارٍ إنشاء PDF...', 'ok');
+    const wrapper = document.createElement('div');
+    wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.color = '#000'; wrapper.style.direction = 'rtl';
+    wrapper.innerHTML = `<div style="text-align:center; margin-bottom:20px; border-bottom:2px solid #333; padding-bottom:10px;"><h2 style="margin:0;">${title}</h2><p style="margin:5px 0 0 0; font-size:12px; color:#555;">تاريخ الطباعة: ${today()}</p></div>`;
+    wrapper.appendChild(el.cloneNode(true));
+    html2pdf().set(opt).from(wrapper).save().then(() => toast('✅ تم تصدير PDF بنجاح', 'ok'));
+  },
+
+  // 🤖 تصدير للذكاء الاصطناعي (Markdown)
+ toAI(tableId) {
+    let el = document.getElementById(tableId);
+    if (!el) return toast('لا يوجد جدول', 'err');
+    let targetTable = el.tagName === 'TABLE' ? el : el.querySelector('table');
+    if (!targetTable) return toast('لا يوجد جدول بداخل الحاوية', 'err');
+    
+    let md = `| ${Array.from(targetTable.querySelectorAll('th')).map(th => th.innerText.trim()).join(' | ')} |\n`;
+    md += `|${Array.from(targetTable.querySelectorAll('th')).map(() => '---').join('|')}|\n`;
+    Array.from(targetTable.querySelectorAll('tbody tr')).forEach(tr => {
+      const row = Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim().replace(/\n/g, ' '));
+      if(row.length) md += `| ${row.join(' | ')} |\n`;
+    });
+    navigator.clipboard.writeText(md).then(() => toast('🤖 تم نسخ الجدول بصيغة Markdown! الصقه في الـ AI لتحليله.', 'ok')).catch(() => toast('تعذر النسخ', 'err'));
+  }
+};
 /* =====================================================================
    🆕 Push Queue — إعادة إرسال الإشعارات الفاشلة
    ===================================================================== */
@@ -4321,6 +4389,16 @@ function renderSales(){
   const _ts = k => sum(_mH.filter(h => h.type === k), saleTotal);
   
   byId('sales-stats').innerHTML = statsStrip(all, saleTotal, fmt, a => fmt(sum(a, h => sum(h.items, x => x.qty))) + ' وحدة') +
+    let exportBtns = `
+  <div style="display:flex; gap:8px; margin-bottom:10px; justify-content:flex-end;">
+    <button class="btn-ghost sm" onclick="ExportEngine.toExcel('sales-table', 'sales-report.xlsx')">
+      📊 Excel
+    </button>
+    <button class="btn-ghost sm" onclick="ExportEngine.toPDF('sales-table', 'sales-report.pdf', 'تقرير المبيعات')">
+      📄 PDF
+    </button>
+  </div>
+`;
     '<div class="stats" style="margin-top:8px"><div class="stat"><span>💵 كاش (الشهر)</span><b>' + fmt(_ts('cash')) + '</b></div>' +
     '<div class="stat"><span>🏦 بنك (الشهر)</span><b>' + fmt(_ts('bank')) + '</b></div>' +
     '<div class="stat"><span>📒 آجل (الشهر)</span><b>' + fmt(_ts('credit')) + '</b></div></div>';
@@ -4668,36 +4746,29 @@ function renderProduction(){
     const stats = getShiftStats(o.id, 'operator');
     return {o,due:operatorDue(store,o.id),totalDays:stats.totalDays,totalHours:stats.totalHours};
   }).filter(x=>x.due>0.009||operatorEarned(store,x.o.id)>0.009);
+  
+  // ✅ الكود الجديد: بناء الجدول وأزرار التصدير
+  const tableHTML = table([
+    {h:'المشغّل', f:r=>escHtml(r.o.name)},
+    {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
+    {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
+    {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
+    {h:'', f:r=>(r.due>0.009&&isA())?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
+  ], dueRows, 'opdue', 'لا مستحقات');
+
+  const exportBtns = `
+    <div style="display:flex; gap:8px; margin-bottom:10px; justify-content:flex-end;">
+      <button class="btn-ghost sm" onclick="ExportEngine.toAI('prod-table')">🤖 AI</button>
+      <button class="btn-ghost sm" onclick="ExportEngine.toExcel('prod-table', 'production.xlsx')">📊 Excel</button>
+      <button class="btn-ghost sm" onclick="ExportEngine.toPDF('prod-table', 'production.pdf', 'تقرير الإنتاج')">📄 PDF</button>
+    </div>
+  `;
+
   byId('prod-body').innerHTML='<h2 style="margin:0 0 10px">📈 الإنتاج اليومي</h2><div id="prod-chart">'+prodChartHTML()+'</div>'+
-    '<h2 style="margin:22px 0 10px">مستحقات فريق الإنتاج</h2>'+
-    table([
-      {h:'المشغّل', f:r=>escHtml(r.o.name)},
-      {h:'أيام العمل', f:r=>r.totalDays+' يوم', cls:'nw'},
-      {h:'الساعات', f:r=>r.totalHours+' س', cls:'nw'},
-      {h:'المستحق', f:r=>'<b class="'+(r.due>0.009?'dn':'up')+'">'+fmt(Math.max(r.due,0))+'</b>', cls:'nw'},
-      {h:'', f:r=>(r.due>0.009&&isA())?'<button class="mini" data-oppay="'+r.o.id+'">تسديد</button>':''}
-    ], dueRows, 'opdue', 'لا مستحقات')+
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px;"><h2 style="margin:0">مستحقات فريق الإنتاج</h2></div>'+
+    exportBtns +
+    '<div id="prod-table">' + tableHTML + '</div>'+
     '<h2 style="margin:22px 0 10px">سجلات الورديات</h2><div class="cal" id="cal-prod">'+calHTML('prod',prodCalCfg())+'</div>';
-}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-oppay]');if(!b)return;operatorPaySheet(b.dataset.oppay)});
-function operatorPaySheet(opId){
-  if(!isA()){toast('تسديد مستحقات المشغّلين للمدير فقط','err');return}
-  const o=store.operators.find(x=>x.id===opId),due=operatorDue(store,opId);
-  openSheet('<h3>تسديد — '+escHtml(o.name)+'</h3><p class="muted">المستحق: '+fmt(due)+' '+cur()+'</p><div id="op-form"></div>');
-  mountForm(byId('op-form'),'op',[{k:'amount',label:'المبلغ',type:'number',step:'0.001'},{k:'note',label:'ملاحظة',type:'text'}],
-    {label:'تأكيد',submit:async v=>{
-      if(!isA()){toast('للمدير فقط','err');return false}
-      if(v.amount<=0){toast('مبلغ غير صحيح','err');return false}
-      if(v.amount>due+0.001){toast('أكبر من المستحق','err');return false}
-      const row={id:uuid(),date:today(),operator_id:opId,amount:v.amount,note:v.note,by:user.name,ts:Date.now()};
-      const ok=await tryCommit(
-        draft=>{draft.operator_payments=draft.operator_payments||[];draft.operator_payments.unshift(row)},
-        async()=>{await adapter.saveSimple('operator_payments',row)},
-        {rerender:['production']}
-      );
-      if(ok){closeSheet();toast('تم','ok')}
-      return false;
-    }});
 }
 
 /* بطاقة حضور الموزعين داخل قسم الإنتاج */
