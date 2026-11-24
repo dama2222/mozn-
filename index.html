@@ -10941,7 +10941,8 @@ async function handleClearNotices(){
   const confirmMsg = 
     `سيتم مسح:\n` +
     `• ${normal.length} إشعار عادي\n` +
-    `• ${important.length} إشعار مهم 🔴\n\n` +
+    `• ${important.filter(n=>n.kind!=='achievement_record').length} إشعار مهم 🔴\n` +
+    `• ستبقى جوائز وإنجازات الموظفين محفوظة في ملفاتهم\n\n` +
     `⚠️ لا يمكن التراجع!\n\n` +
     `هل أنت متأكد؟`;
   
@@ -10968,14 +10969,16 @@ async function handleClearNotices(){
 
 async function performClear(allNotices){
   const btn = byId('clear_notices_btn');
+  const achievementRecords=allNotices.filter(n=>n.kind==='achievement_record');
+  const noticesToDelete=allNotices.filter(n=>n.kind!=='achievement_record');
   if(btn){
     btn.disabled = true;
     btn.innerHTML = '⏳ جارٍ المسح...';
   }
   
   try{
-    // ✅ احذف الكل من قاعدة البيانات
-    for(const n of allNotices){
+    // Keep permanent achievement records; only clear notifications.
+    for(const n of noticesToDelete){
       try{
         await adapter.deleteSimple('notices', n.id);
       }catch(e){
@@ -10985,7 +10988,7 @@ async function performClear(allNotices){
     
     // ✅ حدّث store
     const draft = clone(store);
-    draft.notices = [];
+    draft.notices = achievementRecords;
     
     // ✅ سجل العملية
     draft.audit.unshift({
@@ -10993,14 +10996,14 @@ async function performClear(allNotices){
       ts: Date.now(),
       by: user.name,
       act: 'مسح',
-      text: 'مسح ' + allNotices.length + ' إشعار'
+      text: 'مسح ' + noticesToDelete.length + ' إشعار مع الاحتفاظ بـ ' + achievementRecords.length + ' سجل إنجاز'
     });
     
     store = draft;
     
     // ✅ حدّث الواجهة
     closeSheet();
-    toast('✅ تم مسح ' + allNotices.length + ' إشعار','ok');
+    toast('✅ تم مسح ' + noticesToDelete.length + ' إشعار والاحتفاظ بإنجازات الموظفين','ok');
     renderAll();
     renderBell();
     
