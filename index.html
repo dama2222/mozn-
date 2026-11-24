@@ -11217,39 +11217,95 @@ function passkeyList(){try{return JSON.parse(localStorage.getItem(PASSKEY_KEY)||
 function passkeySave(rows){try{localStorage.setItem(PASSKEY_KEY,JSON.stringify(rows||[]));return true}catch(e){return false}}
 function passkeyB64(buf){const bytes=new Uint8Array(buf);let s='';bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')}
 function passkeyFromB64(s){const pad='='.repeat((4-(s.length%4))%4);const str=atob(s.replace(/-/g,'+').replace(/_/g,'/')+pad);return Uint8Array.from(str,c=>c.charCodeAt(0)).buffer}
+function passkeyBytes(value){
+  if(!value)return new Uint8Array();
+  if(value instanceof ArrayBuffer||ArrayBuffer.isView(value))return new Uint8Array(value instanceof ArrayBuffer?value:value.buffer);
+  const pad='='.repeat((4-(String(value).length%4))%4);
+  const binary=atob(String(value).replace(/-/g,'+').replace(/_/g,'/')+pad);
+  return Uint8Array.from(binary,c=>c.charCodeAt(0));
+}
+function passkeyRegistrationJSON(cred){
+  const r=cred.response;
+  return {id:cred.id,rawId:passkeyB64(cred.rawId),type:cred.type,response:{
+    clientDataJSON:passkeyB64(r.clientDataJSON),attestationObject:passkeyB64(r.attestationObject),
+    transports:(typeof r.getTransports==='function'?r.getTransports():[])},
+    clientExtensionResults:cred.getClientExtensionResults?cred.getClientExtensionResults():{}};
+}
+function passkeyAuthenticationJSON(cred){
+  const r=cred.response;
+  return {id:cred.id,rawId:passkeyB64(cred.rawId),type:cred.type,response:{
+    clientDataJSON:passkeyB64(r.clientDataJSON),authenticatorData:passkeyB64(r.authenticatorData),
+    signature:passkeyB64(r.signature),userHandle:r.userHandle?passkeyB64(r.userHandle):null},
+    clientExtensionResults:cred.getClientExtensionResults?cred.getClientExtensionResults():{}};
+}
 async function registerPasskey(){
   if(!window.PublicKeyCredential||!window.isSecureContext){toast('الوجه / البصمة يحتاج HTTPS أو localhost','err');return}
   if(!user){toast('سجّل الدخول بكلمة المرور أولاً','err');return}
-  if(adapter.mode==='cloud'){toast('تسجيل البصمة السحابي يحتاج إعداد Passkey على الخادم','err');return}
   try{
+    if(adapter.mode==='cloud'){
+      const started=await adapter.sb.functions.invoke('passkeys',{body:{action:'register-options'}});
+      if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل البصمة');
+      if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد بيانات التسجيل');
+      const o=started.data.options;
+      const publicKey={
+        challenge:passkeyBytes(o.challenge),rp:o.rp||{name:'MUZN Operations',id:location.hostname},
+        user:{id:passkeyBytes(o.user.id),name:o.user.name,displayName:o.user.displayName},
+        pubKeyCredParams:o.pubKeyCredParams||[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+        authenticatorSelection:o.authenticatorSelection||{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
+        timeout:o.timeout||60000
+      };
+      const cred=await navigator.credentials.create({publicKey});if(!cred)return;
+      const verified=await adapter.sb.functions.invoke('passkeys',{body:{action:'register-verify',credential:passkeyRegistrationJSON(cred),deviceName:navigator.platform||'هذا الجهاز'}});
+      if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
+      if(!verified.data?.success)throw new Error(verified.data?.error||'فشل حفظ البصمة');
+      const credentialId=passkeyB64(cred.rawId);
+      const rows=passkeyList().filter(r=>!(r.userId===user.id&&r.credentialId===credentialId));
+      rows.push({userId:user.id,credentialId,createdAt:Date.now()});passkeySave(rows);
+      toast('تم تفعيل بصمة الوجه / الإصبع على هذا الجهاز','ok');closeSheet();
+      return;
+    }
     const challenge=crypto.getRandomValues(new Uint8Array(32));
     const userId=new TextEncoder().encode(user.id);
-    const cred=await navigator.credentials.create({publicKey:{
-      challenge,rp:{name:location.hostname},user:{id:userId,name:user.username,displayName:user.name},
-      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
-      timeout:60000
-    }});
+    const cred=await navigator.credentials.create({publicKey:{challenge,rp:{name:location.hostname,id:location.hostname},user:{id:userId,name:user.username,displayName:user.name},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000}});
     if(!cred)return;
     const credentialId=passkeyB64(cred.rawId);
     const rows=passkeyList().filter(r=>!(r.userId===user.id&&r.credentialId===credentialId));
-    rows.push({userId:user.id,credentialId,createdAt:Date.now()});
-    passkeySave(rows);
+    rows.push({userId:user.id,credentialId,createdAt:Date.now()});passkeySave(rows);
     toast('تم تفعيل البصمة / الوجه لهذا الجهاز','ok');closeSheet();
-  }catch(e){console.error(e);toast(e.name==='NotAllowedError'?'تم إلغاء تسجيل البصمة':'تعذر تفعيل البصمة / الوجه','err')}
+  }catch(e){console.error(e);toast(e.name==='NotAllowedError'?'تم إلغاء تسجيل البصمة':(e.message||'تعذر تفعيل البصمة / الوجه'),'err')}
 }
 async function loginWithPasskey(){
   if(!window.PublicKeyCredential||!window.isSecureContext){byId('lgErr').textContent='الوجه / البصمة يحتاج HTTPS أو localhost';return}
-  if(adapter.mode==='cloud'){byId('lgErr').textContent='الدخول السحابي بالبصمة يحتاج تهيئة الخادم أولاً';return}
-  const rows=passkeyList();if(!rows.length){byId('lgErr').textContent='لا يوجد بصمة مسجلة لهذا الجهاز';return}
   try{
+    if(adapter.mode==='cloud'){
+      const started=await adapter.sb.functions.invoke('passkeys',{body:{action:'login-options'}});
+      if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل الدخول');
+      if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد خيارات الدخول');
+      const o=started.data.options;
+      const publicKey={challenge:passkeyBytes(o.challenge),rpId:o.rpId||location.hostname,
+        allowCredentials:(o.allowCredentials||[]).map(x=>({type:x.type||'public-key',id:passkeyBytes(x.id),transports:x.transports||[]})),
+        userVerification:o.userVerification||'required',timeout:o.timeout||60000};
+      const cred=await navigator.credentials.get({publicKey});if(!cred)return;
+      const verified=await adapter.sb.functions.invoke('passkeys',{body:{action:'login-verify',credential:passkeyAuthenticationJSON(cred)}});
+      if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
+      if(!verified.data?.success)throw new Error(verified.data?.error||'فشل تسجيل الدخول بالبصمة');
+      const email=verified.data.email,emailOtp=verified.data.emailOtp;
+      if(!email||!emailOtp)throw new Error('الخادم لم يرجع جلسة دخول صالحة');
+      const otp=await adapter.sb.auth.verifyOtp({email,token:emailOtp,type:'email'});
+      if(otp.error)throw otp.error;
+      const profile=await adapter.sb.rpc('app_current_user');
+      const u=profile.data&&profile.data[0];if(profile.error||!u)throw new Error('تعذر تحميل بيانات المستخدم');
+      user=u;byId('lgErr').textContent='';startApp();logLoginLocation();
+      return;
+    }
+    const rows=passkeyList();if(!rows.length){byId('lgErr').textContent='لا يوجد بصمة مسجلة لهذا الجهاز';return}
     const challenge=crypto.getRandomValues(new Uint8Array(32));
-    const cred=await navigator.credentials.get({publicKey:{challenge,allowCredentials:rows.map(r=>({type:'public-key',id:passkeyFromB64(r.credentialId)})),userVerification:'required',timeout:60000}});
+    const cred=await navigator.credentials.get({publicKey:{challenge,rpId:location.hostname,allowCredentials:rows.map(r=>({type:'public-key',id:passkeyFromB64(r.credentialId)})),userVerification:'required',timeout:60000}});
     if(!cred)return;
     const match=rows.find(r=>r.credentialId===passkeyB64(cred.rawId));if(!match){byId('lgErr').textContent='اعتماد غير معروف لهذا الجهاز';return}
     const u=store.users.find(x=>x.id===match.userId&&x.active);if(!u){byId('lgErr').textContent='الحساب غير مفعّل';return}
     user=u;byId('lgErr').textContent='';startApp();logLoginLocation();
-  }catch(e){console.error(e);byId('lgErr').textContent=e.name==='NotAllowedError'?'تم إلغاء التحقق':'تعذر تسجيل الدخول بالبصمة / الوجه'}
+  }catch(e){console.error(e);byId('lgErr').textContent=e.name==='NotAllowedError'?'تم إلغاء التحقق':(e.message||'تعذر تسجيل الدخول بالبصمة / الوجه')}
 }
 function showLogin(){
   user=null;
