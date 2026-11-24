@@ -1611,7 +1611,73 @@ const allowed=()=>{
     return user.perms.indexOf(m.id) >= 0;
   });
 };
+// ==================== Offline Sync Queue ====================
+const OFFLINE_QUEUE_KEY = 'muzn_offline_queue_v1';
 
+const OfflineQueue = {
+  _queue(){ try{ return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY)||'[]'); } catch{ return []; } },
+  _save(q){ localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); },
+
+  async enqueue(op){
+    const q = this._queue();
+    q.push({ ...op, _id: uuid(), _ts: Date.now(), _tries: 0 });
+    this._save(q);
+    if('serviceWorker' in navigator && 'SyncManager' in window){
+      try{
+        const reg = await navigator.serviceWorker.ready;
+        await reg.sync.register('muzn-sync-queue');
+      }catch(e){}
+    }
+  },
+
+  async flush(){
+    if(adapter.mode !== 'cloud' || !navigator.onLine) return {ok:0, fail:0};
+    const q = this._queue();
+    if(!q.length) return {ok:0, fail:0};
+    let ok=0, fail=0;
+    const remaining = [];
+    for(const op of q){
+      try{
+        await this._exec(op);
+        ok++;
+      }catch(e){
+        op._tries++;
+        if(op._tries < 5){ remaining.push(op); }
+        fail++;
+        LOG.warn('Queue op failed', op, e);
+      }
+    }
+    this._save(remaining);
+    return {ok, fail};
+  },
+
+  async _exec(op){
+    switch(op.type){
+      case 'saveTicket': return adapter.saveTicket(op.headerTable, op.itemsTable, op.fk, op.header, op.items);
+      case 'editTicket': return adapter.editTicket(op.headerTable, op.itemsTable, op.fk, op.hid, op.hpatch, op.items, op.removedIds);
+      case 'saveSimple': return adapter.saveSimple(op.table, op.row);
+      case 'updateSimple': return adapter.updateSimple(op.table, op.id, op.patch);
+      case 'deleteSimple': return adapter.deleteSimple(op.table, op.id);
+      case 'deleteTicket': return adapter.deleteTicket(op.headerTable, op.id);
+      default: throw new Error('unknown op: '+op.type);
+    }
+  },
+
+  count(){ return this._queue().length; }
+};
+
+// أحداث الاتصال
+window.addEventListener('online', async () => {
+  toast('🌐 عاد الاتصال — جارٍ المزامنة…','ok');
+  const {ok, fail} = await OfflineQueue.flush();
+  if(ok > 0) toast(`✅ مزامنة ${ok} عملية`, 'ok');
+  if(fail > 0) toast(`⚠️ ${fail} فشلت — ستُعاد`, 'warn');
+  if(adapter.mode === 'cloud' && typeof reloadData === 'function') await reloadData();
+});
+
+window.addEventListener('offline', () => toast('📴 غير متصل — الحفظ محلي','warn'));
+
+const isNetworkErr = e => /Failed to fetch|NetworkError|timeout/i.test(e?.message||'');
 /* =====================================================================
    LocalAdapter
    ===================================================================== */
