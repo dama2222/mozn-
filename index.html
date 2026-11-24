@@ -11279,6 +11279,7 @@ function generateWeeklyReport() {
 const OFFLINE_QUEUE_KEY = 'muzn_offline_queue_v1';
 
 const OfflineQueue = {
+  _isFlushing: false,
   _queue(){ try{ return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY)||'[]'); } catch{ return []; } },
   _save(q){ localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); },
   async enqueue(op){
@@ -11296,6 +11297,7 @@ const OfflineQueue = {
     if(adapter.mode !== 'cloud' || !navigator.onLine) return {ok:0, fail:0};
     const q = this._queue();
     if(!q.length) return {ok:0, fail:0};
+    this._isFlushing = true;
     let ok=0, fail=0;
     const remaining = [];
     for(const op of q){
@@ -11309,6 +11311,7 @@ const OfflineQueue = {
       }
     }
     this._save(remaining);
+    this._isFlushing = false;
     return {ok, fail};
   },
   async _exec(op){
@@ -11384,7 +11387,7 @@ async function boot(){
       adapter.editTicket = async function(...args){
         try{
           return await _origEditTicket(...args);
-        }catch(e){
+        }catch(e){if (OfflineQueue._isFlushing) throw e;
           if(isNetErr(e)){
             const [headerTable, itemsTable, fk, hid, hpatch, items, removedIds] = args;
             await OfflineQueue.enqueue({type:'editTicket', headerTable, itemsTable, fk, hid, hpatch, items, removedIds});
@@ -11398,7 +11401,7 @@ async function boot(){
       adapter.saveSimple = async function(...args){
         try{
           return await _origSaveSimple(...args);
-        }catch(e){
+        }catch(e){if (OfflineQueue._isFlushing) throw e;
           if(isNetErr(e)){
             const [table, row] = args;
             await OfflineQueue.enqueue({type:'saveSimple', table, row});
@@ -11412,7 +11415,7 @@ async function boot(){
       adapter.updateSimple = async function(...args){
         try{
           return await _origUpdateSimple(...args);
-        }catch(e){
+        }catch(e){if (OfflineQueue._isFlushing) throw e;
           if(isNetErr(e)){
             const [table, id, patch] = args;
             await OfflineQueue.enqueue({type:'updateSimple', table, id, patch});
@@ -11426,7 +11429,7 @@ async function boot(){
       adapter.deleteSimple = async function(...args){
         try{
           return await _origDeleteSimple(...args);
-        }catch(e){
+        }catch(e){if (OfflineQueue._isFlushing) throw e;
           if(isNetErr(e)){
             const [table, id] = args;
             await OfflineQueue.enqueue({type:'deleteSimple', table, id});
@@ -11440,7 +11443,7 @@ async function boot(){
       adapter.deleteTicket = async function(...args){
         try{
           return await _origDeleteTicket(...args);
-        }catch(e){
+        }catch(e){if (OfflineQueue._isFlushing) throw e;
           if(isNetErr(e)){
             const [headerTable, id] = args;
             await OfflineQueue.enqueue({type:'deleteTicket', headerTable, id});
@@ -11479,6 +11482,12 @@ async function boot(){
     if(cfg && !document.hidden){
       setTimeout(async () => {
         try{
+             // 1️⃣ أولاً: ارفع الفواتير المعلقة للسيرفر
+          if(typeof OfflineQueue !== 'undefined') {
+             const {ok, fail} = await OfflineQueue.flush();
+             if(ok > 0) toast(`✅ تمت مزامنة ${ok} عملية`, 'ok');
+             if(fail > 0) toast(`⚠️ فشلت مزامنة ${fail} عملية`, 'warn');
+          }
           const newStore = await adapter.init();
           store = newStore;
           _lastHash = computeStoreHash(store);
