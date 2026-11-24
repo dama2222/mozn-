@@ -557,7 +557,7 @@ const IndexManager = {
   markDirty(kind){ this._dirty[kind] = true; },
   forceAll(){ this._dirty.shift = this._dirty.sale = this._dirty.purchase = true; },
   rebuildIfNeeded(st){
-    /* الاحتفاظ بسعر الجملة منفصلاً عن سعر البيع للعميل */
+    /* توافق قديم فقط: سعر الموزع يعاد إلى السعر الموحد للعميل */
     if(this._dirty.shift){
       st.shift_items_flat = st.shifts.flatMap(h =>
         h.items.map(it => Object.assign({}, it, {
@@ -803,8 +803,8 @@ const sn = id => nm('suppliers', id);
 const saleItemNet=it=>r2(Math.max(0, it.qty*it.price-(it.discount||0)));
 const saleItemCost=it=>r2(it.qty*(it.cost||0));
 const saleTotal=h=>sum(h.items,saleItemNet);
-/* إيراد الشركة = قيمة البيع للموزع بسعر الجملة؛ والمبيعات للعميل تُظهر الهامش الكامل للموزع */
-const saleItemCoRev=(it,did,ts)=>{const p=pOf(store,it.product_id)||{};return r2((it.qty||0)*(pField(store,p,'dist_price',ts||it.ts)||p.dist_price||p.price||0)-(it.discount||0)*0);};
+/* إيراد الشركة الموحد = صافي فاتورة الموزع للعميل؛ لا يوجد سعر جملة منفصل */
+const saleItemCoRev=(it,did,ts)=>saleItemNet(it);
 
 /* =====================================================================
    🕘 سجل تاريخ الأسعار والتكاليف — التعديل يسري على الجديد فقط
@@ -1000,7 +1000,7 @@ function dSummary(st,d){
   const exp=f=>sum(st.sale_items_flat.filter(s=>s.distributor_id===d.id&&s.type==='cash'&&f(s.date)),saleItemNet)
     +sum(st.payments.filter(p=>p.distributor_id===d.id&&p.channel==='cash'&&f(p.date)),p=>p.amount);
   const rec=f=>sum(st.remittances.filter(r=>r.distributor_id===d.id&&f(r.date)),r=>r.amount);
-  const held=sum(st.products,p=>Math.max(custody(st,d.id,p.id),0)*(p.dist_price||p.price));
+  const held=sum(st.products,p=>Math.max(custody(st,d.id,p.id),0)*p.price);
   const discTotal=totalDiscountsFor(st,'distributor',d.id);
   return{per,expP:r2(exp(inP)),recP:r2(rec(inP)),expAll:r2(exp(all)),recAll:r2(rec(all)),
     bal:r2(exp(all)-rec(all)+discTotal),discounts:discTotal,held:r2(held)};
@@ -1030,11 +1030,9 @@ function distributorProfit(st,did){
     // إيراد الموزع (سعر البيع للعميل)
     const rev=r2(Math.max(0, qty*it.price-disc));
     
-    // ✅ التصحيح: تكلفة الموزع هي سعر الجملة الذي اشترى به منك
-    const wholesale = pField(st, p, 'dist_price', it.ts) || p.dist_price || p.price || 0;
-    const cst=r2(it.qty*wholesale);
-    
-    const pf=r2(rev-cst);
+    // لا توجد تكلفة شراء منفصلة للموزع بعد توحيد السعر
+    const cst=0;
+    const pf=rev;
     revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+pf);
     const k=it.product_id;
     if(!byProduct[k])byProduct[k]={p,qty:0,revenue:0,cost:0,profit:0};
@@ -1049,11 +1047,9 @@ function distributorProfitInPeriod(st,did,from,to){
   const items=st.sale_items_flat.filter(s=>s.distributor_id===did&&s.date>=from&&s.date<=to);
   let revenue=0,cost=0,profit=0;
   items.forEach(it=>{
-    const p=pOf(st,it.product_id)||{};
-    const wholesale=pField(st,p,'dist_price',it.ts)||p.dist_price||p.price||0;
     const rev=r2(it.qty*(it.price||0)-(it.discount||0));
-    const cst=r2(it.qty*wholesale);
-    revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+rev-cst);
+    const cst=0;
+    revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+rev);
   });
   return {revenue,cost,profit};
 }
@@ -1241,7 +1237,7 @@ function calculateProductionBonuses(header, items){
     // قيمة الإنتاج بالجملة
     const totalValue = sum(matchingItems, it => {
       const p = pOf(store, it.product_id);
-      return p ? r2(it.actual * (p.dist_price || p.price || 0)) : 0;
+      return p ? r2(it.actual * (p.price || 0)) : 0;
     });
     
     // التحقق حسب measure
@@ -1435,7 +1431,7 @@ function computeBonusProgress(rule, entityId, entityType){
       // قيمة الإنتاج بالجملة
       achieved = sum(items, s => {
         const p = pOf(store, s.product_id);
-        return p ? r2(s.actual * (p.dist_price || p.price || 0)) : 0;
+        return p ? r2(s.actual * (p.price || 0)) : 0;
       });
     } else {
       achieved = sum(items, s => s.actual);
@@ -3346,7 +3342,7 @@ async function saveEditTicket(kind,hid,origItems){
     const first=origItems[0];
     const out=rows.map(v=>{
       const it=mk(v);const o=origById[v.id];
-      if(!o||o.product_id!==v.product_id){const p=pOf(store,v.product_id);it.price=p.dist_price||p.price||0}
+      if(!o||o.product_id!==v.product_id){const p=pOf(store,v.product_id);it.price=p.price||p.dist_price||0}
       if(!o){Object.assign(it,{date:first.date,distributor_id:first.distributor_id,note:first.note||'',by:user.name,ts:first.ts||now,log:[]})}
       it.date=date;
       return it;
@@ -6670,8 +6666,8 @@ function renderDistOpsTab(tab, data){
       '<div class="kv"><span>المطلوب منه</span><b class="' + (summary.bal > 0.009 ? 'dn' : 'up') + '">' + fmt(summary.bal) + ' ' + cur() + '</b></div>' +
       '<div class="kv"><span>الخصومات عليه</span><b class="dn">-' + fmt(totalDiscounts) + ' ' + cur() + '</b></div>' +
       '<div class="kv"><span>إجمالي مبيعاته</span><b>' + fmt(profit.revenue) + ' ' + cur() + '</b></div>' +
-      '<div class="kv"><span>تكلفة الشراء منك</span><b>' + fmt(profit.cost) + ' ' + cur() + '</b></div>' +
-      '<div class="kv big"><span>💰 ربحه الصافي</span><b class="up">' + fmt(profit.profit) + ' ' + cur() + '</b></div>' +
+      '<div class="kv"><span>إجمالي البيع المحقق</span><b>' + fmt(profit.revenue) + ' ' + cur() + '</b></div>' +
+      '<div class="kv big"><span>💰 مبيعاته المحققة للتارقت</span><b class="up">' + fmt(profit.revenue) + ' ' + cur() + '</b></div>' +
       '<hr style="border-color:var(--line);margin:12px 0">' +
       '<div class="kv"><span>⏰ أيام العمل</span><b>' + shiftStats.totalDays + '</b></div>' +
       '<div class="kv"><span>⏱️ إجمالي ساعات العمل</span><b>' + shiftStats.totalHours + ' ساعة</b></div>' +
@@ -6842,22 +6838,20 @@ function renderDistOpsTab(tab, data){
   
   else if(tab === 'profit'){
     html = '<div class="kgrid">' +
-      '<div class="kpi wide"><div class="lb">💰 الربح الصافي</div>' +
-        '<div class="val up">' + fmt(profit.profit) + ' ' + cur() + '</div>' +
+      '<div class="kpi wide"><div class="lb">💰 المبيعات المحققة للتارقت</div>' +
+        '<div class="val up">' + fmt(profit.revenue) + ' ' + cur() + '</div>' +
         '<div class="sub mut">من ' + profit.items.length + ' منتج</div>' +
       '</div>' +
       '<div class="kpi"><div class="lb">إجمالي المبيعات</div><div class="val">' + fmt(profit.revenue) + '</div></div>' +
-      '<div class="kpi"><div class="lb">تكلفة الشراء</div><div class="val">' + fmt(profit.cost) + '</div></div>' +
+      '<div class="kpi"><div class="lb">هامش المبيعات</div><div class="val">' + fmt(profit.profit) + '</div></div>' +
     '</div>';
     
-    html += '<h2 style="margin:22px 0 10px">تفصيل الربح لكل منتج</h2>' +
+    html += '<h2 style="margin:22px 0 10px">تفصيل المبيعات المحققة لكل منتج</h2>' +
       table([
         {h:'المنتج', f:r => escHtml(r.p.name)},
         {h:'الكمية المباعة', f:r => fmt(r.qty), cls:'nw'},
         {h:'المبيعات', f:r => fmt(r.revenue) + ' ' + cur(), cls:'nw'},
-        {h:'تكلفة الشراء', f:r => fmt(r.cost) + ' ' + cur(), cls:'nw'},
-        {h:'الربح', f:r => '<b class="up">' + fmt(r.profit) + ' ' + cur() + '</b>', cls:'nw'},
-        {h:'هامش %', f:r => r.revenue > 0 ? ((r.profit / r.revenue * 100).toFixed(1) + '%') : '—', cls:'nw'}
+        {h:'المتحصل للتارقت', f:r => fmt(r.revenue) + ' ' + cur(), cls:'nw'}
       ], profit.items.sort((a, b) => b.profit - a.profit), 'dops_profit');
   }
   
@@ -8031,9 +8025,9 @@ function renderDistributors(){
       '</div>'+
       '<div style="background:rgba(61,220,132,.10);border:1px solid var(--green);border-radius:6px;padding:8px;margin:8px 0">'+
         '<div class="kv"><span>إجمالي المبيعات</span><b>'+fmt(profit.revenue)+' '+cur()+'</b></div>'+
-        '<div class="kv"><span>تكلفة الشراء منك</span><b>'+fmt(profit.cost)+' '+cur()+'</b></div>'+
-        '<div class="kv big" style="border-color:var(--green)"><span>💰 إجمالي ربحه</span><b class="up">'+fmt(profit.profit)+' '+cur()+'</b></div>'+
-        '<div class="kv"><span>ربح هذه الفترة</span><b class="up">'+fmt(periodProfit.profit)+' '+cur()+'</b></div>'+
+        '<div class="kv"><span>مبيعات محققة</span><b>'+fmt(profit.revenue)+' '+cur()+'</b></div>'+
+        '<div class="kv big" style="border-color:var(--green)"><span>💰 إجمالي مبيعاته للتارقت</span><b class="up">'+fmt(profit.revenue)+' '+cur()+'</b></div>'+
+        '<div class="kv"><span>مبيعات هذه الفترة</span><b class="up">'+fmt(periodProfit.revenue)+' '+cur()+'</b></div>'+
       '</div>'+
       '<div class="kv big"><span>'+(s.bal<0?'دائن له':'المطلوب منه (دين)')+'</span><b class="'+(s.bal>0.009?'dn':'up')+'">'+fmt(Math.abs(s.bal))+' '+cur()+'</b></div>'+
       '<div class="btnrow"><button class="btn-ghost sm" data-reqprod="'+d.id+'">📦 طلب إنتاج</button><button class="btn-ghost sm" data-dprofile="'+d.id+'">📊 تفاصيل الربح</button>'+(isA()?'<button class="btn-ghost sm" data-reqcol="'+d.id+'">طلب تحصيل</button>':'')+'</div></div>';
@@ -8057,14 +8051,14 @@ function distributorProfitSheet(did){
   const profit=distributorProfit(store,did);
   const html='<h3>📊 تفاصيل ربح '+escHtml(d.name)+'</h3>'+
     '<div class="kgrid">'+
-      '<div class="kpi wide"><div class="lb">إجمالي الربح</div><div class="val up">'+fmt(profit.profit)+' '+cur()+'</div><div class="sub mut">من '+profit.items.length+' منتج</div></div>'+
+      '<div class="kpi wide"><div class="lb">إجمالي المبيعات للتارقت</div><div class="val up">'+fmt(profit.revenue)+' '+cur()+'</div><div class="sub mut">من '+profit.items.length+' منتج</div></div>'+
       '<div class="kpi"><div class="lb">إجمالي المبيعات</div><div class="val">'+fmt(profit.revenue)+'</div></div>'+
-      '<div class="kpi"><div class="lb">تكلفة الشراء</div><div class="val">'+fmt(profit.cost)+'</div></div>'+
+      '<div class="kpi"><div class="lb">داخل حساب التارقت</div><div class="val">'+fmt(profit.revenue)+'</div></div>'+
     '</div>'+
-    '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:14px">الربح حسب المنتج</h2></div>'+
+    '<div class="sec-head" style="margin-top:14px"><h2 style="font-size:14px">المبيعات حسب المنتج</h2></div>'+
     (profit.items.length?
-      '<div class="tw"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th></tr></thead><tbody>'+
-      profit.items.map(x=>'<tr><td>'+escHtml(x.p.name)+'</td><td>'+fmt(x.qty)+'</td><td>'+fmt(x.revenue)+'</td><td>'+fmt(x.cost)+'</td><td><b class="up">'+fmt(x.profit)+'</b></td></tr>').join('')+
+      '<div class="tw"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>المبيعات للتارقت</th></tr></thead><tbody>'+
+      profit.items.map(x=>'<tr><td>'+escHtml(x.p.name)+'</td><td>'+fmt(x.qty)+'</td><td><b class="up">'+fmt(x.revenue)+'</b></td></tr>').join('')+
       '</tbody></table></div>'
       :'<div class="empty">لا مبيعات بعد</div>');
   openSheet(html);
@@ -8583,7 +8577,7 @@ function renderOverview(){
     makeExportBar('overview-dashboard', 'overview', 'لوحة الإدارة - التقويم') +
     '<div id="overview-dashboard">' + 
     '<div class="kgrid">'+k('صافي الربح',fmt(profit)+' '+cur(),'هامش '+margin.toFixed(1)+'% (سعر البيع − التكلفة)',profit>=0?'up':'dn',true)+
-      k('الربح بعد المصروفات',fmt(r2(profit-expOv-payOv))+' '+cur(),'مصروفات '+fmt(expOv)+' · رواتب '+fmt(payOv),(profit-expOv-payOv)>=0?'up':'dn',true)+k('المبيعات',fmt(rev)+' '+cur(),invCount+' فاتورة (بسعر العميل)')+k('إيراد الشركة',fmt(coRev)+' '+cur(),'بسعر الجملة للموزع')+k('الإنتاج',fmt(prodU)+' <small>وحدة</small>','المجموع')+
+      k('الربح بعد المصروفات',fmt(r2(profit-expOv-payOv))+' '+cur(),'مصروفات '+fmt(expOv)+' · رواتب '+fmt(payOv),(profit-expOv-payOv)>=0?'up':'dn',true)+k('المبيعات',fmt(rev)+' '+cur(),invCount+' فاتورة (بسعر العميل)')+k('إيراد الشركة',fmt(coRev)+' '+cur(),'صافي مبيعات العملاء')+k('الإنتاج',fmt(prodU)+' <small>وحدة</small>','المجموع')+
       k('المشتريات',fmt(purch)+' '+cur(),'مواد')+k('المقبوض',fmt(cashIn)+' '+cur(),'نقد + بنك')+k('💵 نقد بالصندوق',fmt(cashBox)+' '+cur(),'كاش + سندات نقدية')+k('🏦 بنك / تحويل',fmt(bankIn)+' '+cur(),'بيع بنكي + تحويلات')+
       k('ذمم العملاء',fmt(outstanding)+' '+cur(),overdue.length?overdue.length+' متأخر':'لا متأخرات',overdue.length?'dn':'up')+
       (totalTax>0?k('غرامة تأخير','<span class="warn">'+fmt(totalTax)+'</span>',cur()+' مستحقة','warn'):'')+
@@ -8595,12 +8589,12 @@ function renderOverview(){
     table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'المباع',f:r=>fmt(r.q)},{h:'إيراد الشركة',f:r=>fmt(r.rv)},{h:'التكلفة',f:r=>fmt(r.cg)},{h:'الربح',f:r=>'<b class="'+(r.pf>=0?'up':'dn')+'">'+fmt(r.pf)+'</b>'},{h:'المخزون',f:r=>fmt(r.st)}],prodRows,'ovp')+
     '<div class="sec-head"><h2>مستحقات الموزعين</h2></div>'+
     table([{h:'الموزع',f:x=>escHtml(x.d.name)},{h:'الفترة',f:x=>x.s.per.label},{h:'التسليم',f:x=>x.s.per.e,cls:'nw'},{h:'خصومات',f:x=>x.s.discounts>0?'<span class="dn">-'+fmt(x.s.discounts)+'</span>':'—',cls:'nw'},{h:'المتبقي',f:x=>'<b class="'+(x.s.bal>0.009?'dn':'up')+'">'+fmt(x.s.bal)+'</b>',cls:'nw'}],dd,'ovd')+
-    '<div class="sec-head"><h2>💰 أرباح الموزعين</h2></div>'+
+    '<div class="sec-head"><h2>💰 مبيعات الموزعين وتارقتهم</h2></div>'+
     table([
       {h:'الموزع',f:x=>escHtml(x.d.name)},
       {h:'إجمالي المبيعات',f:x=>fmt(x.p.revenue)+' '+cur(),cls:'nw'},
-      {h:'تكلفة الشراء',f:x=>fmt(x.p.cost)+' '+cur(),cls:'nw'},
-      {h:'ربحه الصافي',f:x=>'<b class="up">'+fmt(x.p.profit)+' '+cur()+'</b>',cls:'nw'},
+      {h:'داخل التارقت',f:x=>fmt(x.p.revenue)+' '+cur(),cls:'nw'},
+      {h:'المبيعات',f:x=>'<b class="up">'+fmt(x.p.revenue)+' '+cur()+'</b>',cls:'nw'},
       {h:'',f:x=>'<button class="mini" data-dprofile="'+x.d.id+'">تفاصيل</button>',cls:'nw'}
     ],dd.map(x=>({d:x.d,p:distributorProfit(S,x.d.id)})),'ovprofit','لا موزعين')+
     '<div class="sec-head"><h2>آخر النشاطات</h2></div><div class="card">'+(feedRows.length?feedRows.map(x=>'<div class="lrow"><div>'+escHtml(x.t)+'<small>'+escHtml(x.by||'—')+'</small></div></div>').join(''):'<div class="empty">لا نشاط</div>')+'</div>'+
@@ -8620,8 +8614,7 @@ const ENT={
     {k:'barcode',label:'الباركود (اختياري)',hint:'امسح البطاقة أو اكتب الرقم',type:'text',withScan:'product'},
     {k:'unit',label:'الوحدة',value:'حبة'},
     {k:'cost',label:'تكلفة التصنيع',type:'number',step:'0.001',value:0},
-    {k:'price',label:'سعر البيع للعميل',type:'number',step:'0.001',value:0},
-    {k:'dist_price',label:'سعر الجملة للموزع',type:'number',step:'0.001',value:0},
+    {k:'price',label:'سعر البيع',type:'number',step:'0.001',value:0},
     {k:'incentive',label:'حافز الإنتاج/وحدة',type:'number',step:'0.001',value:0},
     {k:'opening',label:'مخزون افتتاحي',type:'number',value:0},
     {k:'min_stock',label:'حد التنبيه',type:'number',value:0},
@@ -8779,8 +8772,7 @@ function entSheet(ent,id){
     cfg.fields.forEach(f=>{if(f.type==='select'&&v[f.k]==='')v[f.k]=null});
     if(ent==='products'){
       v.price=Number(v.price)||0;
-      v.dist_price=Number(v.dist_price)||0;
-      if(v.dist_price<=0)v.dist_price=v.price;
+      v.dist_price=v.price;
     }
     const row=Object.assign({},rec?{id:rec.id}:{},v);
     const changes=(rec&&TRACKED[ent])?TRACKED[ent].filter(k=>(k in v)&&r3(Number(v[k])||0)!==r3(Number(rec[k])||0)).map(k=>({field:k,old:Number(rec[k])||0,nw:Number(v[k])||0})):[];
@@ -11935,7 +11927,7 @@ document.addEventListener('click', function(e){
   if(!p) return;
   
   const stock = stockWH(store, p.id);
-  const distPrice = p.dist_price || p.price || 0;
+  const distPrice = p.price || 0;
   const isLow = p.min_stock && stock < p.min_stock;
   
   // 🆕 تفاصيل المنتج — التكلفة للمدير فقط
@@ -13164,7 +13156,7 @@ function buildReply(intent, raw) {
       if (isAdmin) {
         var its = (s3.sale_items_flat||[]).filter(function(x){ return x.date.slice(0,4) === YEAR(); });
         var rev = its.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
-        var cost = its.reduce(function(t,x){ var p = s3.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.dist_price||p.price||0); }, 0);
+        var cost = its.reduce(function(t,x){ var p = s3.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.cost||0); }, 0);
         lines.push('• الربح: ' + fmt(rev-cost) + ' ' + cn);
       }
       return { text: lines.join('\n') };
@@ -13174,7 +13166,7 @@ function buildReply(intent, raw) {
       var s4 = store(); if (!s4) return { text: 'لا بيانات.' };
       var items = s4.sale_items_flat || [];
       var rev = items.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
-      var cost = items.reduce(function(t,x){ var p = s4.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.dist_price||p.price||0); }, 0);
+      var cost = items.reduce(function(t,x){ var p = s4.products.find(function(y){return y.id===x.product_id;})||{}; return t + x.qty*(p.cost||0); }, 0);
       return { text: '💰 *الأرباح*\n• الإيراد: ' + fmt(rev) + ' ' + cn + '\n• التكلفة: ' + fmt(cost) + ' ' + cn + '\n• الربح: *' + fmt(rev-cost) + ' ' + cn + '*\n• الهامش: ' + (rev>0?((rev-cost)/rev*100).toFixed(1)+'%':'—') };
     }
     case 'sales_yesterday': {
@@ -13718,7 +13710,7 @@ function buildRichContext() {
     var rev = it.reduce(function(t,x){ return t + (x.qty*x.price-(x.discount||0)); }, 0);
     var cost = it.reduce(function(t,x){
       var p = s.products.find(function(y){ return y.id === x.product_id; }) || {};
-      return t + x.qty * (p.dist_price || p.price || 0);
+      return t + x.qty * (p.cost || 0);
     }, 0);
     ctx.الأرباح = {
       الإيراد: r3(rev), التكلفة: r3(cost),
