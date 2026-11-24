@@ -1,217 +1,89 @@
-/* =====================================================================
-   MUZN Service Worker v3.5
-   ===================================================================== */
-const CACHE_VERSION = 'muzn-v11';
-const CACHE_STATIC = CACHE_VERSION + '-static';
-const CACHE_RUNTIME = CACHE_VERSION + '-runtime';
-
-// الملفات الأساسية للتخزين
+// sw.js — MUZN Service Worker v11.5
+const CACHE_STATIC = 'muzn-static-v11.5';
+const CACHE_RUNTIME = 'muzn-runtime-v11.5';
 const STATIC_ASSETS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './barcode.js',
-  './favicon-32.png',
-  './favicon-16.png',
-  './favicon.ico',
-  './apple-touch-icon.png',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
-  'https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap'
+  './', './index.html', './barcode.js', './manifest.json',
+  './favicon.ico', './favicon-16.png', './favicon-32.png',
+  './apple-touch-icon.png'
 ];
 
-// =====================================================================
-// Install — تثبيت Service Worker
-// =====================================================================
-self.addEventListener('install', (event) => {
-  console.log('[SW] Installing v' + CACHE_VERSION);
-  event.waitUntil(
-    caches.open(CACHE_STATIC).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch(err => {
-        console.warn('[SW] بعض الملفات فشلت:', err);
-      });
-    }).then(() => self.skipWaiting())  // ✅ تفعيل فوري
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE_STATIC)
+      .then(c => c.addAll(STATIC_ASSETS).catch(()=>{}))
+      .then(() => self.skipWaiting())
   );
 });
 
-// =====================================================================
-// Activate — تفعيل + حذف الكاش القديم
-// =====================================================================
-self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating v' + CACHE_VERSION);
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys
-          .filter(key => key.startsWith('muzn-') && key !== CACHE_STATIC && key !== CACHE_RUNTIME)
-          .map(key => {
-            console.log('[SW] Deleting old cache:', key);
-            return caches.delete(key);
-          })
-      );
-    }).then(() => self.clients.claim())  // ✅ التحكم الفوري بالصفحات
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => !k.startsWith('muzn-')).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-// =====================================================================
-// Fetch — استراتيجية التخزين
-// =====================================================================
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if(req.method !== 'GET') return;
 
-  // تجاهل طلبات Supabase — يجب أن تذهب دائماً للشبكة
-  if (url.hostname.includes('supabase.co')) {
-    return; // Network only
-  }
+  const url = new URL(req.url);
+  // ❌ لا تخزّن Supabase أو الخطوط أو أي طلب خارجي حساس
+  if(url.hostname.includes('supabase.co') || url.hostname.includes('googleapis.com')) return;
+  if(req.headers.get('authorization')) return;
 
-  // تجاهل طلبات POST/PUT/DELETE — ليست قابلة للتخزين
-  if (request.method !== 'GET') {
+  // ✅ App shell: cache-first
+  if(req.mode === 'navigate' || url.pathname.endsWith('.html')){
+    e.respondWith(
+      fetch(req).then(r => {
+        const copy = r.clone();
+        caches.open(CACHE_STATIC).then(c=>c.put('./index.html', copy));
+        return r;
+      }).catch(() => caches.match('./index.html'))
+    );
     return;
   }
 
-  // تجاهل طلبات Chrome extensions
-  if (url.protocol === 'chrome-extension:') {
-    return;
-  }
-
-  // استراتيجية: Network First مع fallback للكاش
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // ✅ خزّن النسخة الجديدة في الكاش
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseClone = response.clone();
-          caches.open(CACHE_RUNTIME).then((cache) => {
-            cache.put(request, responseClone);
-          });
+  // ✅ أصول ثابتة: cache-first
+  e.respondWith(
+    caches.match(req).then(cached => {
+      if(cached) return cached;
+      return fetch(req).then(r => {
+        if(r.ok && url.origin === self.location.origin){
+          const copy = r.clone();
+          caches.open(CACHE_RUNTIME).then(c=>c.put(req, copy));
         }
-        return response;
-      })
-      .catch(() => {
-        // ✅ الشبكة فشلت — استخدم الكاش
-        return caches.match(request).then((cached) => {
-          if (cached) {
-            console.log('[SW] Offline — serving from cache:', request.url);
-            return cached;
-          }
-          // إذا كان طلب HTML، أرجع index.html
-          if (request.headers.get('accept')?.includes('text/html')) {
-            return caches.match('./index.html');
-          }
-          // fallback نهائي
-          return new Response('Offline', {
-            status: 503,
-            statusText: 'Service Unavailable',
-            headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
-          });
-        });
-      })
-  );
-});
-
-// =====================================================================
-// Push — استقبال الإشعارات
-// =====================================================================
-self.addEventListener('push', (event) => {
-  console.log('[SW] 🔔 Push received');
-  
-  let data = {
-    title: 'MUZN',
-    body: 'لديك إشعار جديد',
-    url: '/',
-    kind: 'general',
-    ref_id: null
-  };
-
-  try {
-    if (event.data) {
-      const payload = event.data.json();
-      data = Object.assign(data, payload);
-    }
-  } catch (e) {
-    console.warn('[SW] Push data parse failed:', e);
-    if (event.data) {
-      data.body = event.data.text();
-    }
-  }
-
-  const options = {
-    body: data.body || '',
-    icon: './apple-touch-icon.png',
-    badge: './favicon-32.png',
-    vibrate: [200, 100, 200, 100, 200],
-    tag: data.kind ? (data.kind + '-' + (data.ref_id || Date.now())) : 'muzn-notification',
-    renotify: true,
-    requireInteraction: false,
-    silent: false,
-    data: {
-      url: data.url || '/',
-      kind: data.kind,
-      ref_id: data.ref_id,
-      timestamp: Date.now()
-    },
-    actions: [
-      { action: 'open', title: '📂 فتح' },
-      { action: 'dismiss', title: '✖ تجاهل' }
-    ]
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
-});
-
-// =====================================================================
-// Notification Click — عند الضغط على الإشعار
-// =====================================================================
-self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] 👆 Notification clicked:', event.action);
-  event.notification.close();
-
-  // إذا اختار "تجاهل"
-  if (event.action === 'dismiss') {
-    return;
-  }
-
-  const targetUrl = event.notification.data?.url || '/';
-  const fullUrl = new URL(targetUrl, self.location.origin).href;
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // ✅ ابحث عن نافذة مفتوحة للتطبيق
-      for (const client of clientList) {
-        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
-          client.navigate(fullUrl);
-          return client.focus();
-        }
-      }
-      // ✅ لم تُوجد — افتح نافذة جديدة
-      if (clients.openWindow) {
-        return clients.openWindow(fullUrl);
-      }
+        return r;
+      }).catch(() => cached);
     })
   );
 });
 
-// =====================================================================
-// Message — استقبال رسائل من الصفحة الرئيسية
-// =====================================================================
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] ⏭️ Skip waiting requested');
-    self.skipWaiting();
-  }
-  if (event.data && event.data.type === 'CHECK_UPDATE') {
-    self.registration.update();
-  }
+// 🔔 Push
+self.addEventListener('push', e => {
+  const data = (() => { try { return e.data.json(); } catch { return {title:'MUZN'}; } })();
+  e.waitUntil(self.registration.showNotification(data.title || 'MUZN', {
+    body: data.body || '',
+    icon: './apple-touch-icon.png',
+    badge: './favicon-32.png',
+    data: { url: data.url || './' },
+    tag: data.tag || 'muzn-notif',
+    vibrate: [200,100,200]
+  }));
 });
 
-// =====================================================================
-// Sync — Background Sync (اختياري للمستقبل)
-// =====================================================================
-self.addEventListener('sync', (event) => {
-  console.log('[SW] 🔄 Background sync:', event.tag);
-  // يمكن استخدامه لاحقاً للمزامنة في الخلفية
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(clients.openWindow(e.notification.data?.url || './'));
 });
 
-console.log('[SW] ✅ Loaded v' + CACHE_VERSION);
+// 🔄 Background Sync — لرفع الطلبات المعلّقة
+self.addEventListener('sync', e => {
+  if(e.tag === 'muzn-sync-queue'){
+    e.waitUntil(
+      clients.matchAll({ type:'window' }).then(list => {
+        list.forEach(c => c.postMessage({ type:'MUZN_SYNC_NOW' }));
+      })
+    );
+  }
+});
