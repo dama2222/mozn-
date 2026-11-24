@@ -14603,6 +14603,62 @@ showBub=function(t,mood,ms){var b=document.getElementById('mzn-bubble');if(!b||!
 setTimeout(pruneSeen,5000);
 
 })();
+// ==================== Service Worker Registration ====================
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => {
+        LOG.log('[SW] Registered:', reg.scope);
+        // إعادة تحميل تلقائية عند وجود تحديث
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          nw?.addEventListener('statechange', () => {
+            if(nw.state === 'installed' && navigator.serviceWorker.controller){
+              if(confirm('تحديث جديد متاح. إعادة التحميل الآن؟')) location.reload();
+            }
+          });
+        });
+      })
+      .catch(err => LOG.warn('[SW] Registration failed:', err));
+  });
+
+  // 📥 استقبل رسائل الـ SW
+  navigator.serviceWorker.addEventListener('message', e => {
+    if(e.data?.type === 'MUZN_SYNC_NOW' && window.__muzn){
+      window.__muzn.syncNow?.();
+    }
+  });
+}
+
+// 📱 طلب إذن الإشعارات (بعد تسجيل الدخول فقط)
+async function requestPushPermission(){
+  if(!('Notification' in window) || Notification.permission !== 'default') return;
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted') return;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushSubscription ? null : await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    // احفظ في Supabase
+    if(adapter.mode === 'cloud' && sub){
+      await adapter.saveSimple('push_subscriptions', {
+        id: sub.endpoint, user_id: user.id,
+        endpoint: sub.endpoint, p256dh: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))),
+        auth: btoa(String.fromCharCode(...new Uint8Array(sub.getKey('auth')))),
+        created_at: new Date().toISOString()
+      }).catch(()=>{});
+    }
+  }catch(e){ LOG.warn('Push sub failed', e); }
+}
+
+function urlBase64ToUint8Array(b64){
+  const padding = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
 </script>
 </body>
 </html>
