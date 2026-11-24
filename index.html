@@ -557,8 +557,7 @@ const IndexManager = {
   markDirty(kind){ this._dirty[kind] = true; },
   forceAll(){ this._dirty.shift = this._dirty.sale = this._dirty.purchase = true; },
   rebuildIfNeeded(st){
-    /* سعر واحد: نُطابق سعر الجملة القديم مع سعر البيع في الذاكرة */
-    try{(st.products||[]).forEach(p=>{if(p&&p.dist_price!==p.price)p.dist_price=p.price})}catch(e){}
+    /* الاحتفاظ بسعر الجملة منفصلاً عن سعر البيع للعميل */
     if(this._dirty.shift){
       st.shift_items_flat = st.shifts.flatMap(h =>
         h.items.map(it => Object.assign({}, it, {
@@ -804,8 +803,8 @@ const sn = id => nm('suppliers', id);
 const saleItemNet=it=>r2(Math.max(0, it.qty*it.price-(it.discount||0)));
 const saleItemCost=it=>r2(it.qty*(it.cost||0));
 const saleTotal=h=>sum(h.items,saleItemNet);
-/* إيراد الشركة = صافي سعر البيع (سعر واحد، لا سعر جملة) */
-const saleItemCoRev=(it,did,ts)=>saleItemNet(it); /* سعر واحد للجميع: لا سعر جملة بعد الآن */
+/* إيراد الشركة = قيمة البيع للموزع بسعر الجملة؛ والمبيعات للعميل تُظهر الهامش الكامل للموزع */
+const saleItemCoRev=(it,did,ts)=>{const p=pOf(store,it.product_id)||{};return r2((it.qty||0)*(pField(store,p,'dist_price',ts||it.ts)||p.dist_price||p.price||0)-(it.discount||0)*0);};
 
 /* =====================================================================
    🕘 سجل تاريخ الأسعار والتكاليف — التعديل يسري على الجديد فقط
@@ -838,26 +837,29 @@ const mField=(st,m,field,ts)=>m?fieldAt(st,'materials',m.id,field,ts,m[field]||0
 const purchItemTotal=it=>r2(it.qty*it.unit_cost);
 const purchTotal=h=>sum(h.items,purchItemTotal);
 
+function isDisputedWithdrawal(st,w){
+  return w.status==='disputed'||(st.withdrawal_confirmations||[]).some(c=>c.status==='disputed'&&((c.items||[]).some(i=>i.withdrawal_id===w.id)||c.withdrawal_id===w.id));
+}
 function stockWH(st,pid){
   const p=pOf(st,pid);if(!p)return 0;
   return r3((p.opening||0)
     + sum((st.shift_items_flat||[]).filter(s=>s.product_id===pid),s=>s.actual)
     + sum((st.purchase_items_flat||[]).filter(x=>x.product_id===pid),x=>x.qty)
-    - sum((st.withdrawals||[]).filter(w=>w.product_id===pid),w=>w.qty)
+    - sum((st.withdrawals||[]).filter(w=>w.product_id===pid&&!isDisputedWithdrawal(st,w)),w=>w.qty)
     - sum((st.sale_items_flat||[]).filter(s=>s.product_id===pid&&!s.distributor_id),s=>s.qty)
     + sum((st.stock_adjustments||[]).filter(a=>a.kind==='product'&&a.item_id===pid),a=>a.diff)
     + sum((st.stock_transfers||[]).filter(t=>t.product_id===pid&&t.to_distributor_id===null),t=>t.qty));
 }
 function materialStock(st,mid){
   const m=mOf(st,mid);if(!m)return 0;
-  const consumed=sum(st.shift_items_flat.filter(s=>{const p=pOf(st,s.product_id);return p&&p.material_id===mid}),s=>{
-    const p=pOf(st,s.product_id);return s.actual*pField(st,p,'material_qty',s.ts);
+  const consumed=sum((st.shift_items_flat||[]).filter(s=>{const p=pOf(st,s.product_id);return p&&p.material_id===mid}),s=>{
+  const p=pOf(st,s.product_id);return ((Number(s.actual)||0)+(Number(s.waste)||0))*pField(st,p,'material_qty',s.ts);
   });
   return (m.opening||0)+sum(st.purchase_items_flat.filter(x=>x.material_id===mid),x=>x.qty)-consumed
     +sum((st.stock_adjustments||[]).filter(a=>a.kind==='material'&&a.item_id===mid),a=>a.diff);
 }
 function custody(st,did,pid){
-  return sum(st.withdrawals.filter(w=>w.distributor_id===did&&w.product_id===pid),w=>w.qty)
+  return sum(st.withdrawals.filter(w=>w.distributor_id===did&&w.product_id===pid&&!isDisputedWithdrawal(st,w)),w=>w.qty)
     - sum(st.sale_items_flat.filter(s=>s.distributor_id===did&&s.product_id===pid),s=>s.qty)
     - sum((st.stock_transfers||[]).filter(t=>t.from_distributor_id===did&&t.product_id===pid),t=>t.qty)
     + sum((st.stock_transfers||[]).filter(t=>t.to_distributor_id===did&&t.product_id===pid),t=>t.qty);
@@ -1029,8 +1031,8 @@ function distributorProfit(st,did){
     const rev=r2(Math.max(0, qty*it.price-disc));
     
     // ✅ التصحيح: تكلفة الموزع هي سعر الجملة الذي اشترى به منك
-    const wholesale = pField(st, p, 'dist_price', it.ts) || p.price || 0;
-    const cst=r2(qty*wholesale);
+    const wholesale = pField(st, p, 'dist_price', it.ts) || p.dist_price || p.price || 0;
+    const cst=r2(it.qty*wholesale);
     
     const pf=r2(rev-cst);
     revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+pf);
@@ -1048,9 +1050,9 @@ function distributorProfitInPeriod(st,did,from,to){
   let revenue=0,cost=0,profit=0;
   items.forEach(it=>{
     const p=pOf(st,it.product_id)||{};
-    const wholesale=pField(st,p,'dist_price',it.ts)||p.price||0;
+    const wholesale=pField(st,p,'dist_price',it.ts)||p.dist_price||p.price||0;
     const rev=r2(it.qty*(it.price||0)-(it.discount||0));
-    const cst=rev;
+    const cst=r2(it.qty*wholesale);
     revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+rev-cst);
   });
   return {revenue,cost,profit};
@@ -1274,7 +1276,7 @@ function calculateProductionBonuses(header, items){
     if(rewardAmount <= 0) continue;
     
     // اسم الطرف
-    const targetName = targetId ? getEntityName('operators', targetId) : getEntityName('operators', header.operator_id);
+    const targetName = targetId ? nm('operators', targetId) : nm('operators', header.operator_id);
     
     // اسم المنتج
     let productName = 'كل المنتجات';
@@ -1785,7 +1787,7 @@ const LocalAdapter={
   if(!nw || nw.length < 8){
     throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
   }
-  if(!/[A-Za-z]/.test(nw) || !/\d/.test(nw)){
+  if(!/[A-Za-z]/.test(nw) || !/[0-9]/.test(nw)){
     throw new Error('يجب أن تحتوي على حرف ورقم على الأقل');
   }
   // ... باقي الدالة كما هي
@@ -1982,11 +1984,11 @@ const sb=window.supabase.createClient(url,key,{
   return profile;
 },
    async setPassword(id,curp,nw){
-  // ✅ تحقق القوة
+  // ✅ تحقق القوة الموحد
   if(!nw || nw.length < 8){
     throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
   }
-  if(!/[A-Za-z]/.test(nw) || !/\d/.test(nw)){
+  if(!/[A-Za-z]/.test(nw) || !/[0-9]/.test(nw)){
     throw new Error('يجب أن تحتوي على حرف ورقم على الأقل');
   }
   // ... باقي الدالة كما هي
@@ -7214,16 +7216,16 @@ async function confirmWithdrawal(confirmationId, action){
   try{
     // ✅ إذا كان اعتراضاً — أعد البضاعة للمخزون
     if(isDispute){
-      // 1. احذف السحب من قاعدة البيانات
+      // 1. احتفظ بالسحب، وغير حالته إلى مرفوض بدلاً من حذف أثره
       const wdIds = Array.from(new Set([c.withdrawal_id].concat((c.items || []).map(i => i.withdrawal_id)).filter(Boolean)));
-      for(const wid of wdIds){ await adapter.deleteSimple('withdrawals', wid); }
+      for(const wid of wdIds){ await adapter.updateSimple('withdrawals', wid, {status:'disputed', rejected_at:Date.now(), rejected_by:user.name, rejection_reason:notes}); }
       
       // 2. حدّث سجل التشيك
       await adapter.updateSimple('withdrawal_confirmations', confirmationId, patch);
       
-      // 3. حدّث المخزون محلياً
+      // 3. حدّث الحالة محلياً مع إبقاء السجل
       const draft = clone(store);
-      draft.withdrawals = draft.withdrawals.filter(w => wdIds.indexOf(w.id) < 0);
+      draft.withdrawals=(draft.withdrawals||[]).map(w=>wdIds.indexOf(w.id)>=0?Object.assign({},w,{status:'disputed',rejected_at:Date.now(),rejected_by:user.name,rejection_reason:notes}):w);
       const cc = draft.withdrawal_confirmations.find(x => x.id === confirmationId);
       if(cc) Object.assign(cc, patch);
       
@@ -7972,10 +7974,11 @@ function mountDistributors(){
     if(!v.distributor_id){toast('اختر الموزع','err');return false}
     if(v.amount<=0){toast('مبلغ غير صحيح','err');return false}
     if(!v.method){toast('اختر الطريقة','err');return false}
-    const no='R-'+String((store.remittances.length||0)+1).padStart(4,'0');
+    const maxNo=Math.max(store.seq?.remit||0,(store.remittances||[]).reduce((mx,r)=>{const n=parseInt(String(r.no||'').replace(/\D/g,''),10);return Number.isFinite(n)?Math.max(mx,n):mx},0));
+    const no='R-'+String(maxNo+1).padStart(4,'0');
     const row={id:uuid(),no,date:today(),distributor_id:v.distributor_id,amount:v.amount,method:v.method,note:v.note,by:user.name,ts:Date.now()};
     const ok=await tryCommit(
-      draft=>{draft.remittances.unshift(row)},
+      draft=>{draft.remittances.unshift(row);draft.seq=draft.seq||{};draft.seq.remit=maxNo+1},
       async()=>{await adapter.saveSimple('remittances',row)},
       {rerender:['distributors','overview']}
     );
@@ -8577,7 +8580,6 @@ function renderOverview(){
     (isA()?(S.discounts||[]):[]).map(x=>({ts:x.ts,by:x.by,t:'خصم · '+fmt(x.amount)+' '+cur()}))
   ).sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,10);
   byId('ov-body').innerHTML=
-    byId('ov-body').innerHTML = 
     makeExportBar('overview-dashboard', 'overview', 'لوحة الإدارة - التقويم') +
     '<div id="overview-dashboard">' + 
     '<div class="kgrid">'+k('صافي الربح',fmt(profit)+' '+cur(),'هامش '+margin.toFixed(1)+'% (سعر البيع − التكلفة)',profit>=0?'up':'dn',true)+
@@ -8601,7 +8603,8 @@ function renderOverview(){
       {h:'ربحه الصافي',f:x=>'<b class="up">'+fmt(x.p.profit)+' '+cur()+'</b>',cls:'nw'},
       {h:'',f:x=>'<button class="mini" data-dprofile="'+x.d.id+'">تفاصيل</button>',cls:'nw'}
     ],dd.map(x=>({d:x.d,p:distributorProfit(S,x.d.id)})),'ovprofit','لا موزعين')+
-    '<div class="sec-head"><h2>آخر النشاطات</h2></div><div class="card">'+(feedRows.length?feedRows.map(x=>'<div class="lrow"><div>'+escHtml(x.t)+'<small>'+escHtml(x.by||'—')+'</small></div></div>').join(''):'<div class="empty">لا نشاط</div>')+'</div>';
+    '<div class="sec-head"><h2>آخر النشاطات</h2></div><div class="card">'+(feedRows.length?feedRows.map(x=>'<div class="lrow"><div>'+escHtml(x.t)+'<small>'+escHtml(x.by||'—')+'</small></div></div>').join(''):'<div class="empty">لا نشاط</div>')+'</div>'+
+    '</div>';
   const a=S.users.find(u=>u.role==='admin'&&u.default_pw);
   byId('ov-warn').innerHTML=(S.company.demo?'<div class="notice">بيانات وهمية.</div>':'')+
     (a?'<div class="notice">غيّر كلمة مرور المدير.</div>':'')+
@@ -8617,7 +8620,8 @@ const ENT={
     {k:'barcode',label:'الباركود (اختياري)',hint:'امسح البطاقة أو اكتب الرقم',type:'text',withScan:'product'},
     {k:'unit',label:'الوحدة',value:'حبة'},
     {k:'cost',label:'تكلفة التصنيع',type:'number',step:'0.001',value:0},
-    {k:'price',label:'سعر البيع',type:'number',step:'0.001',value:0},
+    {k:'price',label:'سعر البيع للعميل',type:'number',step:'0.001',value:0},
+    {k:'dist_price',label:'سعر الجملة للموزع',type:'number',step:'0.001',value:0},
     {k:'incentive',label:'حافز الإنتاج/وحدة',type:'number',step:'0.001',value:0},
     {k:'opening',label:'مخزون افتتاحي',type:'number',value:0},
     {k:'min_stock',label:'حد التنبيه',type:'number',value:0},
@@ -8751,7 +8755,8 @@ function entSheet(ent,id){
       if(!un){toast('أدخل اسم المستخدم','err');return false}
       if(store.users.some(u=>u.username===un&&u.id!==id)){toast('الاسم مستخدم','err');return false}
       if(!rec&&!v.password){toast('أدخل كلمة مرور','err');return false}
-      if(v.password&&v.password.length<4){toast('4 أحرف على الأقل','err');return false}
+      if(v.password&&v.password.length<8){toast('كلمة المرور يجب أن تكون 8 أحرف على الأقل','err');return false}
+      if(v.password&&(!/[A-Za-z]/.test(v.password)||!/[0-9]/.test(v.password))){toast('يجب أن تحتوي كلمة المرور على حرف ورقم','err');return false}
       v.username=un;
       if(rec&&rec.id===user.id&&!v.active){toast('لا يمكنك تعطيل حسابك','err');return false}
       try{
@@ -8772,7 +8777,11 @@ function entSheet(ent,id){
       return false;
     }
     cfg.fields.forEach(f=>{if(f.type==='select'&&v[f.k]==='')v[f.k]=null});
-    if(ent==='products')v.dist_price=Number(v.price)||0;
+    if(ent==='products'){
+      v.price=Number(v.price)||0;
+      v.dist_price=Number(v.dist_price)||0;
+      if(v.dist_price<=0)v.dist_price=v.price;
+    }
     const row=Object.assign({},rec?{id:rec.id}:{},v);
     const changes=(rec&&TRACKED[ent])?TRACKED[ent].filter(k=>(k in v)&&r3(Number(v[k])||0)!==r3(Number(rec[k])||0)).map(k=>({field:k,old:Number(rec[k])||0,nw:Number(v[k])||0})):[];
     const doSave=async mode=>{
@@ -9872,7 +9881,9 @@ function renderAnalytics() {
       '<div class="kv"><span>إجمالي المستحق على العملاء</span><b>'+fmt(outstanding)+' '+cur()+'</b></div>'+
       '<div class="kv"><span>منها متأخر</span><b class="'+(overdueAmt>0?'dn':'up')+'">'+fmt(overdueAmt)+' '+cur()+'</b></div>'+
       '<div class="kv"><span>مستحق للموردين</span><b>'+fmt(supOwe)+' '+cur()+'</b></div>'+
-      (debt.length?'<p class="muted" style="margin:10px 0 4px">أكبر المدينين:</p>'+hbars(debt.slice(0,5),r=>escHtml(r.c.name),r=>r.b.remaining,v=>fmt(v),'var(--orange)'):''));
+      (debt.length?'<p class="muted" style="margin:10px 0 4px">أكبر المدينين:</p>'+hbars(debt.slice(0,5),r=>escHtml(r.c.name),r=>r.b.remaining,v=>fmt(v),'var(--orange)'):'')+
+      '</div></div>');
+
 }
 
 function mountFinance(){
@@ -11129,7 +11140,8 @@ function pwSheet(){
   mountForm(byId('pw-form'),'pw',
     [{k:'cur',label:'الحالية',type:'password'},{k:'n1',label:'الجديدة',type:'password'},{k:'n2',label:'التأكيد',type:'password'}],
     {label:'حفظ',submit:async v=>{
-      if(v.n1.length<4){toast('4 أحرف على الأقل','err');return false}
+      if(v.n1.length<8){toast('كلمة المرور يجب أن تكون 8 أحرف على الأقل','err');return false}
+      if(!/[A-Za-z]/.test(v.n1)||!/[0-9]/.test(v.n1)){toast('يجب أن تحتوي كلمة المرور على حرف ورقم','err');return false}
       if(v.n1!==v.n2){toast('التأكيد لا يطابق','err');return false}
       try{
         const ok=await adapter.setPassword(user.id,v.cur,v.n1);
@@ -14134,6 +14146,7 @@ function openInvoiceForm(type, data) {
   if (type === 'sale' || type === 'sales') {
     // انتقل لقسم المبيعات
     if (typeof go === 'function') go('sales');
+    else if (typeof goTab === 'function') goTab('sales');
     setTimeout(function() {
       // املأ الحقول
       var shf = window.__muzn && window.__muzn.forms ? null : null;
