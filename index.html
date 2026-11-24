@@ -11185,7 +11185,7 @@ function startSmartSync(){
     _syncBusy = false;
   }, SYNC_INTERVAL_MS);
 }
-    /* ═══ التقرير الأسبوعي ═══ */
+/* ═══ التقرير الأسبوعي ═══ */
 function generateWeeklyReport() {
   var u = me(); if (!u) return null;
   var isAdmin = u.role === 'admin';
@@ -11218,8 +11218,7 @@ function generateWeeklyReport() {
     var arrow = change > 0 ? '📈' : (change < 0 ? '📉' : '➡️');
     lines.push('• مقارنة بالأسبوع الماضي: ' + arrow + ' ' + (change > 0 ? '+' : '') + change + '%');
   }
- return lines.join('\n');
-}
+
   if (target) {
     var pct = Math.round(total / target * 100);
     lines.push('');
@@ -11228,17 +11227,13 @@ function generateWeeklyReport() {
     if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
     else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
   }
-  if (target) {
-    var pct = Math.round(total / target * 100);
-    lines.push('');
-    lines.push('🎯 الهدف: ' + fmt(target) + ' ' + cn);
-    lines.push('📊 التحقيق: ' + pct + '%');
-    if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
-    else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
-  }
-  
+
   return lines.join('\n');
 }
+
+/* =====================================================================
+   Offline Queue System
+   ===================================================================== */
 const OFFLINE_QUEUE_KEY = 'muzn_offline_queue_v1';
 const OfflineQueue = {
   _isFlushing: false,
@@ -11247,7 +11242,7 @@ const OfflineQueue = {
   async enqueue(op){
     const q = this._queue();
     
-    // ✅ منع تكرار نفس العملية في الطابور
+    // منع تكرار نفس العملية في الطابور
     const isDup = q.some(x => 
       x.type === op.type && 
       (op.type === 'saveTicket' ? x.header.id === op.header.id : JSON.stringify(x) === JSON.stringify(op))
@@ -11264,7 +11259,7 @@ const OfflineQueue = {
     }
   },
   async flush(){
-    if(this._isFlushing) return {ok:0, fail:0}; // ✅ منع الرفع المتزامن
+    if(this._isFlushing) return {ok:0, fail:0};
     if(adapter.mode !== 'cloud' || !navigator.onLine) return {ok:0, fail:0};
     const q = this._queue();
     if(!q.length) return {ok:0, fail:0};
@@ -11301,7 +11296,10 @@ const OfflineQueue = {
   count(){ return this._queue().length; }
 };
 
- async function boot(){
+/* =====================================================================
+   Boot & Init
+   ===================================================================== */
+async function boot(){
   let th='dark';
   try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
   setTheme(th);
@@ -11320,7 +11318,7 @@ const OfflineQueue = {
     store=await adapter.init();
   }
 
-  // ✅ نقلنا الغلاف ليكون هنا (خارج الـ try) ليغطي أي adapter نستخدمه
+  // ✅ غلاف الأوفلاين
   (function wrapAdapterWithOfflineQueue(){
     const _origSaveTicket     = adapter.saveTicket.bind(adapter);
     const _origEditTicket     = adapter.editTicket.bind(adapter);
@@ -11339,7 +11337,7 @@ const OfflineQueue = {
       try{
         return await _origSaveTicket(...args);
       }catch(e){
-        if (OfflineQueue._isFlushing) throw e; // إذا كنا نرفع من الطابور، لا تعاود الحفظ المحلي
+        if (OfflineQueue._isFlushing) throw e;
         if(isNetErr(e)){
           const [headerTable, itemsTable, fk, header, items] = args;
           const q = OfflineQueue._queue();
@@ -11438,18 +11436,16 @@ const OfflineQueue = {
   if(cfg) startSmartSync();
   PushQueue.start();
 
-  // ✅ مستمع الإنترنت الموحد (الوحيد)
+  // ✅ مستمع الإنترنت الموحد
   window.addEventListener('online', () => {
     showSyncIndicator('🌐 عاد الاتصال', 'ok');
     if(cfg && !document.hidden){
       setTimeout(async () => {
         try{
-          // 1. ارفع المعلقات أولاً
           const {ok, fail} = await OfflineQueue.flush();
           if(ok > 0) toast(`✅ تمت مزامنة ${ok} عملية`, 'ok');
           if(fail > 0) toast(`⚠️ فشلت مزامنة ${fail} عملية`, 'warn');
           
-          // 2. ثم اسحب البيانات الجديدة
           const newStore = await adapter.init();
           store = newStore;
           _lastHash = computeStoreHash(store);
@@ -11464,7 +11460,7 @@ const OfflineQueue = {
     showSyncIndicator('📴 لا اتصال', 'err');
   });
 
-  // ... (باقي كود استرجاع الجلسة يبقى كما هو) ...
+  // ✅ استرجاع الجلسة
   if(adapter && adapter.mode === 'cloud' && adapter.sb){
     try{
       const { data: sessData } = await adapter.sb.auth.getSession();
@@ -11490,7 +11486,6 @@ const OfflineQueue = {
   }
 
   window.__muzn={
-    // ... (اترك هذه كما هي)
     get store(){return store},
     get adapter(){return adapter},
     get user(){return user},
