@@ -4389,16 +4389,6 @@ function renderSales(){
   const _ts = k => sum(_mH.filter(h => h.type === k), saleTotal);
   
   byId('sales-stats').innerHTML = statsStrip(all, saleTotal, fmt, a => fmt(sum(a, h => sum(h.items, x => x.qty))) + ' وحدة') +
-    let exportBtns = `
-  <div style="display:flex; gap:8px; margin-bottom:10px; justify-content:flex-end;">
-    <button class="btn-ghost sm" onclick="ExportEngine.toExcel('sales-table', 'sales-report.xlsx')">
-      📊 Excel
-    </button>
-    <button class="btn-ghost sm" onclick="ExportEngine.toPDF('sales-table', 'sales-report.pdf', 'تقرير المبيعات')">
-      📄 PDF
-    </button>
-  </div>
-`;
     '<div class="stats" style="margin-top:8px"><div class="stat"><span>💵 كاش (الشهر)</span><b>' + fmt(_ts('cash')) + '</b></div>' +
     '<div class="stat"><span>🏦 بنك (الشهر)</span><b>' + fmt(_ts('bank')) + '</b></div>' +
     '<div class="stat"><span>📒 آجل (الشهر)</span><b>' + fmt(_ts('credit')) + '</b></div></div>';
