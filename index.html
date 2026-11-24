@@ -423,8 +423,8 @@ function guardSave(btnId,key,fn){
     const b=byId(btnId),old=b?b.textContent:'';
     if(b){b.disabled=true;b.textContent='⏳ جارٍ الحفظ…'}
     try{
-      await fn();
-      sidClear(key);  // ✅ نظّف معرّفات الأمان بعد النجاح
+      const ok = await fn();
+      if(ok !== false) sidClear(key);  // احتفظ بالمَعَرّفات عند الفشل لإعادة المحاولة دون تكرار السجل
     }
     finally{_SAVEBUSY[key]=false;if(b){b.disabled=false;b.textContent=old}}
   };
@@ -764,13 +764,13 @@ const purchTotal=h=>sum(h.items,purchItemTotal);
 
 function stockWH(st,pid){
   const p=pOf(st,pid);if(!p)return 0;
-  return (p.opening||0)
-    + sum(st.shift_items_flat.filter(s=>s.product_id===pid),s=>s.actual)
-    + sum(st.purchase_items_flat.filter(x=>x.product_id===pid),x=>x.qty)
-    - sum(st.withdrawals.filter(w=>w.product_id===pid),w=>w.qty)
-    - sum(st.sale_items_flat.filter(s=>s.product_id===pid&&!s.distributor_id),s=>s.qty)
+  return r3((p.opening||0)
+    + sum((st.shift_items_flat||[]).filter(s=>s.product_id===pid),s=>s.actual)
+    + sum((st.purchase_items_flat||[]).filter(x=>x.product_id===pid),x=>x.qty)
+    - sum((st.withdrawals||[]).filter(w=>w.product_id===pid),w=>w.qty)
+    - sum((st.sale_items_flat||[]).filter(s=>s.product_id===pid&&!s.distributor_id),s=>s.qty)
     + sum((st.stock_adjustments||[]).filter(a=>a.kind==='product'&&a.item_id===pid),a=>a.diff)
-    + sum((st.stock_transfers||[]).filter(t=>t.product_id===pid&&!t.to_distributor_id),t=>t.qty);
+    + sum((st.stock_transfers||[]).filter(t=>t.product_id===pid&&t.to_distributor_id===null),t=>t.qty));
 }
 function materialStock(st,mid){
   const m=mOf(st,mid);if(!m)return 0;
@@ -836,35 +836,42 @@ function totalDiscountsFor(st,kind,refId){
 function lateFeeCalc(st,c,wFrom,wTo){
   const co=st.company||{};
   if(!co.tax_enabled)return 0;
-  const grace=co.tax_grace_days!=null?Number(co.tax_grace_days):7;
+  const grace=Math.max(Number(co.tax_grace_days!=null?co.tax_grace_days:7)||0,0);
   const rate=(co.tax_monthly_rate!=null?Number(co.tax_monthly_rate):2)/30/100;
   if(!(rate>0))return 0;
-  const DAY=x=>Math.round(parseD(x).getTime()/864e5);
-  const invs=st.sale_items_flat.filter(x=>x.customer_id===c.id&&x.type==='credit');
+  const DAY=x=>{const d=parseD(x);return Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5};
+  const invs=(st.sale_items_flat||[]).filter(x=>x.customer_id===c.id&&x.type==='credit');
   if(!invs.length)return 0;
-  const by={};invs.forEach(it=>{(by[it.header_id]=by[it.header_id]||{date:it.date,ts:it.ts||0,amount:0}).amount+=saleItemNet(it)});
-  const heads=Object.values(by).sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
-  const terms=(c.terms||14)+grace;
-  let cum=0;heads.forEach(h=>{cum+=h.amount;h.cum=cum;h.start=DAY(addDays(h.date,terms))+1});
-  const pays=st.payments.filter(p=>p.customer_id===c.id).map(p=>({d:DAY(p.date),a:p.amount}));
-  const tEnd=Math.min(DAY(today()),wTo?DAY(wTo):Infinity),tStart=wFrom?DAY(wFrom):-Infinity;
-  const pts=new Set();heads.forEach(h=>pts.add(h.start));pays.forEach(p=>pts.add(p.d));
-  if(isFinite(tStart))pts.add(tStart);
-  pts.add(tEnd+1);
-  const arr=Array.from(pts).sort((a,b)=>a-b);
+  const by={};
+  invs.forEach(it=>{(by[it.header_id]=by[it.header_id]||{date:it.date,ts:it.ts||0,amount:0}).amount+=saleItemNet(it)});
+  const heads=Object.values(by).sort((a,b)=>a.date.localeCompare(b.date)||(a.ts||0)-(b.ts||0));
+  heads.forEach(h=>{h.remaining=r2(h.amount);h.due=DAY(addDays(h.date,(c.terms||14)+grace))});
+  const pays=(st.payments||[]).filter(p=>p.customer_id===c.id).map(p=>({d:DAY(p.date),a:r2(p.amount||0)})).sort((a,b)=>a.d-b.d);
+  const todayDay=DAY(today());
+  const allocationStart=Math.min(...heads.map(h=>DAY(h.date)));
+  const tStart=wFrom?DAY(wFrom):Math.min(...heads.map(h=>h.due));
+  const tEnd=wTo?Math.min(DAY(wTo),todayDay):todayDay;
+  if(tEnd<tStart)return 0;
+
+  pays.filter(p=>p.d<tStart).forEach(p=>{
+    let remaining=p.a;
+    for(const h of heads){if(remaining<=1e-9)break;const applied=Math.min(h.remaining,remaining);h.remaining=r2(h.remaining-applied);remaining=r2(remaining-applied)}
+  });
   let fee=0;
-  for(let k=0;k<arr.length-1;k++){
-    const b0=arr[k],b1=Math.min(arr[k+1],tEnd+1),from=Math.max(b0,tStart),len=b1-from;
-    if(len<=0)continue;
-    const P=sum(pays.filter(p=>p.d<=b0),p=>p.a);
-    heads.forEach(h=>{if(h.start<=b0){fee+=Math.min(h.amount,Math.max(h.cum-P,0))*rate*len}});
+  for(let day=tStart;day<=tEnd;day++){
+    pays.filter(p=>p.d===day).forEach(p=>{
+      let remaining=p.a;
+      for(const h of heads){
+        if(remaining<=1e-9)break;
+        const applied=Math.min(h.remaining,remaining);
+        h.remaining=r2(h.remaining-applied);remaining=r2(remaining-applied);
+      }
+    });
+    heads.forEach(h=>{if(h.due<day&&h.remaining>1e-9)fee+=h.remaining*rate});
   }
-   // ✅ سقف الغرامة: نسبة من أصل الدين
-  const MAX_PCT = (co.tax_max_pct != null) ? Number(co.tax_max_pct) : 30;
-  const principalTotal = sum(heads, h => h.amount);
-  const cap = principalTotal * MAX_PCT / 100;
-  if(fee > cap) fee = cap;
-  return r2(fee);
+  const principalTotal=r2(sum(heads,h=>h.amount));
+  const maxPct=Math.max(Number(co.tax_max_pct!=null?co.tax_max_pct:30)||0,0);
+  return r2(Math.min(fee,principalTotal*maxPct/100));
 }
 function custBal(st,c,_skipTax){
   const invs=st.sale_items_flat.filter(s=>s.customer_id===c.id&&s.type==='credit').sort((a,b)=>a.date.localeCompare(b.date)||(a.ts||0)-(b.ts||0));
@@ -897,28 +904,17 @@ function periodOf(st,d){
 function calcDistributorSalary(st, d) {
   const todayStr = today();
   const monthStr = todayStr.slice(0, 7);
-  
-  // جلب الأهداف والراتب من إعدادات الموزع
   const targetD = Number(d.daily_target) || 0;
   const targetM = Number(d.monthly_target) || 0;
-  const baseSalary = Number(d.salary) || 0;
-
-  // حساب إجمالي مبيعات الموزع (اليوم والشهر)
-  const achievedD = sum(st.sale_items_flat.filter(s => s.distributor_id === d.id && s.date === todayStr), saleItemNet);
-  const achievedM = sum(st.sale_items_flat.filter(s => s.distributor_id === d.id && s.date.startsWith(monthStr)), saleItemNet);
+  const baseSalary = (d.salary==null || d.salary==='') ? 2000 : r2(Number(d.salary)||0);
+  const achievedD = r2(sum((st.sale_items_flat||[]).filter(s => s.distributor_id===d.id && s.date===todayStr), saleItemNet));
+  const achievedM = r2(sum((st.sale_items_flat||[]).filter(s => s.distributor_id===d.id && (s.date||'').startsWith(monthStr)), saleItemNet));
 
   let earned = baseSalary;
-  let deduction = 0;
-
-  // تطبيق سياسة الخصم (إذا لم يحقق الهدف الشهري)
-  if (targetM > 0 && achievedM < targetM) {
-    earned = r2(baseSalary * (achievedM / targetM));
-    deduction = r2(baseSalary - earned);
-  } else if (targetM > 0 && achievedM >= targetM) {
-    earned = baseSalary; // حقق الهدف، يأخذ الراتب كاملاً
-    deduction = 0;
+  if(targetM > 0){
+    earned = achievedM >= targetM ? baseSalary : r2(baseSalary * Math.max(0, achievedM / targetM));
   }
-
+  const deduction = r2(Math.max(0, baseSalary-earned));
   return { targetD, achievedD, targetM, achievedM, baseSalary, earned, deduction };
 }
 function dSummary(st,d){
@@ -1024,10 +1020,12 @@ function calculateSalesBonuses(header, items){
   );
   
   for(const rule of rules){
+    if((store.bonus_awards||[]).some(a=>a.rule_id===rule.id&&a.status!=='rejected'&&a.reference_id===header.id)) continue;
     // تحقق من الطرف المستفيد
     let targetId = null;
     if(rule.target_type === 'all'){
-      // لا شيء — يشمل الكل
+      if(!header.distributor_id) continue;
+      targetId = header.distributor_id;
     } else if(rule.target_type === 'distributor'){
       if(rule.target_id !== header.distributor_id) continue;
       targetId = rule.target_id;
@@ -1135,10 +1133,12 @@ function calculateProductionBonuses(header, items){
   );
   
   for(const rule of rules){
+    if((store.bonus_awards||[]).some(a=>a.rule_id===rule.id&&a.status!=='rejected'&&a.reference_id===header.id)) continue;
     // تحقق من الطرف المستفيد
     let targetId = null;
     if(rule.target_type === 'all'){
-      // الكل
+      if(!header.operator_id) continue;
+      targetId = header.operator_id;
     } else if(rule.target_type === 'operator'){
       if(rule.target_id !== header.operator_id) continue;
       targetId = rule.target_id;
@@ -1312,8 +1312,18 @@ function computeBonusProgress(rule, entityId, entityType){
   if(rule.scope === 'production' && entityType !== 'operator') return null;
   
   if(rule.target_type !== 'all'){
-    if(rule.target_type !== entityType) return null;
-    if(rule.target_id !== entityId) return null;
+    if(rule.target_type === 'user'){
+      if(entityType === 'distributor'){
+        const d = store.distributors.find(x=>x.id===entityId);
+        if(!d || d.user_id !== rule.target_id) return null;
+      }else if(entityType === 'operator'){
+        const o = store.operators.find(x=>x.id===entityId);
+        if(!o || o.user_id !== rule.target_id) return null;
+      }else return null;
+    }else{
+      if(rule.target_type !== entityType) return null;
+      if(rule.target_id !== entityId) return null;
+    }
   }
   
   let achieved = 0;
@@ -1670,6 +1680,7 @@ const LocalAdapter={
     if(s.company.tax_enabled==null)s.company.tax_enabled=false;
     if(s.company.tax_grace_days==null)s.company.tax_grace_days=7;
     if(s.company.tax_monthly_rate==null)s.company.tax_monthly_rate=2;
+    if(s.company.tax_max_pct==null)s.company.tax_max_pct=30;
     if(s.company.shift_early_threshold==null)s.company.shift_early_threshold=5;
     if(s.company.shift_late_threshold==null)s.company.shift_late_threshold=10;
     s.customers.forEach(c=>{if(c.phone==null)c.phone=''});
@@ -8898,6 +8909,7 @@ function mountManagement(){
     {k:'tax_enabled',label:'تفعيل غرامة تأخير السداد',type:'toggle',value:()=>!!store.company.tax_enabled},
     {k:'tax_grace_days',label:'أيام سماح إضافية بعد مدة السداد (0 = تبدأ الغرامة فور انتهاء المدة)',type:'number',value:()=>store.company.tax_grace_days!=null?store.company.tax_grace_days:7},
     {k:'tax_monthly_rate',label:'نسبة الغرامة الشهرية % (تُحتسب يومياً = النسبة ÷ 30)',type:'number',step:'0.01',value:()=>store.company.tax_monthly_rate!=null?store.company.tax_monthly_rate:2},
+    {k:'tax_max_pct',label:'الحد الأقصى للغرامة (% من أصل الفواتير الآجلة)',type:'number',step:'0.01',value:()=>store.company.tax_max_pct!=null?store.company.tax_max_pct:30},
     {k:'shift_early_threshold',label:'حد التنبيه المبكر (الساعة)',type:'number',value:()=>store.company.shift_early_threshold||5},
     {k:'shift_late_threshold',label:'حد تنبيه التأخير (الساعة)',type:'number',value:()=>store.company.shift_late_threshold||10}
   ],{label:'حفظ',submit:async v=>{
@@ -8910,6 +8922,7 @@ function mountManagement(){
       tax_enabled:!!v.tax_enabled,
       tax_grace_days:(v.tax_grace_days===''||isNaN(Number(v.tax_grace_days)))?7:Math.max(Number(v.tax_grace_days),0),
       tax_monthly_rate:Number(v.tax_monthly_rate)||0,
+      tax_max_pct:(v.tax_max_pct===''||isNaN(Number(v.tax_max_pct)))?30:Math.max(Number(v.tax_max_pct),0),
       shift_early_threshold:Number(v.shift_early_threshold)||5,
       shift_late_threshold:Number(v.shift_late_threshold)||10
     };
