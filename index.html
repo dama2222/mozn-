@@ -9588,8 +9588,9 @@ document.addEventListener('change',e=>{
   st[k]=k==='mode'?sl.value:Number(sl.value);
   renderAnalytics();
 });
-function renderAnalytics(){
-  const box=byId('an-body');if(!box||!isA())return;
+function renderAnalytics() {
+  const body = byId('analytics-body');
+  if (!body) return;
   const S=store,st=anState(),t=today();
   const ym=st.y+'-'+pad(st.m+1);
   const inR=d=>st.mode==='all'?true:st.mode==='year'?String(d).slice(0,4)===String(st.y):String(d).slice(0,7)===ym;
