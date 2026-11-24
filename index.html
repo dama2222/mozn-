@@ -2407,14 +2407,16 @@ const PushQueue = {
         if(resp.ok){
           console.log('[PushQueue] ✅ تم إرسال:', item.title);
           // حفظ الإشعار في notices بعد النجاح
-          try{
-            const notice = {
-              id: uuid(), date: today(), kind: item.kind || 'general', target_id: item.user_id,
-              title: item.title, body: item.body || '', items: [], by: 'النظام', ts: Date.now(), done: false
-            };
-            await adapter.saveSimple('notices', notice);
-            if(store && store.notices) store.notices.unshift(notice);
-          }catch(e){ console.warn('save notice after retry failed', e); }
+          if(item.kind!=='achievement'){
+            try{
+              const notice = {
+                id: uuid(), date: today(), kind: item.kind || 'general', target_id: item.user_id,
+                title: item.title, body: item.body || '', items: [], by: 'النظام', ts: Date.now(), done: false
+              };
+              await adapter.saveSimple('notices', notice);
+              if(store && store.notices) store.notices.unshift(notice);
+            }catch(e){ console.warn('save notice after retry failed', e); }
+          }
         } else {
           item.attempts = (item.attempts || 0) + 1;
           remaining.push(item);
@@ -2821,17 +2823,19 @@ async function sendPush(userId, title, body, url, kind, refId){
       return;
     }
   }
-  try{
-    const notice = {
-      id: uuid(), date: today(), kind: kind || 'general', target_id: userId,
-      title: title, body: body || '', items: [], by: 'النظام', ts: Date.now(), done: false
-    };
-    await adapter.saveSimple('notices', notice);
-    if(store && store.notices){
-      store.notices.unshift(notice);
-      if(typeof renderBell === 'function') renderBell();
-    }
-  }catch(ex){ console.warn('save notice failed:', ex); }
+  if(kind!=='achievement'){
+    try{
+      const notice = {
+        id: uuid(), date: today(), kind: kind || 'general', target_id: userId,
+        title: title, body: body || '', items: [], by: 'النظام', ts: Date.now(), done: false
+      };
+      await adapter.saveSimple('notices', notice);
+      if(store && store.notices){
+        store.notices.unshift(notice);
+        if(typeof renderBell === 'function') renderBell();
+      }
+    }catch(ex){ console.warn('save notice failed:', ex); }
+  }
 }
 async function sendPushToUsers(userIds,title,body,url,kind,refId){
   if(!userIds||!userIds.length)return;
@@ -3935,7 +3939,7 @@ const SKEL={
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   prices:'<h1>أسعار المنتجات</h1><div id="prices-search-wrap"></div><div id="prices-body"></div>',
-  management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div><div class="card" style="margin-top:14px"><h2>🎁 قواعد البونص</h2><div id="mg-bonus-rules"></div></div><div class="card" style="margin-top:14px"><h2>🎁 المكافآت المحققة</h2><div id="mg-bonus-awards"></div></div>'
+  management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>🏆 جوائز وإنجازات الموظفين</h2><p class="muted">يرشّح النظام أصحاب أعلى النتائج، ويعتمد المدير منح الجائزة. تُعلن للموظفين وتظهر في الملف الشخصي.</p><div id="mg-achievements"></div></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div><div class="card" style="margin-top:14px"><h2>🎁 قواعد البونص</h2><div id="mg-bonus-rules"></div></div><div class="card" style="margin-top:14px"><h2>🎁 المكافآت المحققة</h2><div id="mg-bonus-awards"></div></div>'
 };
 
 /* =====================================================================
@@ -9642,6 +9646,239 @@ function renderDiscountsList(){
       return '<div class="disc-row"><div><b>'+escHtml(name)+'</b> <small class="muted">('+(d.kind==='customer'?'عميل':d.kind==='operator'?'مشغّل':'موزع')+')</small><br><small class="muted">'+escHtml(d.reason)+' · '+d.date+' · '+escHtml(d.by)+'</small></div><b class="dn">-'+fmt(d.amount)+'</b></div>';
     }).join(''):'<div class="empty">لا خصومات</div>');
 }
+const ACHIEVEMENT_TYPES={
+  sales_month:'أفضل بائع للشهر',
+  sales_product:'ملك المنتج في المبيعات',
+  production_product:'بطل إنتاج المنتج',
+  attendance_month:'الأكثر انضباطاً',
+  employee_month:'موظف الشهر'
+};
+function achievementMonth(){
+  const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1);
+}
+function achievementMonthRange(month){
+  const parts=String(month||achievementMonth()).split('-').map(Number);
+  const y=parts[0],m=parts[1]||1,start=y+'-'+pad(m)+'-01';
+  const last=new Date(y,m,0,12),endDate=start.slice(0,7)===today().slice(0,7)?new Date():last;
+  return{start,end:endDate.getFullYear()+'-'+pad(endDate.getMonth()+1)+'-'+pad(endDate.getDate())};
+}
+function achievementWorkdays(start,end){
+  if(!start||!end||start>end)return 0;
+  const a=start.split('-').map(Number),b=end.split('-').map(Number);
+  const d=new Date(a[0],a[1]-1,a[2],12),last=new Date(b[0],b[1]-1,b[2],12);
+  let count=0;
+  while(d<=last){if(d.getDay()!==5)count++;d.setDate(d.getDate()+1)}
+  return count;
+}
+function achievementAttendanceDates(userId){
+  const dates=new Set();
+  (store.attendance_shifts||[]).forEach(s=>{if(s.user_id===userId&&s.date)dates.add(s.date)});
+  const opIds=(store.operators||[]).filter(o=>o.user_id===userId).map(o=>o.id);
+  const distIds=(store.distributors||[]).filter(d=>d.user_id===userId).map(d=>d.id);
+  (store.attendance||[]).forEach(a=>{if(a.date&&(a.present||[]).some(id=>opIds.indexOf(id)>=0))dates.add(a.date)});
+  (store.dist_attendance||[]).forEach(a=>{if(a.date&&(a.present||[]).some(id=>distIds.indexOf(id)>=0))dates.add(a.date)});
+  return dates;
+}
+function achievementAttendanceStats(userId,month){
+  const dates=achievementAttendanceDates(userId),range=achievementMonthRange(month);
+  const recorded=Array.from(dates).filter(d=>d<=range.end).sort();
+  if(!recorded.length)return{days:0,expected:0,rate:0,hasRecords:false};
+  const expected=achievementWorkdays(range.start,range.end);
+  const days=recorded.filter(d=>d>=range.start&&d<=range.end&&new Date(d+'T12:00:00').getDay()!==5).length;
+  return{days,expected,rate:expected?days/expected*100:0,hasRecords:true};
+}
+function employeeStreak(userId){
+  const dates=achievementAttendanceDates(userId),d=new Date();d.setHours(12,0,0,0);
+  if(d.getDay()===5)d.setDate(d.getDate()-1);
+  else if(!dates.has(iso(d)))d.setDate(d.getDate()-1);
+  let count=0;
+  while(count<500){
+    if(d.getDay()===5){d.setDate(d.getDate()-1);continue}
+    if(!dates.has(iso(d)))break;
+    count++;d.setDate(d.getDate()-1);
+  }
+  return{count,todayRecorded:dates.has(today()),todayIsWorkday:new Date().getDay()!==5};
+}
+function achievementSaleOwner(sale){
+  const dist=(store.distributors||[]).find(d=>d.id===sale.distributor_id&&d.user_id);
+  if(dist)return dist.user_id;
+  const name=String(sale.by||'').trim().toLowerCase();
+  const employee=(store.users||[]).find(u=>u.active&&String(u.name||'').trim().toLowerCase()===name);
+  return employee?employee.id:null;
+}
+function achievementSalesByUser(month,productId){
+  const range=achievementMonthRange(month),result={};
+  (store.sales||[]).filter(s=>s.date>=range.start&&s.date<=range.end).forEach(s=>{
+    const uid=achievementSaleOwner(s);if(!uid)return;
+    (s.items||[]).filter(it=>!productId||it.product_id===productId).forEach(it=>{
+      const row=result[uid]||(result[uid]={amount:0,qty:0});
+      row.amount+=saleItemNet(it);row.qty+=Number(it.qty)||0;
+    });
+  });
+  return result;
+}
+function achievementProductionByUser(month,productId){
+  const range=achievementMonthRange(month),result={};
+  (store.shifts||[]).filter(s=>s.date>=range.start&&s.date<=range.end).forEach(s=>{
+    const op=(store.operators||[]).find(o=>o.id===s.operator_id&&o.user_id);if(!op)return;
+    (s.items||[]).filter(it=>!productId||it.product_id===productId).forEach(it=>{
+      const row=result[op.user_id]||(result[op.user_id]={actual:0,planned:0});
+      row.actual+=Number(it.actual)||0;row.planned+=Number(it.planned)||0;
+    });
+  });
+  return result;
+}
+function achievementRecords(userId){
+  const records=[],seen=new Set();
+  (store.notices||[]).forEach(n=>{
+    if(n.kind!=='achievement_record')return;
+    (n.items||[]).forEach(item=>{
+      const a=item&&item.achievement;
+      if(a&&a.user_id===userId&&!seen.has(a.id)){seen.add(a.id);records.push(a)}
+    });
+  });
+  return records.sort((a,b)=>(b.granted_at||0)-(a.granted_at||0));
+}
+function employeeAchievementHTML(employee){
+  const streak=employeeStreak(employee.id),records=achievementRecords(employee.id);
+  return '<div class="card" style="margin:10px 0;background:var(--card2)">'+
+    '<div class="kv"><span>🔥 سلسلة الحضور</span><b>'+streak.count+' يوم دوام</b></div>'+
+    '<small class="muted">أيام الدوام السبت–الخميس؛ الجمعة لا تقطع السلسلة.'+
+      (streak.todayIsWorkday&&!streak.todayRecorded?' سجّل حضورك اليوم للمحافظة عليها.':'')+'</small>'+
+    '<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px">🏅 الإنجازات ('+records.length+')</h2></div>'+
+    (records.length?records.map(a=>'<div class="lrow"><div><b>'+escHtml(a.title)+'</b>'+
+      '<small>'+escHtml(a.periodLabel||a.period)+' · '+escHtml(a.summary||'')+'</small>'+
+      '<small>منحها '+escHtml(a.granted_by||'المدير')+'</small></div><span>🏆</span></div>').join(''):
+      '<div class="empty">لا توجد جوائز بعد — بالتوفيق!</div>')+
+    '</div>';
+}
+function openEmployeeProfile(userId){
+  const employee=(store.users||[]).find(u=>u.id===userId);if(!employee)return;
+  openSheet('<div style="display:flex;align-items:center;gap:10px">'+
+    (employee.photo_url?'<img class="user-avatar" src="'+escHtml(employee.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+
+    '<div><h3 style="margin:0">'+escHtml(employee.name)+'</h3><small>@'+escHtml(employee.username||'')+'</small></div></div>'+
+    employeeAchievementHTML(employee));
+}
+function achievementCandidates(type,month,productId){
+  const employees=(store.users||[]).filter(u=>u.active&&u.role!=='admin');
+  const sales=achievementSalesByUser(month),salesProduct=achievementSalesByUser(month,productId);
+  const production=achievementProductionByUser(month),productionProduct=achievementProductionByUser(month,productId);
+  const rows=[];
+  if(type==='sales_month'){
+    employees.forEach(u=>{const x=sales[u.id];if(x&&x.amount>0){
+      const d=(store.distributors||[]).find(v=>v.user_id===u.id),target=d?Number(d.monthly_target)||0:0;
+      const bonuses=d?(store.bonus_awards||[]).filter(a=>a.scope==='sales'&&a.target_id===d.id&&a.date&&a.date.slice(0,7)===month&&a.status!=='rejected').length:0;
+      rows.push({user:u,value:x.amount,display:fmt(x.amount)+' '+cur(),detail:(target?'التارقت '+fmt(target)+' · '+fmt(x.amount/target*100)+'%':'بدون تارقت محدد')+' · '+bonuses+' بونص محقق'});
+    }});
+  }else if(type==='sales_product'){
+    employees.forEach(u=>{const x=salesProduct[u.id];if(x&&x.qty>0)rows.push({user:u,value:x.qty,display:fmt(x.qty)+' وحدة',detail:'صافي المبيعات '+fmt(x.amount)+' '+cur()})});
+  }else if(type==='production_product'){
+    employees.forEach(u=>{const x=productionProduct[u.id];if(x&&x.actual>0)rows.push({user:u,value:x.actual,display:fmt(x.actual)+' وحدة',detail:'من مخطط '+fmt(x.planned)+' وحدة'})});
+  }else if(type==='attendance_month'){
+    employees.forEach(u=>{const x=achievementAttendanceStats(u.id,month);if(x.hasRecords)rows.push({user:u,value:x.rate,display:x.rate.toFixed(1)+'%',detail:x.days+' من '+x.expected+' يوم دوام · السلسلة الحالية '+employeeStreak(u.id).count+' يوم'})});
+  }else if(type==='employee_month'){
+    const maxSales=Math.max(0,...employees.map(u=>(sales[u.id]||{}).amount||0));
+    const maxProduction=Math.max(0,...employees.map(u=>(production[u.id]||{}).actual||0));
+    employees.forEach(u=>{
+      const dist=(store.distributors||[]).find(v=>v.user_id===u.id);
+      const opIds=(store.operators||[]).filter(o=>o.user_id===u.id);
+      const salesRole=(u.perms||[]).indexOf('sales')>=0||!!dist;
+      const prodRole=(u.perms||[]).indexOf('production')>=0||opIds.length>0;
+      const sx=sales[u.id]||{amount:0},px=production[u.id]||{actual:0,planned:0};
+      const attendance=achievementAttendanceStats(u.id,month);
+      const perf=[];
+      if(salesRole)perf.push(dist&&Number(dist.monthly_target)>0?Math.min(sx.amount/Number(dist.monthly_target),1)*100:(maxSales?sx.amount/maxSales*100:0));
+      if(prodRole)perf.push(px.planned>0?Math.min(px.actual/px.planned,1)*100:(maxProduction?px.actual/maxProduction*100:0));
+      const performance=perf.length?perf.reduce((a,b)=>a+b,0)/perf.length:null;
+      const score=performance==null?(attendance.rate||0):performance*0.6+(attendance.rate||0)*0.4;
+      rows.push({user:u,value:score,display:score.toFixed(1)+'% مؤشر مركّب',detail:'مبيعات '+fmt(sx.amount)+' · إنتاج '+fmt(px.actual)+' · حضور '+(attendance.hasRecords?attendance.rate.toFixed(0)+'%':'لا سجل')});
+    });
+  }
+  return rows.sort((a,b)=>b.value-a.value||a.user.name.localeCompare(b.user.name,'ar'));
+}
+function achievementKey(a){return[a.kind,a.period,a.product_id||''].join('|')}
+function achievementAdminHTML(){
+  const state=ui.ach||(ui.ach={type:'sales_month',month:achievementMonth(),product:''});
+  const needsProduct=state.type==='sales_product'||state.type==='production_product';
+  const products=(store.products||[]).map(p=>'<option value="'+escHtml(p.id)+'"'+(state.product===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>').join('');
+  const range=achievementMonthRange(state.month),period=state.month;
+  const previous=(store.notices||[]).find(n=>n.kind==='achievement_record'&&(n.items||[]).some(i=>i.achievement&&achievementKey(i.achievement)===[state.type,period,needsProduct?state.product:''].join('|')));
+  const rows=needsProduct&&!state.product?[]:achievementCandidates(state.type,state.month,state.product);
+  let result='';
+  if(previous){
+    const a=(previous.items||[]).map(i=>i.achievement).find(Boolean);
+    result='<div class="notice ok">تم منح هذه الجائزة لـ <b>'+escHtml(a?a.user_name:'الموظف')+'</b> عن '+escHtml(a?a.periodLabel:period)+'.</div>';
+  }else if(needsProduct&&!state.product)result='<div class="empty">اختر المنتج لعرض المرشحين.</div>';
+  else if(rows.length)result=rows.map((r,i)=>'<div class="lrow"><div><b>'+(i===0?'🥇 ':i===1?'🥈 ':i===2?'🥉 ':'')+escHtml(r.user.name)+'</b>'+
+    '<small>'+escHtml(r.display)+' · '+escHtml(r.detail)+'</small></div>'+
+    '<button class="mini" data-ach-grant="'+escHtml(r.user.id)+'">اعتماد الجائزة</button></div>').join('');
+  else result='<div class="empty">لا توجد بيانات كافية لهذا الاختيار.</div>';
+  return '<div class="fgrid">'+
+    '<div><label class="fl" for="ach-type">نوع الجائزة</label><select class="in" id="ach-type" data-ach-field="type">'+
+      Object.keys(ACHIEVEMENT_TYPES).map(k=>'<option value="'+k+'"'+(state.type===k?' selected':'')+'>'+ACHIEVEMENT_TYPES[k]+'</option>').join('')+'</select></div>'+
+    '<div><label class="fl" for="ach-month">الشهر</label><input class="in" id="ach-month" type="month" value="'+escHtml(state.month)+'" data-ach-field="month"></div>'+
+    (needsProduct?'<div style="grid-column:1/-1"><label class="fl" for="ach-product">المنتج</label><select class="in" id="ach-product" data-ach-field="product"><option value="">اختر المنتج...</option>'+products+'</select></div>':'')+
+    '</div><div style="margin-top:8px"><b>'+escHtml(ACHIEVEMENT_TYPES[state.type])+'</b>'+
+    '<small class="muted" style="display:block">الترشيح يعتمد على بيانات الفترة '+escHtml(range.start)+' إلى '+escHtml(range.end)+'. اختر «اعتماد الجائزة» لإعلانها للموظفين.</small></div>'+
+    '<div style="margin-top:8px">'+result+'</div>';
+}
+function renderAchievementManagement(){
+  const box=byId('mg-achievements');if(!box)return;
+  if(!isA()){box.innerHTML='';return}
+  box.innerHTML=achievementAdminHTML();
+  box.querySelectorAll('[data-ach-field]').forEach(el=>el.onchange=()=>{
+    const state=ui.ach||(ui.ach={type:'sales_month',month:achievementMonth(),product:''});
+    state[el.dataset.achField]=el.value;
+    if(el.dataset.achField==='month'&&(!/^\d{4}-\d{2}$/.test(el.value)||el.value>achievementMonth())){
+      state.month=achievementMonth();toast('اختر الشهر الحالي أو شهراً سابقاً','err');
+    }
+    if(el.dataset.achField==='type'&&state.type!=='sales_product'&&state.type!=='production_product')state.product='';
+    renderAchievementManagement();
+  });
+  box.querySelectorAll('[data-ach-grant]').forEach(btn=>btn.onclick=()=>{
+    const state=ui.ach,uid=btn.dataset.achGrant;
+    confirmSheet('اعتماد جائزة «'+ACHIEVEMENT_TYPES[state.type]+'» وإرسال إعلان لجميع الموظفين؟','منح الجائزة',()=>grantEmployeeAchievement(state.type,state.month,state.product,uid));
+  });
+}
+async function grantEmployeeAchievement(type,month,productId,userId){
+  if(!isA())return toast('المدير فقط','err');
+  const chosen=achievementCandidates(type,month,productId).find(x=>x.user.id===userId);
+  if(!chosen)return toast('لم يعد المرشح متاحاً؛ حدّث القائمة','err');
+  const needsProduct=type==='sales_product'||type==='production_product';
+  const key=[type,month,needsProduct?productId:''].join('|');
+  if((store.notices||[]).some(n=>n.kind==='achievement_record'&&(n.items||[]).some(i=>i.achievement&&achievementKey(i.achievement)===key))){
+    renderAchievementManagement();return toast('سبق منح هذه الجائزة للفترة المحددة','err');
+  }
+  const product=needsProduct?(store.products||[]).find(p=>p.id===productId):null;
+  const title=type==='sales_product'?'ملك '+(product?product.name:'المنتج'):
+    type==='production_product'?'بطل إنتاج '+(product?product.name:'المنتج'):ACHIEVEMENT_TYPES[type];
+  const parts=month.split('-').map(Number),periodLabel=(CAL_MONTHS[(parts[1]||1)-1]||month)+' '+parts[0];
+  const achievement={id:uuid(),kind:type,period:month,periodLabel,product_id:productId||null,
+    user_id:userId,user_name:chosen.user.name,title,metric:chosen.value,metric_label:chosen.display,
+    summary:chosen.detail,granted_by:user.name,granted_at:Date.now()};
+  const text='🏆 '+chosen.user.name+' حصل على جائزة «'+title+'» عن '+periodLabel+' — '+chosen.display;
+  const record={id:uuid(),date:today(),kind:'achievement_record',target_id:userId,title:text,body:chosen.detail,
+    items:[{achievement}],by:user.name,ts:Date.now(),done:true};
+  const recipients=(store.users||[]).filter(u=>u.active);
+  const notices=[record].concat(recipients.map(recipient=>({id:uuid(),date:today(),kind:'achievement',
+    target_id:recipient.id,title:'🏆 إنجاز جديد للموظفين',body:text,items:[{achievement_id:achievement.id}],
+    by:user.name,ts:Date.now(),done:false})));
+  let failed=0,saved=[];
+  try{await adapter.saveSimple('notices',record);saved.push(record)}
+  catch(ex){console.error('Achievement record save failed',ex);return toast('تعذر حفظ الجائزة: '+ex.message,'err')}
+  for(const notice of notices.slice(1)){
+    try{await adapter.saveSimple('notices',notice);saved.push(notice)}
+    catch(ex){failed++;console.error('Achievement notification failed',ex)}
+  }
+  const existing=new Set((store.notices||[]).map(n=>n.id));
+  store.notices=store.notices||[];
+  saved.filter(n=>!existing.has(n.id)).reverse().forEach(n=>store.notices.unshift(n));
+  const subscribed=new Set((store.push_subscriptions||[]).map(s=>s.user_id));
+  sendPushToUsers(recipients.filter(u=>subscribed.has(u.id)).map(u=>u.id),'🏆 إنجاز جديد للموظفين',text,'/#overview','achievement',achievement.id)
+    .catch(ex=>console.warn('Achievement push notification failed',ex));
+  broadcastChange();renderAll();
+  toast(failed?'تم منح الجائزة لكن تعذر إرسال '+failed+' إشعار':'تم منح الجائزة وإشعار الموظفين','ok');
+}
 function renderManagement(){
   if(!byId('mg-body'))return;
   if(!isA()){byId('mg-body').innerHTML='';return}
@@ -9664,7 +9901,7 @@ function renderManagement(){
   const list=(title,ent,rows,line)=>'<div class="sec-head"><h2>'+title+'</h2><button class="btn-ghost sm" data-ent-new="'+ent+'">+ إضافة</button></div><div class="card">'+
     (rows.length?rows.map(r=>'<div class="lrow"><div>'+line(r)+'</div><button class="mini" data-ent="'+ent+'" data-id="'+r.id+'">تعديل</button></div>').join(''):'<div class="empty">لا يوجد</div>')+'</div>';
   const modName=id=>(MODS.find(m=>m.id===id)||{}).t;
-  const userLine=u=>'<div style="display:flex;align-items:center;gap:9px">'+(u.photo_url?'<img class="user-avatar" src="'+escHtml(u.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+'<div><b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+'</div></div>'+ 
+  const userLine=u=>'<div style="display:flex;align-items:center;gap:9px">'+(u.photo_url?'<img class="user-avatar" src="'+escHtml(u.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+'<div><b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+'<div><button class="mini" data-user-profile="'+escHtml(u.id)+'">🏅 الملف والإنجازات</button></div></div></div>'+ 
     (u.role==='admin'?'':'<div class="chips" style="margin-right:53px">'+u.perms.map(p=>tag('cash',escHtml(modName(p)))).join('')+(u.can_edit?tag('rec','تخفيض'):'')+(u.can_delete?tag('credit','حذف'):'')+'</div>');
   const _oldUserLine=u=>'<b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+
     (u.role==='admin'?'':'<div class="chips">'+u.perms.map(p=>tag('cash',escHtml(modName(p)))).join('')+(u.can_edit?tag('rec','تخفيض'):'')+(u.can_delete?tag('credit','حذف'):'')+'</div>');
@@ -9697,6 +9934,8 @@ function renderManagement(){
   if(cloudBtn)cloudBtn.onclick=cloudSetupSheet;
   const dc=byId('mg-disconnect');
   if(dc)dc.onclick=()=>confirmSheet('فصل الاتصال؟','فصل',()=>{try{localStorage.removeItem(CFGKEY)}catch(e){}location.reload()});
+  renderAchievementManagement();
+  byId('mg-body').querySelectorAll('[data-user-profile]').forEach(btn=>btn.onclick=()=>openEmployeeProfile(btn.dataset.userProfile));
 }
 function dataAction(a){
   if(!isA())return toast('للمدير فقط','err');
@@ -10204,7 +10443,21 @@ const RENDER={
   prices:renderPrices,
   management:renderManagement
 };
+function syncCurrentUserProfile(){
+  if(!user||!store||!Array.isArray(store.users))return;
+  const current=store.users.find(u=>u.id===user.id&&u.active);
+  if(!current)return;
+  user=current;
+  const avatar=byId('userBtn');
+  if(avatar){
+    avatar.setAttribute('aria-label','حساب '+current.name);
+    avatar.innerHTML=current.photo_url
+      ?'<img src="'+escHtml(current.photo_url)+'" alt="'+escHtml(current.name)+'">'
+      :'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>';
+  }
+}
 function renderAll(){
+  syncCurrentUserProfile();
   Object.keys(RENDER).forEach(k=>{try{RENDER[k]()}catch(e){console.error(k,e)}});
   forms.forEach(f=>f.refresh());
   applyBrand();
@@ -10504,6 +10757,7 @@ function alertsList(){
   const notices=(S.notices||[]).filter(n=>{
     if(n.done)return false;
     if(n.kind==='complaint')return false;
+    if(n.kind==='achievement')return n.target_id===user.id;
     if(n.target_id){
       if(n.target_id===user.id)return true;
       if(isA())return true;
@@ -10596,7 +10850,8 @@ function isImportantNotice(n){
     'collection_due_dist',
     'late_dist',
     'early_shift_start',
-    'late_shift_start'
+    'late_shift_start',
+    'achievement_record'
   ];
   
   return importantKinds.indexOf(n.kind) >= 0;
@@ -10926,6 +11181,7 @@ function userSheet(){
   openSheet(
     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'+(user.photo_url?'<img class="user-avatar" src="'+escHtml(user.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+'<h3 style="margin:0">'+escHtml(user.name)+'</h3></div>' +
     '<p class="muted">' + (isA() ? 'مدير' : 'موظف') + ' · @' + escHtml(user.username) + '</p>' +
+    employeeAchievementHTML(user) +
     
     // معلومات النسخة
     '<div class="card" style="background:var(--card2);padding:8px 10px;margin-bottom:12px;font-size:12px">' +
