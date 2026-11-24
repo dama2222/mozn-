@@ -11185,39 +11185,7 @@ function startSmartSync(){
     _syncBusy = false;
   }, SYNC_INTERVAL_MS);
 }
-  // المقارنة مع الأسبوع الماضي
-  var lastWeekStart = new Date();
-  lastWeekStart.setDate(lastWeekStart.getDate() - 14);
-  var lastWeekEnd = new Date();
-  lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
-  var fd = function(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
-  var lastArr = salesInRange(fd(lastWeekStart), fd(lastWeekEnd), un);
-  var lastTotal = sumSales(lastArr);
-  var change = lastTotal > 0 ? Math.round((total - lastTotal) / lastTotal * 100) : 0;
-  
-  var cn = cur();
-  var lines = ['📊 *التقرير الأسبوعي*', ''];
-  lines.push('• الفواتير: ' + count);
-  lines.push('• المبيعات: ' + fmt(total) + ' ' + cn);
-  if (top) lines.push('• الأكثر مبيعاً: ' + top.name + ' (' + top.qty + ')');
-  
-  if (lastTotal > 0) {
-    var arrow = change > 0 ? '📈' : (change < 0 ? '📉' : '➡️');
-    lines.push('• مقارنة بالأسبوع الماضي: ' + arrow + ' ' + (change > 0 ? '+' : '') + change + '%');
-  }
-  
-  if (target) {
-    var pct = Math.round(total / target * 100);
-    lines.push('');
-    lines.push('🎯 الهدف: ' + fmt(target) + ' ' + cn);
-    lines.push('📊 التحقيق: ' + pct + '%');
-    if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
-    else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
-  }
-  
-  return lines.join('\n');
-}
-  /* ═══ التقرير الأسبوعي ═══ */
+    /* ═══ التقرير الأسبوعي ═══ */
 function generateWeeklyReport() {
   var u = me(); if (!u) return null;
   var isAdmin = u.role === 'admin';
@@ -11250,7 +11218,8 @@ function generateWeeklyReport() {
     var arrow = change > 0 ? '📈' : (change < 0 ? '📉' : '➡️');
     lines.push('• مقارنة بالأسبوع الماضي: ' + arrow + ' ' + (change > 0 ? '+' : '') + change + '%');
   }
-
+ return lines.join('\n');
+}
   if (target) {
     var pct = Math.round(total / target * 100);
     lines.push('');
@@ -11259,7 +11228,15 @@ function generateWeeklyReport() {
     if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
     else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
   }
-
+  if (target) {
+    var pct = Math.round(total / target * 100);
+    lines.push('');
+    lines.push('🎯 الهدف: ' + fmt(target) + ' ' + cn);
+    lines.push('📊 التحقيق: ' + pct + '%');
+    if (pct >= 100) lines.push('✅ مبروك! حققت الهدف!');
+    else lines.push('💪 باقي ' + fmt(target - total) + ' ' + cn);
+  }
+  
   return lines.join('\n');
 }
 const OFFLINE_QUEUE_KEY = 'muzn_offline_queue_v1';
