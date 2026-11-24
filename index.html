@@ -56,7 +56,7 @@ svg{display:block}
 .top .left{display:flex;align-items:center;gap:6px;flex:none}
 .iconbtn{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer;position:relative}
 .dot{position:absolute;top:-2px;left:-2px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:99px;display:grid;place-items:center;padding:0 3px}
-.avatar{width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);background:var(--card2);color:var(--text);display:grid;place-items:center;cursor:pointer;padding:0;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.user-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--line);background:var(--card2)}
+.avatar{width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);background:var(--card2);color:var(--text);display:grid;place-items:center;cursor:pointer;padding:0;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.user-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--line);background:var(--card2)}img.user-avatar{cursor:zoom-in}.photo-zoom-view{display:block;max-width:min(90vw,560px);max-height:75vh;width:auto;height:auto;object-fit:contain;margin:12px auto;border-radius:12px}
 .cloudchip{border-radius:99px;font-size:11px;font-weight:800;padding:1px 9px;white-space:nowrap}
 .cloudchip.on{background:var(--green);color:#04240f}
 .cloudchip.off{background:var(--orange);color:#1b1200}
@@ -2052,6 +2052,16 @@ const sb=window.supabase.createClient(url,key,{
   if(!resp.ok){
     throw new Error(result.error || 'فشل حفظ المستخدم');
   }
+  if(u.photo_url){
+    const {data:staff,error:staffError}=await sb.rpc('app_list_staff');
+    if(staffError){
+      throw new Error('تم رفع الصورة، لكن تعذر التحقق من حفظها. تأكد أن app_list_staff تُرجع photo_url: '+staffError.message);
+    }
+    const savedUser=(staff||[]).find(x=>x.id===(result.user?.id||u.id));
+    if(!savedUser||savedUser.photo_url!==u.photo_url){
+      throw new Error('تم رفع الصورة، لكن دالة manage-users لم تحفظ photo_url في سجل المستخدم. يلزم تعديل الدالة لحفظ الحقل.');
+    }
+  }
   
   return result.user?.id || u.id;
 },
@@ -2262,6 +2272,13 @@ function closeSheet(){
 }
 byId('sheetBg').onclick=closeSheet;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+document.addEventListener('click',e=>{
+  const image=e.target.closest('img.user-avatar,[data-photo-zoom]');
+  if(!image||!image.src)return;
+  e.stopPropagation();
+  openSheet('<h3>'+escHtml(image.alt||'صورة المستخدم')+'</h3>'+
+    '<img class="photo-zoom-view" src="'+escHtml(image.currentSrc||image.src)+'" alt="'+escHtml(image.alt||'صورة المستخدم')+'">');
+},true);
 function confirmSheet(msg,yes,fn){
   openSheet('<h3>تأكيد</h3><p>'+escHtml(msg)+'</p><div class="btnrow"><button class="btn-danger" id="cf-yes">'+escHtml(yes)+'</button><button class="btn-ghost" id="cf-no">إلغاء</button></div>');
   byId('cf-yes').onclick=()=>{closeSheet();fn()};
