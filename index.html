@@ -56,7 +56,7 @@ svg{display:block}
 .top .left{display:flex;align-items:center;gap:6px;flex:none}
 .iconbtn{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer;position:relative}
 .dot{position:absolute;top:-2px;left:-2px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:99px;display:grid;place-items:center;padding:0 3px}
-.avatar{width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);background:var(--card2);color:var(--text);display:grid;place-items:center;cursor:pointer;padding:0}
+.avatar{width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);background:var(--card2);color:var(--text);display:grid;place-items:center;cursor:pointer;padding:0;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.user-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--line);background:var(--card2)}
 .cloudchip{border-radius:99px;font-size:11px;font-weight:800;padding:1px 9px;white-space:nowrap}
 .cloudchip.on{background:var(--green);color:#04240f}
 .cloudchip.off{background:var(--orange);color:#1b1200}
@@ -360,6 +360,7 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
     <input class="in" id="lg_pass" type="password" autocomplete="current-password" dir="ltr" style="text-align:right" aria-label="كلمة المرور">
     <div class="err" id="lgErr" role="alert" aria-live="assertive"></div>
     <button class="btn-primary btn-block" id="lgBtn">دخول</button>
+    <button class="btn-ghost btn-block" id="lgPasskey" type="button" style="margin-top:8px">🔐 دخول بالبصمة / الوجه</button>
     <div class="demo" id="lgDemo"></div>
     <button class="reset" id="lgSetup">إعداد قاعدة البيانات المشتركة</button>
   </div>
@@ -375,7 +376,7 @@ pre.rep,textarea.rep{white-space:pre-wrap;word-break:break-word;background:var(-
       <span class="cloudchip" id="cloudChip" hidden aria-live="polite"></span>
       <button class="iconbtn" id="bellBtn" type="button" aria-label="التنبيهات"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot" id="bellDot" hidden aria-hidden="true">0</span></button>
       <button class="iconbtn" id="themeBtn" type="button" aria-label="تبديل المظهر"></button>
-      <button class="avatar" id="userBtn" type="button" aria-label="حسابي"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg></button>
+      <button class="avatar" id="userBtn" type="button" aria-label="حسابي"></button>
     </div>
   </header>
   <main id="main"></main>
@@ -2032,7 +2033,8 @@ const sb=window.supabase.createClient(url,key,{
     perms: u.perms,
     can_edit: u.can_edit,
     can_delete: u.can_delete,
-    active: u.active
+    active: u.active,
+    photo_url: u.photo_url || null
   };
   
   // استدعِ Edge Function
@@ -2968,7 +2970,7 @@ function mountForm(el,id,fields,o){
       };
       if(adapter.mode==='cloud'&&adapter.uploadPhoto){
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-        const path = 'invoices/' + (user ? user.id : 'anon') + '/' + uuid() + '_' + safeName;
+        const path = (f.k==='photo_url'?'users/':'invoices/') + (user ? user.id : 'anon') + '/' + uuid() + '_' + safeName;
         toast('جارٍ رفع الصورة...');
         adapter.uploadPhoto(file,path).then(url=>{fileData[f.k]=url;preview();toast('تم رفع الصورة','ok')})
           .catch(ex=>{console.error(ex);toast('تعذر رفع الصورة','err');inpEl.value=''});
@@ -8657,6 +8659,7 @@ const ENT={
   ]},
   users:{title:'مستخدم',fields:[
     {k:'name',label:'الاسم'},
+    {k:'photo_url',label:'صورة المستخدم',type:'file',hint:'اختر صورة بوجه واضح'},
     {k:'username',label:'اسم المستخدم',placeholder:'بالإنجليزية'},
     {k:'password',label:'كلمة المرور',type:'password',hint:'اتركها فارغة للإبقاء'},
     {k:'role',label:'الدور',type:'radio',options:[['staff','موظف'],['admin','مدير']],value:'staff'},
@@ -9660,7 +9663,9 @@ function renderManagement(){
   const list=(title,ent,rows,line)=>'<div class="sec-head"><h2>'+title+'</h2><button class="btn-ghost sm" data-ent-new="'+ent+'">+ إضافة</button></div><div class="card">'+
     (rows.length?rows.map(r=>'<div class="lrow"><div>'+line(r)+'</div><button class="mini" data-ent="'+ent+'" data-id="'+r.id+'">تعديل</button></div>').join(''):'<div class="empty">لا يوجد</div>')+'</div>';
   const modName=id=>(MODS.find(m=>m.id===id)||{}).t;
-  const userLine=u=>'<b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+
+  const userLine=u=>'<div style="display:flex;align-items:center;gap:9px">'+(u.photo_url?'<img class="user-avatar" src="'+escHtml(u.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+'<div><b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+'</div></div>'+ 
+    (u.role==='admin'?'':'<div class="chips" style="margin-right:53px">'+u.perms.map(p=>tag('cash',escHtml(modName(p)))).join('')+(u.can_edit?tag('rec','تخفيض'):'')+(u.can_delete?tag('credit','حذف'):'')+'</div>');
+  const _oldUserLine=u=>'<b>'+escHtml(u.name)+'</b> <small style="display:inline">@'+escHtml(u.username)+'</small> '+(u.role==='admin'?tag('adm','مدير'):tag('rec','موظف'))+(u.active?'':' '+tag('credit','معطّل'))+
     (u.role==='admin'?'':'<div class="chips">'+u.perms.map(p=>tag('cash',escHtml(modName(p)))).join('')+(u.can_edit?tag('rec','تخفيض'):'')+(u.can_delete?tag('credit','حذف'):'')+'</div>');
   byId('mg-body').innerHTML= scanSection +
     '<div class="sec-head"><h2>طلب إنتاج للفريق</h2><button class="btn-ghost sm" id="mg-reqprod">+ طلب</button></div>'+
@@ -10837,6 +10842,7 @@ function rejectComplaintSheet(id){
 const ICONS={
   overview:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>',
   sales:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M12 7v10M14.4 9.4c-.6-.8-1.4-1.1-2.4-1.1-1.3 0-2.3.7-2.3 1.7 0 2.4 4.7 1.2 4.7 3.6 0 1-1 1.7-2.4 1.7-1 0-1.9-.4-2.5-1.1"/>',
+  prices:'<path d="M20 12l-8 8-8-8V4h8z"/><circle cx="8" cy="8" r="1.4"/><path d="M12 8h4M12 12h3"/>',
   production:'<path d="M3 21V11l6 4v-4l6 4V5h3.5v16z"/><path d="M7 18h.01M11 18h.01M15 18h.01"/>',
   withdrawals:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
   warehouse:'<path d="M3 21V9l9-6 9 6v12z"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/>',  // 🆕 مخزن/مبنى
@@ -10917,7 +10923,7 @@ function userSheet(){
   const buildDate = window.__muzn_build || '—';
   
   openSheet(
-    '<h3>' + escHtml(user.name) + '</h3>' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'+(user.photo_url?'<img class="user-avatar" src="'+escHtml(user.photo_url)+'" alt="">':'<div class="user-avatar" style="display:grid;place-items:center">👤</div>')+'<h3 style="margin:0">'+escHtml(user.name)+'</h3></div>' +
     '<p class="muted">' + (isA() ? 'مدير' : 'موظف') + ' · @' + escHtml(user.username) + '</p>' +
     
     // معلومات النسخة
@@ -10939,6 +10945,7 @@ function userSheet(){
     '<button class="opt" id="us-daily">' + (dailyEnabled ? '📅 إيقاف التقرير اليومي' : '📅 تفعيل التقرير اليومي') + '</button>' +
     
     '<button class="opt" id="us-pw">تغيير كلمة المرور</button>' +
+    '<button class="opt" id="us-passkey">🔐 تفعيل بصمة الوجه / الإصبع لهذا الجهاز</button>' +
     
     '<button class="opt" id="us-theme">تبديل المظهر</button>' +
     
@@ -10957,6 +10964,7 @@ function userSheet(){
   
   // كلمة المرور
   byId('us-pw').onclick = pwSheet;
+  if(byId('us-passkey'))byId('us-passkey').onclick=registerPasskey;
   
   // المظهر
   byId('us-theme').onclick = () => { toggleTheme(); closeSheet(); };
@@ -11202,8 +11210,47 @@ byId('lgSetup').onclick=cloudSetupSheet;
 if(DEFAULT_CLOUD.key)byId('lgSetup').hidden=true;
 
 /* =====================================================================
-   تسجيل الدخول
+   تسجيل الدخول بالبصمة / الوجه (Passkeys)
    ===================================================================== */
+const PASSKEY_KEY='muzn_passkeys_v1';
+function passkeyList(){try{return JSON.parse(localStorage.getItem(PASSKEY_KEY)||'[]')}catch(e){return []}}
+function passkeySave(rows){try{localStorage.setItem(PASSKEY_KEY,JSON.stringify(rows||[]));return true}catch(e){return false}}
+function passkeyB64(buf){const bytes=new Uint8Array(buf);let s='';bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')}
+function passkeyFromB64(s){const pad='='.repeat((4-(s.length%4))%4);const str=atob(s.replace(/-/g,'+').replace(/_/g,'/')+pad);return Uint8Array.from(str,c=>c.charCodeAt(0)).buffer}
+async function registerPasskey(){
+  if(!window.PublicKeyCredential||!window.isSecureContext){toast('الوجه / البصمة يحتاج HTTPS أو localhost','err');return}
+  if(!user){toast('سجّل الدخول بكلمة المرور أولاً','err');return}
+  if(adapter.mode==='cloud'){toast('تسجيل البصمة السحابي يحتاج إعداد Passkey على الخادم','err');return}
+  try{
+    const challenge=crypto.getRandomValues(new Uint8Array(32));
+    const userId=new TextEncoder().encode(user.id);
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge,rp:{name:location.hostname},user:{id:userId,name:user.username,displayName:user.name},
+      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
+      timeout:60000
+    }});
+    if(!cred)return;
+    const credentialId=passkeyB64(cred.rawId);
+    const rows=passkeyList().filter(r=>!(r.userId===user.id&&r.credentialId===credentialId));
+    rows.push({userId:user.id,credentialId,createdAt:Date.now()});
+    passkeySave(rows);
+    toast('تم تفعيل البصمة / الوجه لهذا الجهاز','ok');closeSheet();
+  }catch(e){console.error(e);toast(e.name==='NotAllowedError'?'تم إلغاء تسجيل البصمة':'تعذر تفعيل البصمة / الوجه','err')}
+}
+async function loginWithPasskey(){
+  if(!window.PublicKeyCredential||!window.isSecureContext){byId('lgErr').textContent='الوجه / البصمة يحتاج HTTPS أو localhost';return}
+  if(adapter.mode==='cloud'){byId('lgErr').textContent='الدخول السحابي بالبصمة يحتاج تهيئة الخادم أولاً';return}
+  const rows=passkeyList();if(!rows.length){byId('lgErr').textContent='لا يوجد بصمة مسجلة لهذا الجهاز';return}
+  try{
+    const challenge=crypto.getRandomValues(new Uint8Array(32));
+    const cred=await navigator.credentials.get({publicKey:{challenge,allowCredentials:rows.map(r=>({type:'public-key',id:passkeyFromB64(r.credentialId)})),userVerification:'required',timeout:60000}});
+    if(!cred)return;
+    const match=rows.find(r=>r.credentialId===passkeyB64(cred.rawId));if(!match){byId('lgErr').textContent='اعتماد غير معروف لهذا الجهاز';return}
+    const u=store.users.find(x=>x.id===match.userId&&x.active);if(!u){byId('lgErr').textContent='الحساب غير مفعّل';return}
+    user=u;byId('lgErr').textContent='';startApp();logLoginLocation();
+  }catch(e){console.error(e);byId('lgErr').textContent=e.name==='NotAllowedError'?'تم إلغاء التحقق':'تعذر تسجيل الدخول بالبصمة / الوجه'}
+}
 function showLogin(){
   user=null;
   byId('app').hidden=true;
@@ -11290,6 +11337,7 @@ function logout(){
   showLogin();
 }
 byId('lgBtn').onclick=doLogin;
+if(byId('lgPasskey'))byId('lgPasskey').onclick=loginWithPasskey;
 byId('lg_pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 byId('lg_user').addEventListener('keydown',e=>{if(e.key==='Enter')byId('lg_pass').focus()});
 byId('userBtn').onclick=userSheet;
@@ -11301,6 +11349,8 @@ function startApp(tab){
   forms=[];
   byId('login').hidden=true;
   byId('app').hidden=false;
+  const avatar=byId('userBtn');
+  if(avatar){avatar.innerHTML=cur2.photo_url?'<img src="'+escHtml(cur2.photo_url)+'" alt="'+escHtml(cur2.name)+'">':'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>';}
   byId('navWrap').hidden=false;
   const main=byId('main');
   main.innerHTML='';
