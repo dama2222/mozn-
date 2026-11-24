@@ -2,7 +2,8 @@
   "name": "MUZN Operations",
   "short_name": "MUZN",
   "description": "نظام إدارة العمليات - مبيعات، إنتاج، مشتريات، تحصيل",
-  "start_url": "./",
+  "id": "/?source=pwa",
+  "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
@@ -32,28 +33,22 @@
       "purpose": "any"
     },
     {
-      "src": "apple-touch-icon.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "apple-touch-icon.png",
-      "sizes": "120x120",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "apple-touch-icon.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "apple-touch-icon.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
@@ -77,14 +72,6 @@
       "description": "سندات القبض والذمم",
       "url": "./#collections",
       "icons": [{ "src": "favicon-32.png", "sizes": "32x32" }]
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "screenshot-mobile.png",
-      "sizes": "1080x1920",
-      "type": "image/png",
-      "form_factor": "narrow"
     }
   ]
 }
