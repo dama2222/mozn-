@@ -11261,27 +11261,46 @@ const OfflineQueue = {
   async flush(){
     if(this._isFlushing) return {ok:0, fail:0};
     if(adapter.mode !== 'cloud' || !navigator.onLine) return {ok:0, fail:0};
-    const q = this._queue();
+    
+    let q = this._queue();
     if(!q.length) return {ok:0, fail:0};
     
     this._isFlushing = true;
-    let ok=0, fail=0;
-    const remaining = [];
-    for(const op of q){
+    let ok = 0, fail = 0;
+    
+    // نعالج الطابور عنصراً عنصراً ونحفظ التقدم فوراً
+    while(q.length > 0){
+      const op = q[0]; // نأخذ أول عملية
+      
       try{
         await this._exec(op);
         ok++;
+        q.shift(); // إزالة العملية الناجحة من الطابور
+        this._save(q); // ✅ حفظ فوري (إذا أُغلق التطبيق الآن، لن نفقد الباقي)
       }catch(e){
-        op._tries++;
-        if(op._tries < 5){ remaining.push(op); }
-        fail++;
-        console.warn('Queue op failed', op, e);
+        op._tries = (op._tries || 0) + 1;
+        
+        if(op._tries >= 5){
+          // فشلت 5 مرات، نزيلها لتجنب تعليق النظام للأبد
+          q.shift(); 
+          fail++;
+          this._save(q);
+          console.warn('تم التخلي عن العملية بعد 5 محاولات', op);
+        } else {
+          // إذا كان خطأ شبكة، نوقف المزامنة وننتظر عودة الاتصال
+          const isNetErr = !navigator.onLine || String(e?.message||'').includes('fetch');
+          if (isNetErr) {
+            this._save(q); // نحفظ الحالة الحالية
+            this._isFlushing = false;
+            throw new Error('انقطع الاتصال أثناء المزامنة');
+          }
+        }
       }
     }
-    this._save(remaining);
+    
     this._isFlushing = false;
     return {ok, fail};
-  },
+  }
   async _exec(op){
     switch(op.type){
       case 'saveTicket': return adapter.saveTicket(op.headerTable, op.itemsTable, op.fk, op.header, op.items);
