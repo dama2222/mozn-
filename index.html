@@ -1853,6 +1853,11 @@ const LocalAdapter={
     this._p();
   },
   async deleteSimple(table,id){store[table]=(store[table]||[]).filter(x=>x.id!==id);this._p()},
+  async deleteSimpleMany(table,ids){
+    const remove=new Set(ids);
+    store[table]=(store[table]||[]).filter(x=>!remove.has(x.id));
+    this._p();
+  },
   async saveCompany(patch){Object.assign(store.company,patch);this._p()},
   async uploadPhoto(){throw new Error('الرفع متاح في الوضع السحابي فقط')},
   _p(){try{localStorage.setItem(DBKEY,JSON.stringify(store))}catch(e){toast('تعذر الحفظ','err')}}
@@ -2137,6 +2142,12 @@ const sb=window.supabase.createClient(url,key,{
     },
     async updateSimple(table,id,patch){const{error}=await sb.from(table).update(patch).eq('id',id);if(error)throw error},
     async deleteSimple(table,id){const{error}=await sb.from(table).delete().eq('id',id);if(error)throw error},
+    async deleteSimpleMany(table,ids){
+      for(let i=0;i<ids.length;i+=250){
+        const{error}=await sb.from(table).delete().in('id',ids.slice(i,i+250));
+        if(error)throw error;
+      }
+    },
     async saveCompany(patch){const{error}=await sb.from('company').update(patch).eq('id',1);if(error)throw error},
     async uploadPhoto(file,path){
       /* 3 محاولات مع انتظار متزايد — يفيد مع الشبكة الضعيفة */
@@ -10812,16 +10823,43 @@ function renderBell(){
   if(count>0){dot.hidden=false;dot.textContent=count>9?'9+':count}
   else dot.hidden=true;
 }
+let bellNoticeLimit=30;
+let bellNoticeQuery='';
+function isImportantNotice(n){
+  if(!n)return false;
+  if(n.done===false||n.done==null)return true;
+  return ['production_request','purchase_request','purchase_request_rejected','collection_req','discount','complaint','withdrawal_disputed','withdrawal_recheck_requested','withdrawal_created','overdue_cust','overdue_cust_single','collection_due_dist','late_dist','early_shift_start','late_shift_start','achievement_record'].indexOf(n.kind)>=0;
+}
+function notificationTime(n){return Number(n.ts)||Date.parse(n.date||'')||0}
+function notificationMaintenanceScope(){
+  return (store.notices||[]).filter(n=>n.kind!=='achievement_record'&&(isA()||n.target_id===user.id));
+}
+function renderBellNoticeList(notices){
+  const box=byId('bell-notice-list');
+  if(!box)return;
+  const q=String(bellNoticeQuery||'').trim().toLocaleLowerCase();
+  const filtered=notices.filter(n=>!q||(String(n.title||'')+' '+String(n.body||'')).toLocaleLowerCase().includes(q));
+  const shown=filtered.slice(0,bellNoticeLimit);
+  box.innerHTML=shown.length?shown.map(n=>{
+    const date=n.date|| (n.ts?new Date(Number(n.ts)).toLocaleDateString('ar'): '');
+    return '<div class="lrow" style="align-items:flex-start"><div style="min-width:0;flex:1">'+
+      '<b style="overflow-wrap:anywhere">'+escHtml(n.title||'إشعار')+'</b>'+
+      (isImportantNotice(n)?'<span class="tag disc" style="margin-inline-start:5px">مهم</span>':'')+
+      (n.body?'<small>'+escHtml(n.body)+'</small>':'')+
+      (date?'<small>'+escHtml(date)+'</small>':'')+
+      '</div><button class="mini" data-donenotice="'+escHtml(n.id)+'">تمّ</button></div>';
+  }).join(''):'<div class="empty">'+(q?'لا توجد نتائج مطابقة':'لا توجد إشعارات جديدة')+'</div>';
+  const more=byId('bell-notice-more');
+  if(more){more.hidden=filtered.length<=bellNoticeLimit;more.textContent='عرض المزيد ('+(filtered.length-bellNoticeLimit)+')'}
+  const count=byId('bell-notice-count');
+  if(count)count.textContent=notices.length+' جديد';
+}
 function openBellSheet(){
   const a=alertsList();
-  const sec=(t,rows)=>{
-    if(!rows)return '';
-    if(!Array.isArray(rows))return '';
-    if(!rows.length)return '';
-    return '<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px">'+t+'</h2></div>'+rows.join('');
-  };
-  
-  const html=
+  const scope=notificationMaintenanceScope();
+  const archived=scope.filter(n=>n.done).length;
+  const sec=(t,rows)=>rows&&rows.length?'<div class="sec-head" style="margin:14px 0 8px"><h2 style="font-size:14px">'+t+'</h2></div>'+rows.join(''):'';
+  const otherAlerts=
     sec('مخزون منخفض',(a.lowStock||[]).map(p=>'<div class="lrow"><div>'+escHtml(p.name)+'<small>المتاح '+fmt(stockWH(store,p.id))+'</small></div></div>'))+
     sec('مواد خام منخفضة',(a.lowMat||[]).map(m=>'<div class="lrow"><div>'+escHtml(m.name)+'<small>المتاح '+fmt(materialStock(store,m.id))+'</small></div></div>'))+
     sec('عملاء متأخرون',(a.overdue||[]).map(x=>'<div class="lrow"><div>'+escHtml(x.c.name)+'<small>'+fmt(x.b.remainingWithTax)+' '+cur()+(x.b.tax>0?' (منها غرامة '+fmt(x.b.tax)+')':'')+'</small></div></div>'))+
@@ -10830,243 +10868,57 @@ function openBellSheet(){
       const name=d.kind==='customer'?cn(d.ref_id):d.kind==='operator'?nm('operators',d.ref_id):dn(d.ref_id);
       return '<div class="lrow"><div>'+escHtml(name)+'<small>خصم '+fmt(d.amount)+' '+cur()+' — '+escHtml(d.reason)+'</small></div></div>';
     }))+
-    sec('شكاوى وطلبات سحب مال',(a.complaints||[]).map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><div style="display:flex;gap:4px"><button class="mini" data-donecomplaint="'+c.id+'">✅ تمّ</button><button class="mini dng" data-rejcomplaint="'+c.id+'">❌ رفض</button></div></div>'))+
-    sec('طلبات وإشعارات',(a.notices||[]).map(n=>{
-      // 🆕 وسم "مهم" للإشعارات المهمة
-      const important = isImportantNotice(n);
-      return '<div class="lrow"><div>' +
-        (important ? '<span class="tag disc" style="margin-inline-end:4px">🔴 مهم</span>' : '') +
-        escHtml(n.title) +
-        '<small>'+escHtml(n.body||'')+'</small></div>' +
-        '<button class="mini" data-donenotice="'+n.id+'">تمّ</button></div>';
-    }));
-  
-  // 🆕 إضافة زر مسح الإشعارات
-  const clearButton = 
-    '<div class="btnrow" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">' +
-      '<button class="btn-ghost" id="clear_notices_btn" style="color:var(--orange)">' +
-        '🗑️ مسح الإشعارات العادية' +
-      '</button>' +
-    '</div>';
-  
-  openSheet('<h3>التنبيهات</h3>' + (html||'<div class="empty">لا تنبيهات</div>') + clearButton);
-  
-  // 🆕 ربط الزر
-  const clearBtn = byId('clear_notices_btn');
-  if(clearBtn) clearBtn.onclick = handleClearNotices;
+    sec('شكاوى وطلبات سحب مال',(a.complaints||[]).map(c=>'<div class="lrow"><div>'+tag(c.type==='withdraw'?'credit':'rec',c.type==='withdraw'?'طلب سحب '+fmt(c.amount)+' '+cur():'شكوى')+'<small>'+escHtml(c.by)+' · '+escHtml(c.reason)+'</small></div><div style="display:flex;gap:4px"><button class="mini" data-donecomplaint="'+c.id+'">✅ تمّ</button><button class="mini dng" data-rejcomplaint="'+c.id+'">❌ رفض</button></div></div>'));
+  const notices=(a.notices||[]).slice().sort((x,y)=>notificationTime(y)-notificationTime(x));
+  const panel='<div class="card" style="margin-top:12px;padding:12px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2>صندوق الإشعارات</h2><span class="badge" id="bell-notice-count">'+notices.length+' جديد</span></div>'+
+    '<div class="stats" style="margin:10px 0"><div class="stat"><span>جديدة</span><b>'+notices.length+'</b></div><div class="stat"><span>مؤرشفة</span><b>'+archived+'</b></div><div class="stat"><span>إنجازات محفوظة</span><b>'+(store.notices||[]).filter(n=>n.kind==='achievement_record').length+'</b></div></div>'+
+    '<input class="in" id="bell-notice-search" type="search" placeholder="ابحث في عنوان أو تفاصيل الإشعار" autocomplete="off">'+
+    '<div id="bell-notice-list" style="max-height:42vh;overflow:auto"></div>'+
+    '<button class="btn-ghost more" id="bell-notice-more" hidden>عرض المزيد</button>'+
+    '<div class="btnrow"><button class="btn-ghost" id="clear_notices_btn" '+(archived?'':'disabled')+'>تنظيف المنجزة ('+archived+')</button>'+
+    '<button class="btn-ghost" id="clear_all_notices_btn" style="color:var(--red)" '+(scope.length?'':'disabled')+'>مسح الكل ('+scope.length+')</button></div>'+
+    '<small class="muted" style="display:block;margin-top:8px">تُحفظ الإنجازات دائماً. التنظيف يزيل المنجزة فقط، أما المسح الكلي فيزيل الإشعارات الأخرى.</small></div>';
+  openSheet('<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h3>التنبيهات</h3><button class="mini" onclick="closeSheet()">إغلاق</button></div>'+panel+otherAlerts);
+  bellNoticeLimit=30;
+  bellNoticeQuery='';
+  renderBellNoticeList(notices);
+  const search=byId('bell-notice-search');
+  if(search)search.oninput=()=>{bellNoticeQuery=search.value;renderBellNoticeList(notices)};
+  const more=byId('bell-notice-more');
+  if(more)more.onclick=()=>{bellNoticeLimit+=30;renderBellNoticeList(notices)};
+  const clean=byId('clear_notices_btn');
+  if(clean)clean.onclick=()=>clearNotifications('completed');
+  const clearAll=byId('clear_all_notices_btn');
+  if(clearAll)clearAll.onclick=()=>clearNotifications('all');
 }
-
-/* =====================================================================
-   🆕 تحديد الإشعارات المهمة
-   ===================================================================== */
-function isImportantNotice(n){
-  if(!n) return false;
-  
-  // ✅ إذا لم يُنجز → مهم
-  if(n.done === false || n.done == null) return true;
-  
-  // ✅ أنواع مهمة دائماً
-  const importantKinds = [
-    'production_request',
-    'purchase_request',
-    'purchase_request_rejected',
-    'collection_req',
-    'discount',
-    'complaint',
-    'withdrawal_disputed',
-    'withdrawal_recheck_requested',
-    'withdrawal_created',
-    'overdue_cust',
-    'overdue_cust_single',
-    'collection_due_dist',
-    'late_dist',
-    'early_shift_start',
-    'late_shift_start',
-    'achievement_record'
-  ];
-  
-  return importantKinds.indexOf(n.kind) >= 0;
-}
-
-/* =====================================================================
-   🆕 معالج مسح الإشعارات
-   ===================================================================== */
-let _clearNoticesClicked = false;
-let _clearNoticesTimer = null;
-
-async function handleClearNotices(){
-  const btn = byId('clear_notices_btn');
-  if(!btn) return;
-  
-  // ✅ حساب الإشعارات
-  const allNotices = store.notices || [];
-  const important = allNotices.filter(n => isImportantNotice(n));
-  const normal = allNotices.filter(n => !isImportantNotice(n));
-  
-  if(normal.length === 0 && important.length === 0){
-    return toast('لا توجد إشعارات لمسحها','err');
-  }
-  
-  // ✅ المرحلة 1: نقرة أولى
-  if(!_clearNoticesClicked){
-    _clearNoticesClicked = true;
-    btn.innerHTML = '⚠️ اضغط مرة أخرى للحذف الكامل (يشمل المهمة)';
-    btn.style.background = 'rgba(255,111,97,.15)';
-    btn.style.color = 'var(--red)';
-    
-    // ✅ إذا مرت 5 ثوانٍ — أعد الحالة
-    if(_clearNoticesTimer) clearTimeout(_clearNoticesTimer);
-    _clearNoticesTimer = setTimeout(() => {
-      _clearNoticesClicked = false;
-      if(btn){
-        btn.innerHTML = '🗑️ مسح الإشعارات العادية';
-        btn.style.background = '';
-        btn.style.color = 'var(--orange)';
-      }
-    }, 5000);
-    
-    // ✅ عرض معلومات
-    toast(
-      `سيُمسح ${normal.length} إشعار عادي. اضغط مرة أخرى لمسح المهمة أيضاً (${important.length})`,
-      'err'
-    );
-    return;
-  }
-  
-  // ✅ المرحلة 2: نقرة ثانية
-  if(_clearNoticesTimer) clearTimeout(_clearNoticesTimer);
-  _clearNoticesClicked = false;
-  
-  // ✅ نافذة تأكيد
-  const confirmMsg = 
-    `سيتم مسح:\n` +
-    `• ${normal.length} إشعار عادي\n` +
-    `• ${important.filter(n=>n.kind!=='achievement_record').length} إشعار مهم 🔴\n` +
-    `• ستبقى جوائز وإنجازات الموظفين محفوظة في ملفاتهم\n\n` +
-    `⚠️ لا يمكن التراجع!\n\n` +
-    `هل أنت متأكد؟`;
-  
-  const userConfirmed = window.confirm(confirmMsg);
-  
-  if(!userConfirmed){
-    btn.innerHTML = '🗑️ مسح الإشعارات العادية';
-    btn.style.background = '';
-    btn.style.color = 'var(--orange)';
-    return;
-  }
-  
-  // ✅ تأكيد نهائي بسيط
-  if(!window.confirm('تأكيد أخير: هل تريد حقاً مسح جميع الإشعارات؟')){
-    btn.innerHTML = '🗑️ مسح الإشعارات العادية';
-    btn.style.background = '';
-    btn.style.color = 'var(--orange)';
-    return;
-  }
-  
-  // ✅ تنفيذ المسح
-  await performClear(allNotices);
-}
-
-async function performClear(allNotices){
-  const btn = byId('clear_notices_btn');
-  const achievementRecords=allNotices.filter(n=>n.kind==='achievement_record');
-  const noticesToDelete=allNotices.filter(n=>n.kind!=='achievement_record');
-  if(btn){
-    btn.disabled = true;
-    btn.innerHTML = '⏳ جارٍ المسح...';
-  }
-  
+async function clearNotifications(mode){
+  const scope=notificationMaintenanceScope();
+  const targets=mode==='completed'?scope.filter(n=>n.done):scope;
+  if(!targets.length)return toast(mode==='completed'?'لا توجد إشعارات منجزة للتنظيف':'لا توجد إشعارات للمسح','err');
+  const message=mode==='completed'
+    ?'سيتم حذف '+targets.length+' إشعاراً منجزاً فقط. ستبقى الطلبات الجديدة والإنجازات. هل تريد المتابعة؟'
+    :'سيتم حذف '+targets.length+' إشعاراً نهائياً، مع الاحتفاظ بسجلات الإنجازات. هل أنت متأكد؟';
+  if(!window.confirm(message))return;
+  const btn=byId(mode==='completed'?'clear_notices_btn':'clear_all_notices_btn');
+  if(btn){btn.disabled=true;btn.textContent='جارٍ التنظيف...'}
   try{
-    // Keep permanent achievement records; only clear notifications.
-    for(const n of noticesToDelete){
-      try{
-        await adapter.deleteSimple('notices', n.id);
-      }catch(e){
-        console.warn('فشل حذف إشعار:', n.id, e);
-      }
-    }
-    
-    // ✅ حدّث store
-    const draft = clone(store);
-    draft.notices = achievementRecords;
-    
-    // ✅ سجل العملية
-    draft.audit.unshift({
-      id: uuid(),
-      ts: Date.now(),
-      by: user.name,
-      act: 'مسح',
-      text: 'مسح ' + noticesToDelete.length + ' إشعار مع الاحتفاظ بـ ' + achievementRecords.length + ' سجل إنجاز'
-    });
-    
-    store = draft;
-    
-    // ✅ حدّث الواجهة
-    closeSheet();
-    toast('✅ تم مسح ' + noticesToDelete.length + ' إشعار والاحتفاظ بإنجازات الموظفين','ok');
+    const ids=targets.map(n=>n.id);
+    await adapter.deleteSimpleMany('notices',ids);
+    const removed=new Set(ids);
+    store.notices=(store.notices||[]).filter(n=>!removed.has(n.id));
+    toast('تم حذف '+ids.length+' إشعار بسرعة','ok');
     renderAll();
     renderBell();
-    
+    openBellSheet();
   }catch(ex){
-    console.error(ex);
-    toast('تعذر المسح: ' + ex.message,'err');
-    if(btn){
-      btn.disabled = false;
-      btn.innerHTML = '🗑️ مسح الإشعارات العادية';
-    }
+    console.error('Notification cleanup failed',ex);
+    toast('تعذر تنظيف الإشعارات: '+(ex.message||ex),'err');
+    if(btn){btn.disabled=false;btn.textContent=mode==='completed'?'تنظيف المنجزة':'مسح الكل'}
   }
 }
-
-/* =====================================================================
-   🆕 مسح الإشعارات العادية فقط (بضغطة واحدة)
-   ===================================================================== */
-async function clearNormalNoticesOnly(){
-  const allNotices = store.notices || [];
-  const normal = allNotices.filter(n => !isImportantNotice(n));
-  
-  if(normal.length === 0){
-    return toast('لا توجد إشعارات عادية لمسحها','err');
-  }
-  
-  const confirmed = window.confirm(
-    `🗑️ مسح ${normal.length} إشعار عادي\n\n` +
-    `سيتم الاحتفاظ بالإشعارات المهمة (${allNotices.length - normal.length}).\n\n` +
-    `هل أنت متأكد؟`
-  );
-  
-  if(!confirmed) return;
-  
-  try{
-    for(const n of normal){
-      try{
-        await adapter.deleteSimple('notices', n.id);
-      }catch(e){
-        console.warn('فشل حذف إشعار:', n.id, e);
-      }
-    }
-    
-    const draft = clone(store);
-    draft.notices = draft.notices.filter(n => isImportantNotice(n));
-    draft.audit.unshift({
-      id: uuid(),
-      ts: Date.now(),
-      by: user.name,
-      act: 'مسح',
-      text: 'مسح ' + normal.length + ' إشعار عادي (احتفظ بالمهمة)'
-    });
-    
-    store = draft;
-    
-    closeSheet();
-    toast('✅ تم مسح ' + normal.length + ' إشعار عادي','ok');
-    renderAll();
-    renderBell();
-    
-  }catch(ex){
-    console.error(ex);
-    toast('تعذر المسح: ' + ex.message,'err');
-  }
-}
+async function handleClearNotices(){return clearNotifications('completed')}
+async function clearNormalNoticesOnly(){return clearNotifications('completed')}
 document.addEventListener('click',function(e){
   const bell=e.target.closest('#bellBtn');
   if(bell){e.preventDefault();e.stopPropagation();openBellSheet();return}
