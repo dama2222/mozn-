@@ -11300,7 +11300,7 @@ const OfflineQueue = {
     
     this._isFlushing = false;
     return {ok, fail};
-  }
+  },
   async _exec(op){
     switch(op.type){
       case 'saveTicket': return adapter.saveTicket(op.headerTable, op.itemsTable, op.fk, op.header, op.items);
