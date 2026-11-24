@@ -2172,19 +2172,6 @@ function copyText(text){
       toast('فشل تصدير Excel', 'err');
     }
   },
-
-  toPDF(elementId, filename = 'report.pdf', title = 'تقرير MUZN') {
-    const el = document.getElementById(elementId);
-    if (!el) return toast('لا يوجد محتوى للتصدير', 'err');
-    const opt = { margin: 10, filename: filename, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
-    toast('⏳ جارٍ إنشاء PDF...', 'ok');
-    const wrapper = document.createElement('div');
-    wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.color = '#000'; wrapper.style.direction = 'rtl';
-    wrapper.innerHTML = `<div style="text-align:center; margin-bottom:20px; border-bottom:2px solid #333; padding-bottom:10px;"><h2 style="margin:0;">${title}</h2><p style="margin:5px 0 0 0; font-size:12px; color:#555;">تاريخ الطباعة: ${today()}</p></div>`;
-    wrapper.appendChild(el.cloneNode(true));
-    html2pdf().set(opt).from(wrapper).save().then(() => toast('✅ تم تصدير PDF بنجاح', 'ok'));
-  },
-
   // تصدير قسم معين إلى PDF
   toPDF(elementId, filename = 'report.pdf', title = 'تقرير MUZN') {
     const el = document.getElementById(elementId);
@@ -2219,6 +2206,7 @@ function copyText(text){
     navigator.clipboard.writeText(md).then(() => toast('🤖 تم نسخ الجدول بصيغة Markdown! الصقه في الـ AI لتحليله.', 'ok')).catch(() => toast('تعذر النسخ', 'err'));
   }
 };
+  window.ExportEngine = ExportEngine;
 /* =====================================================================
    🆕 Push Queue — إعادة إرسال الإشعارات الفاشلة
    ===================================================================== */
