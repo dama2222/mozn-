@@ -11239,15 +11239,34 @@ function passkeyAuthenticationJSON(cred){
     signature:passkeyB64(r.signature),userHandle:r.userHandle?passkeyB64(r.userHandle):null},
     clientExtensionResults:cred.getClientExtensionResults?cred.getClientExtensionResults():{}};
 }
+async function passkeyInvoke(body){
+  const {data,error}=await adapter.sb.functions.invoke('index-ts',{body});
+  if(error){
+    let message=error.message||'تعذر الاتصال بدالة البصمة';
+    const response=error.context;
+    if(response&&typeof response.clone==='function'){
+      const text=await response.clone().text();
+      if(text){
+        try{
+          const detail=JSON.parse(text);
+          message=detail.error||detail.message||text;
+        }catch(parseError){
+          message=text;
+        }
+      }
+    }
+    throw new Error(message);
+  }
+  return data;
+}
 async function registerPasskey(){
   if(!window.PublicKeyCredential||!window.isSecureContext){toast('الوجه / البصمة يحتاج HTTPS أو localhost','err');return}
   if(!user){toast('سجّل الدخول بكلمة المرور أولاً','err');return}
   try{
     if(adapter.mode==='cloud'){
-      const started=await adapter.sb.functions.invoke('index-ts',{body:{action:'register-options'}});
-      if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل البصمة');
-      if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد بيانات التسجيل');
-      const o=started.data.options;
+      const started=await passkeyInvoke({action:'register-options'});
+      if(!started?.options)throw new Error(started?.error||'Edge Function لا يعيد بيانات التسجيل');
+      const o=started.options;
       const publicKey={
         challenge:passkeyBytes(o.challenge),rp:o.rp||{name:'MUZN Operations',id:location.hostname},
         user:{id:passkeyBytes(o.user.id),name:o.user.name,displayName:o.user.displayName},
@@ -11256,9 +11275,8 @@ async function registerPasskey(){
         timeout:o.timeout||60000
       };
       const cred=await navigator.credentials.create({publicKey});if(!cred)return;
-      const verified=await adapter.sb.functions.invoke('index-ts',{body:{action:'register-verify',credential:passkeyRegistrationJSON(cred),deviceName:navigator.platform||'هذا الجهاز'}});
-      if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
-      if(!verified.data?.success)throw new Error(verified.data?.error||'فشل حفظ البصمة');
+      const verified=await passkeyInvoke({action:'register-verify',credential:passkeyRegistrationJSON(cred),deviceName:navigator.platform||'هذا الجهاز'});
+      if(!verified?.success)throw new Error(verified?.error||'فشل حفظ البصمة');
       const credentialId=passkeyB64(cred.rawId);
       const rows=passkeyList().filter(r=>!(r.userId===user.id&&r.credentialId===credentialId));
       rows.push({userId:user.id,credentialId,createdAt:Date.now()});passkeySave(rows);
@@ -11279,18 +11297,16 @@ async function loginWithPasskey(){
   if(!window.PublicKeyCredential||!window.isSecureContext){byId('lgErr').textContent='الوجه / البصمة يحتاج HTTPS أو localhost';return}
   try{
     if(adapter.mode==='cloud'){
-      const started=await adapter.sb.functions.invoke('index-ts',{body:{action:'login-options'}});
-      if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل الدخول');
-      if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد خيارات الدخول');
-      const o=started.data.options;
+      const started=await passkeyInvoke({action:'login-options'});
+      if(!started?.options)throw new Error(started?.error||'Edge Function لا يعيد خيارات الدخول');
+      const o=started.options;
       const publicKey={challenge:passkeyBytes(o.challenge),rpId:o.rpId||location.hostname,
         allowCredentials:(o.allowCredentials||[]).map(x=>({type:x.type||'public-key',id:passkeyBytes(x.id),transports:x.transports||[]})),
         userVerification:o.userVerification||'required',timeout:o.timeout||60000};
       const cred=await navigator.credentials.get({publicKey});if(!cred)return;
-      const verified=await adapter.sb.functions.invoke('index-ts',{body:{action:'login-verify',credential:passkeyAuthenticationJSON(cred)}});
-      if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
-      if(!verified.data?.success)throw new Error(verified.data?.error||'فشل تسجيل الدخول بالبصمة');
-      const email=verified.data.email,emailOtp=verified.data.emailOtp;
+      const verified=await passkeyInvoke({action:'login-verify',credential:passkeyAuthenticationJSON(cred)});
+      if(!verified?.success)throw new Error(verified?.error||'فشل تسجيل الدخول بالبصمة');
+      const email=verified.email,emailOtp=verified.emailOtp;
       if(!email||!emailOtp)throw new Error('الخادم لم يرجع جلسة دخول صالحة');
       const otp=await adapter.sb.auth.verifyOtp({email,token:emailOtp,type:'email'});
       if(otp.error)throw otp.error;
