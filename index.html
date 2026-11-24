@@ -893,6 +893,34 @@ function periodOf(st,d){
   const diff=(Number(st.company.week_day)-now.getDay()+7)%7,e=addDays(t,diff);
   return{s:addDays(e,-6),e,left:diff,label:'أسبوعي'};
 }
+  // ✅ دالة موحدة لحساب أهداف ورواتب الموزع (سياسة الشركة)
+function calcDistributorSalary(st, d) {
+  const todayStr = today();
+  const monthStr = todayStr.slice(0, 7);
+  
+  // جلب الأهداف والراتب من إعدادات الموزع
+  const targetD = Number(d.daily_target) || 0;
+  const targetM = Number(d.monthly_target) || 0;
+  const baseSalary = Number(d.salary) || 0;
+
+  // حساب إجمالي مبيعات الموزع (اليوم والشهر)
+  const achievedD = sum(st.sale_items_flat.filter(s => s.distributor_id === d.id && s.date === todayStr), saleItemNet);
+  const achievedM = sum(st.sale_items_flat.filter(s => s.distributor_id === d.id && s.date.startsWith(monthStr)), saleItemNet);
+
+  let earned = baseSalary;
+  let deduction = 0;
+
+  // تطبيق سياسة الخصم (إذا لم يحقق الهدف الشهري)
+  if (targetM > 0 && achievedM < targetM) {
+    earned = r2(baseSalary * (achievedM / targetM));
+    deduction = r2(baseSalary - earned);
+  } else if (targetM > 0 && achievedM >= targetM) {
+    earned = baseSalary; // حقق الهدف، يأخذ الراتب كاملاً
+    deduction = 0;
+  }
+
+  return { targetD, achievedD, targetM, achievedM, baseSalary, earned, deduction };
+}
 function dSummary(st,d){
   const per=periodOf(st,d),inP=x=>x>=per.s&&x<=per.e,all=()=>true;
   const exp=f=>sum(st.sale_items_flat.filter(s=>s.distributor_id===d.id&&s.type==='cash'&&f(s.date)),saleItemNet)
@@ -924,8 +952,14 @@ function distributorProfit(st,did){
     const p=pOf(st,it.product_id)||{};
     const qty=it.qty||0;
     const disc=it.discount||0;
+    
+    // إيراد الموزع (سعر البيع للعميل)
     const rev=r2(Math.max(0, qty*it.price-disc));
-    const cst=r2(qty*(it.cost||pField(st,p,'cost',it.ts)||0));
+    
+    // ✅ التصحيح: تكلفة الموزع هي سعر الجملة الذي اشترى به منك
+    const wholesale = pField(st, p, 'dist_price', it.ts) || p.price || 0;
+    const cst=r2(qty*wholesale);
+    
     const pf=r2(rev-cst);
     revenue=r2(revenue+rev);cost=r2(cost+cst);profit=r2(profit+pf);
     const k=it.product_id;
@@ -2207,6 +2241,14 @@ function copyText(text){
   }
 };
   window.ExportEngine = ExportEngine;
+  // ✅ دالة مساعدة لإنشاء أزرار التصدير بسهولة
+window.makeExportBar = function(targetId, filename, title) {
+  return `
+    <div style="display:flex; gap:8px; margin-bottom:10px; justify-content:flex-end;">
+      <button class="btn-ghost sm" onclick="ExportEngine.toPDF('${targetId}', '${filename}.pdf', '${title}')">📄 تصدير PDF</button>
+    </div>
+  `;
+};
 /* =====================================================================
    🆕 Push Queue — إعادة إرسال الإشعارات الفاشلة
    ===================================================================== */
@@ -4742,8 +4784,11 @@ function renderProduction(){
     </div>
   `;
 
-  byId('prod-body').innerHTML='<h2 style="margin:0 0 10px">📈 الإنتاج اليومي</h2><div id="prod-chart">'+prodChartHTML()+'</div>'+
-    '<div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px;"><h2 style="margin:0">مستحقات فريق الإنتاج</h2></div>'+
+byId('prod-body').innerHTML=
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px;"><h2 style="margin:0">📈 الإنتاج اليومي</h2></div>'+
+    makeExportBar('prod-chart-area', 'production-chart', 'إحصائيات الإنتاج اليومي') +
+    '<div id="prod-chart-area">' + prodChartHTML() + '</div>'+
+  '<div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px;"><h2 style="margin:0">مستحقات فريق الإنتاج</h2></div>'+
     exportBtns +
     '<div id="prod-table">' + tableHTML + '</div>'+
     '<h2 style="margin:22px 0 10px">سجلات الورديات</h2><div class="cal" id="cal-prod">'+calHTML('prod',prodCalCfg())+'</div>';
@@ -6419,9 +6464,35 @@ function renderDistOps(){
     '</div>' +
     '<div class="kpi"><div class="lb">إجمالي المبيعات</div>' +
       '<div class="val">' + fmt(profit.revenue) + '</div></div>' +
-    '<div class="kpi"><div class="lb">إجمالي ربحه</div>' +
-      '<div class="val up">' + fmt(profit.profit) + '</div></div>' +
-  '</div>';
+      // داخل دالة عرض عمليات الموزع
+  const d = store.distributors.find(x => x.id === myDistId); // أو أي طريقة تجلب بها الموزع
+  const sal = calcDistributorSalary(store, d);
+
+  // عرض الأرقام
+  let targetHTML = `
+    <div class="kv big">
+      <span>اليوم</span>
+      <b>${fmt(sal.achievedD)} / ${fmt(sal.targetD)} ${cur()}</b>
+    </div>
+    <!-- شريط تقدم اليوم -->
+    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
+      <div style="background:var(--accent);height:100%;width:${Math.min(100, (sal.achievedD / (sal.targetD||1)) * 100)}%;border-radius:99px;"></div>
+    </div>
+
+    <div class="kv big">
+      <span>الشهر</span>
+      <b>${fmt(sal.achievedM)} / ${fmt(sal.targetM)} ${cur()}</b>
+    </div>
+    <!-- شريط تقدم الشهر -->
+    <div style="background:var(--input);height:8px;border-radius:99px;margin:4px 0 12px;">
+      <div style="background:var(--orange);height:100%;width:${Math.min(100, (sal.achievedM / (sal.targetM||1)) * 100)}%;border-radius:99px;"></div>
+    </div>
+
+    <div class="kv big" style="color:var(--red)">
+      <span>المستحق حسب الإنجاز الحالي</span>
+      <b>${fmt(sal.earned)} ${cur()} ${sal.deduction > 0 ? `(خصم ${fmt(sal.deduction)})` : ''}</b>
+    </div>
+  `;
   
   // الشرائح
     html += '<div class="pills" id="dops-tabs" style="margin:16px 0 12px">' +
@@ -8368,6 +8439,9 @@ function renderOverview(){
     (isA()?(S.discounts||[]):[]).map(x=>({ts:x.ts,by:x.by,t:'خصم · '+fmt(x.amount)+' '+cur()}))
   ).sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,10);
   byId('ov-body').innerHTML=
+    byId('ov-body').innerHTML = 
+    makeExportBar('overview-dashboard', 'overview', 'لوحة الإدارة - التقويم') +
+    '<div id="overview-dashboard">' + 
     '<div class="kgrid">'+k('صافي الربح',fmt(profit)+' '+cur(),'هامش '+margin.toFixed(1)+'% (سعر البيع − التكلفة)',profit>=0?'up':'dn',true)+
       k('الربح بعد المصروفات',fmt(r2(profit-expOv-payOv))+' '+cur(),'مصروفات '+fmt(expOv)+' · رواتب '+fmt(payOv),(profit-expOv-payOv)>=0?'up':'dn',true)+k('المبيعات',fmt(rev)+' '+cur(),invCount+' فاتورة (بسعر العميل)')+k('إيراد الشركة',fmt(coRev)+' '+cur(),'بسعر الجملة للموزع')+k('الإنتاج',fmt(prodU)+' <small>وحدة</small>','المجموع')+
       k('المشتريات',fmt(purch)+' '+cur(),'مواد')+k('المقبوض',fmt(cashIn)+' '+cur(),'نقد + بنك')+k('💵 نقد بالصندوق',fmt(cashBox)+' '+cur(),'كاش + سندات نقدية')+k('🏦 بنك / تحويل',fmt(bankIn)+' '+cur(),'بيع بنكي + تحويلات')+
@@ -9570,7 +9644,20 @@ function renderAnalytics(){
   const sec=(t2,body)=>'<div class="sec-head"><h2>'+t2+'</h2></div><div class="card">'+body+'</div>';
   const pct=v=>(Number(v)||0).toFixed(1)+'%';
 
-  box.innerHTML=
+ const exportBtns = `
+    <div style="display:flex; gap:8px; margin-bottom:10px; justify-content:flex-end;">
+      <button class="btn-ghost sm" onclick="ExportEngine.toAI('analytics-table-id')">🤖 AI</button>
+      <button class="btn-ghost sm" onclick="ExportEngine.toExcel('analytics-table-id', 'analytics.xlsx')">📊 Excel</button>
+      <button class="btn-ghost sm" onclick="ExportEngine.toPDF('analytics-table-id', 'analytics.pdf', 'تقرير التحليلات')">📄 PDF</button>
+    </div>
+  `;
+
+  byId('analytics-body').innerHTML = 
+    exportBtns + 
+    '<div id="analytics-table-id">' + 
+    byId('analytics-body').innerHTML = 
+    makeExportBar('analytics-full-view', 'analytics-report', 'تقرير التحليلات الشامل') +
+    '<div id="analytics-full-view">' +
     '<div class="card"><div class="fgrid" style="grid-template-columns:'+(st.mode==='all'?'1fr':st.mode==='year'?'1fr 1fr':'1fr 1fr 1fr')+';margin:0">'+
       '<div><label>الفترة</label>'+sel('mode',[['month','شهر'],['year','سنة'],['all','الكل']],st.mode)+'</div>'+
       (st.mode!=='all'?'<div><label>السنة</label>'+sel('y',years.map(y=>[y,y]),st.y)+'</div>':'')+
