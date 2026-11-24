@@ -11185,20 +11185,6 @@ function startSmartSync(){
     _syncBusy = false;
   }, SYNC_INTERVAL_MS);
 }
-/* ═══ التقرير الأسبوعي ═══ */
-function generateWeeklyReport() {
-  var u = me(); if (!u) return null;
-  var isAdmin = u.role === 'admin';
-  var un = isAdmin ? null : u.name;
-  
-  var arr = salesWeek(un);
-  if (!arr.length) return 'لا توجد مبيعات هذا الأسبوع.';
-  
-  var total = sumSales(arr);
-  var count = arr.length;
-  var top = topProduct(arr);
-  var target = u ? (calculateSmartTargets(u.name) || {}).weekly : null;
-  
   // المقارنة مع الأسبوع الماضي
   var lastWeekStart = new Date();
   lastWeekStart.setDate(lastWeekStart.getDate() - 14);
@@ -11338,10 +11324,7 @@ const OfflineQueue = {
   count(){ return this._queue().length; }
 };
 
-===================================================================
- 
-   ===================================================================== */
-async function boot(){
+ async function boot(){
   let th='dark';
   try{th=localStorage.getItem(THEME_KEY)||'dark'}catch(e){}
   setTheme(th);
