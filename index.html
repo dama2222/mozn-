@@ -11291,6 +11291,112 @@ async function boot(){
   adapter=cfg?SupabaseAdapter(cfg.url,cfg.key):LocalAdapter;
   try{
     store=await adapter.init();
+    // ==================== Offline Queue Wrapper ====================
+(function wrapAdapterWithOfflineQueue(){
+  const _origSaveTicket     = adapter.saveTicket.bind(adapter);
+  const _origEditTicket     = adapter.editTicket.bind(adapter);
+  const _origSaveSimple     = adapter.saveSimple.bind(adapter);
+  const _origUpdateSimple   = adapter.updateSimple.bind(adapter);
+  const _origDeleteSimple   = adapter.deleteSimple.bind(adapter);
+  const _origDeleteTicket   = adapter.deleteTicket.bind(adapter);
+
+  // ✅ دالة أقوى لالتقاط أي خطأ متعلق بالشبكة
+  const isNetErr = e => {
+    if (!navigator.onLine) return true; // إذا كان المتصفح أوفلاين، احفظه فوراً
+    const msg = String(e?.message || e || '').toLowerCase();
+    return msg.includes('failed to fetch') || 
+           msg.includes('load failed') || 
+           msg.includes('networkerror') || 
+           msg.includes('timeout') ||
+           msg.includes('network'); 
+  };
+
+  adapter.saveTicket = async function(...args){
+    try{
+      return await _origSaveTicket(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [headerTable, itemsTable, fk, header, items] = args;
+        await OfflineQueue.enqueue({type:'saveTicket', headerTable, itemsTable, fk, header, items});
+        toast('📴 حُفظ محلياً — سيُزامن لاحقاً', 'warn');
+        return header.id; // نرجع الـ ID لكي يكمل التطبيق وكأنه حفظ بنجاح
+      }
+      throw e; // إذا كان خطأ آخر غير الشبكة، ارميه
+    }
+  };
+
+  adapter.editTicket = async function(...args){
+    try{
+      return await _origEditTicket(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [headerTable, itemsTable, fk, hid, hpatch, items, removedIds] = args;
+        await OfflineQueue.enqueue({type:'editTicket', headerTable, itemsTable, fk, hid, hpatch, items, removedIds});
+        toast('📴 حُفظ محلياً', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.saveSimple = async function(...args){
+    try{
+      return await _origSaveSimple(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [table, row] = args;
+        await OfflineQueue.enqueue({type:'saveSimple', table, row});
+        toast('📴 حُفظ محلياً', 'warn');
+        return row.id;
+      }
+      throw e;
+    }
+  };
+
+  adapter.updateSimple = async function(...args){
+    try{
+      return await _origUpdateSimple(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [table, id, patch] = args;
+        await OfflineQueue.enqueue({type:'updateSimple', table, id, patch});
+        toast('📴 حُفظ محلياً', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.deleteSimple = async function(...args){
+    try{
+      return await _origDeleteSimple(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [table, id] = args;
+        await OfflineQueue.enqueue({type:'deleteSimple', table, id});
+        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  adapter.deleteTicket = async function(...args){
+    try{
+      return await _origDeleteTicket(...args);
+    }catch(e){
+      if(isNetErr(e)){
+        const [headerTable, id] = args;
+        await OfflineQueue.enqueue({type:'deleteTicket', headerTable, id});
+        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
+        return;
+      }
+      throw e;
+    }
+  };
+
+  console.log('[Offline] ✅ Adapter wrapped — offline support enabled');
+})();
   }catch(ex){
     console.error(ex);
     toast('تعذر الاتصال بالسحابة — محلي','err');
@@ -11305,110 +11411,6 @@ async function boot(){
       renderAll();
     }catch(ex){console.error(ex)}
   });
-// ==================== Offline Queue Wrapper ====================
-// ⚠️ هذا الجزء يغلّف adapter.saveTicket تلقائياً
-//     دون الحاجة لتعديل أي مكان آخر في الكود
-
-(function wrapAdapterWithOfflineQueue(){
-
-  // احفظ النسخة الأصلية
-  const _origSaveTicket     = adapter.saveTicket.bind(adapter);
-  const _origEditTicket     = adapter.editTicket.bind(adapter);
-  const _origSaveSimple     = adapter.saveSimple.bind(adapter);
-  const _origUpdateSimple   = adapter.updateSimple.bind(adapter);
-  const _origDeleteSimple   = adapter.deleteSimple.bind(adapter);
-  const _origDeleteTicket   = adapter.deleteTicket.bind(adapter);
-
-  // دالة مساعدة: هل الخطأ بسبب الشبكة؟
-  const isNetErr = e => /Failed to fetch|NetworkError|timeout|fetch failed/i.test(e?.message || '');
-
-  // 🔁 غلاف لكل دالة
-  adapter.saveTicket = async function(...args){
-    try{
-      return await _origSaveTicket(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [headerTable, itemsTable, fk, header, items] = args;
-        await OfflineQueue.enqueue({type:'saveTicket', headerTable, itemsTable, fk, header, items});
-        toast('📴 حُفظ محلياً — سيُزامن لاحقاً', 'warn');
-        return header.id;
-      }
-      throw e;
-    }
-  };
-
-  adapter.editTicket = async function(...args){
-    try{
-      return await _origEditTicket(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [headerTable, itemsTable, fk, hid, hpatch, items, removedIds] = args;
-        await OfflineQueue.enqueue({type:'editTicket', headerTable, itemsTable, fk, hid, hpatch, items, removedIds});
-        toast('📴 حُفظ محلياً', 'warn');
-        return;
-      }
-      throw e;
-    }
-  };
-
-  adapter.saveSimple = async function(...args){
-    try{
-      return await _origSaveSimple(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [table, row] = args;
-        await OfflineQueue.enqueue({type:'saveSimple', table, row});
-        toast('📴 حُفظ محلياً', 'warn');
-        return row.id;
-      }
-      throw e;
-    }
-  };
-
-  adapter.updateSimple = async function(...args){
-    try{
-      return await _origUpdateSimple(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [table, id, patch] = args;
-        await OfflineQueue.enqueue({type:'updateSimple', table, id, patch});
-        toast('📴 حُفظ محلياً', 'warn');
-        return;
-      }
-      throw e;
-    }
-  };
-
-  adapter.deleteSimple = async function(...args){
-    try{
-      return await _origDeleteSimple(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [table, id] = args;
-        await OfflineQueue.enqueue({type:'deleteSimple', table, id});
-        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
-        return;
-      }
-      throw e;
-    }
-  };
-
-  adapter.deleteTicket = async function(...args){
-    try{
-      return await _origDeleteTicket(...args);
-    }catch(e){
-      if(!navigator.onLine || isNetErr(e)){
-        const [headerTable, id] = args;
-        await OfflineQueue.enqueue({type:'deleteTicket', headerTable, id});
-        toast('📴 سيُحذف عند عودة الاتصال', 'warn');
-        return;
-      }
-      throw e;
-    }
-  };
-
-  console.log('[Offline] ✅ Adapter wrapped — offline support enabled');
-})();
   // ✅ بدء المزامنة الذكية (5 ثوانٍ + Hash يشمل التعديلات)
   if(cfg) startSmartSync();
 
