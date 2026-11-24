@@ -11243,7 +11243,7 @@ async function registerPasskey(){
   if(!user){toast('سجّل الدخول بكلمة المرور أولاً','err');return}
   try{
     if(adapter.mode==='cloud'){
-      const started=await adapter.sb.functions.invoke('passkeys',{body:{action:'register-options'}});
+      const started=await adapter.sb.functions.invoke('index-ts',{body:{action:'register-options'}});
       if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل البصمة');
       if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد بيانات التسجيل');
       const o=started.data.options;
@@ -11255,7 +11255,7 @@ async function registerPasskey(){
         timeout:o.timeout||60000
       };
       const cred=await navigator.credentials.create({publicKey});if(!cred)return;
-      const verified=await adapter.sb.functions.invoke('passkeys',{body:{action:'register-verify',credential:passkeyRegistrationJSON(cred),deviceName:navigator.platform||'هذا الجهاز'}});
+      const verified=await adapter.sb.functions.invoke('index-ts',{body:{action:'register-verify',credential:passkeyRegistrationJSON(cred),deviceName:navigator.platform||'هذا الجهاز'}});
       if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
       if(!verified.data?.success)throw new Error(verified.data?.error||'فشل حفظ البصمة');
       const credentialId=passkeyB64(cred.rawId);
@@ -11278,7 +11278,7 @@ async function loginWithPasskey(){
   if(!window.PublicKeyCredential||!window.isSecureContext){byId('lgErr').textContent='الوجه / البصمة يحتاج HTTPS أو localhost';return}
   try{
     if(adapter.mode==='cloud'){
-      const started=await adapter.sb.functions.invoke('passkeys',{body:{action:'login-options'}});
+      const started=await adapter.sb.functions.invoke('index-ts',{body:{action:'login-options'}});
       if(started.error)throw new Error(started.error.message||'تعذر بدء تسجيل الدخول');
       if(!started.data?.options)throw new Error(started.data?.error||'Edge Function لا يعيد خيارات الدخول');
       const o=started.data.options;
@@ -11286,7 +11286,7 @@ async function loginWithPasskey(){
         allowCredentials:(o.allowCredentials||[]).map(x=>({type:x.type||'public-key',id:passkeyBytes(x.id),transports:x.transports||[]})),
         userVerification:o.userVerification||'required',timeout:o.timeout||60000};
       const cred=await navigator.credentials.get({publicKey});if(!cred)return;
-      const verified=await adapter.sb.functions.invoke('passkeys',{body:{action:'login-verify',credential:passkeyAuthenticationJSON(cred)}});
+      const verified=await adapter.sb.functions.invoke('index-ts',{body:{action:'login-verify',credential:passkeyAuthenticationJSON(cred)}});
       if(verified.error)throw new Error(verified.error.message||'تعذر التحقق من البصمة');
       if(!verified.data?.success)throw new Error(verified.data?.error||'فشل تسجيل الدخول بالبصمة');
       const email=verified.data.email,emailOtp=verified.data.emailOtp;
