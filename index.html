@@ -3803,7 +3803,7 @@ function operatorShiftCheckOutForm(opId){
    هياكل الشاشات
    ===================================================================== */
 const SKEL={
-  analytics:'<h1>📊 التحليلات</h1><div id="an-body"></div>',
+  analytics:'<h1>📊 التحليلات</h1><div id="analytics-body"></div>',
   finance:'<h1>المالية</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="fin-add-exp">+ مصروف</button><button class="btn-ghost" id="fin-add-pay">+ راتب / دفعة موظف</button></div><div class="card" style="margin-bottom:12px"><label class="fl" for="fin-month">الشهر</label><select class="in" id="fin-month"></select></div><div id="fin-body"></div>',
   stocktake:'<h1>الجرد وتحويل العهدة</h1><div class="pills" id="stc-pills"></div><div class="pills" id="stk-pills" style="margin-top:8px"></div><div id="stc-body" style="margin-top:12px"></div>',
   overview:'<h1>لوحة الإدارة</h1><div id="ov-warn"></div><div class="pills" id="ov-pills"></div><div id="ov-body"></div>',
@@ -9602,8 +9602,13 @@ document.addEventListener('change',e=>{
   renderAnalytics();
 });
 function renderAnalytics() {
-  const body = byId('analytics-body');
-  if (!body) return;
+  let body = byId('analytics-body');
+  if (!body) {
+    const fallback = byId('an-body');
+    if (!fallback) return;
+    fallback.id = 'analytics-body';
+    body = fallback;
+  }
   const S=store,st=anState(),t=today();
   const ym=st.y+'-'+pad(st.m+1);
   const inR=d=>st.mode==='all'?true:st.mode==='year'?String(d).slice(0,4)===String(st.y):String(d).slice(0,7)===ym;
