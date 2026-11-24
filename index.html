@@ -2895,7 +2895,8 @@ function mountForm(el,id,fields,o){
     const i=fid(f.k),v=dv(f),dk=' data-k="'+f.k+'"';let inp='';
     if(f.type==='file'){
       fileData[f.k]=v||null;
-      inp='<input class="in" id="'+i+'"'+dk+' type="file" accept="image/*" capture="environment" aria-label="'+escHtml(f.label)+'">'+
+      const captureAttr=f.capture===false?'':' capture="'+escHtml(f.capture||'environment')+'"';
+      inp='<input class="in" id="'+i+'"'+dk+' type="file" accept="image/*"'+captureAttr+' aria-label="'+escHtml(f.label)+'">'+
         '<div id="'+i+'_prev" style="margin-top:8px">'+(v?'<img src="'+v+'" style="max-width:140px;border-radius:8px;display:block" alt="">':'')+'</div>';
     }
     else if(f.type==='select')inp=(f.searchable?'<input class="in" id="'+i+'_search" type="search" data-customer-search="'+f.k+'" placeholder="'+escHtml(f.searchPlaceholder||'🔍 ابحث في القائمة')+'" autocomplete="off" style="margin-bottom:4px">':'')+'<select class="in" id="'+i+'"'+dk+'>'+optHTML(f,v)+'</select>';
@@ -8659,7 +8660,7 @@ const ENT={
   ]},
   users:{title:'مستخدم',fields:[
     {k:'name',label:'الاسم'},
-    {k:'photo_url',label:'صورة المستخدم',type:'file',hint:'اختر صورة بوجه واضح'},
+    {k:'photo_url',label:'صورة المستخدم',type:'file',capture:false,hint:'اختر صورة بوجه واضح'},
     {k:'username',label:'اسم المستخدم',placeholder:'بالإنجليزية'},
     {k:'password',label:'كلمة المرور',type:'password',hint:'اتركها فارغة للإبقاء'},
     {k:'role',label:'الدور',type:'radio',options:[['staff','موظف'],['admin','مدير']],value:'staff'},
