@@ -174,6 +174,10 @@ td.nw { white-space: nowrap; }
 .lrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .lrow:first-child{border-top:0}
 .lrow small{display:block;color:var(--muted);font-size:12px}
+.lrow.xtr-item{display:grid;grid-template-columns:22px minmax(0,1fr);justify-content:initial;align-items:start;gap:6px 10px}
+.xtr-item>.xtr-check{grid-column:1;grid-row:1;margin:4px 0 0}
+.xtr-item>div{grid-column:2;min-width:0}
+.xtr-item>.xtr-qty{grid-column:2;width:100%;min-width:0}
 .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .kb{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px}
 .kb::-webkit-scrollbar{height:9px}
@@ -2265,7 +2269,12 @@ async function tryCommit(build, persist, options){
     if(err2){ toast(err2,'err'); return false }
   }
   try{ await persist(draft); }
-  catch(ex){ console.error(ex); toast('تعذر الحفظ — تحقق من الاتصال','err'); return false; }
+  catch(ex){
+    console.error(ex);
+    const message=typeof options.errorMessage==='function'?options.errorMessage(ex):options.errorMessage;
+    toast(message||'تعذر الحفظ — تحقق من الاتصال','err');
+    return false;
+  }
   store = draft;
   broadcastChange();
   if(options.rerender && Array.isArray(options.rerender)){
@@ -2455,8 +2464,31 @@ const PushQueue = {
   load(){
     try{
       const raw = localStorage.getItem(this._key);
-      return raw ? JSON.parse(raw) : [];
+      const queue=raw?JSON.parse(raw):[];
+      const seen=new Set();
+      const unique=queue.filter(item=>{
+        const key=this.eventKey(item);
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+      if(unique.length!==queue.length){
+        try{localStorage.setItem(this._key,JSON.stringify(unique))}
+        catch(e){console.warn('push queue dedupe save failed',e)}
+      }
+      return unique;
     }catch(e){ return []; }
+  },
+  eventKey(item){
+    const base=[String(item.user_id||''),String(item.kind||'general')];
+    if(item.ref_id!=null&&item.ref_id!=='')base.push(String(item.ref_id));
+    else{
+      const stamp=Number(item.created_at);
+      const date=new Date(stamp);
+      const day=Number.isFinite(stamp)&&!Number.isNaN(date.getTime())?date.toISOString().slice(0,10):String(item.created_at||today()).slice(0,10);
+      base.push(day,String(item.title||''),String(item.body||''));
+    }
+    return base.join('\u001f');
   },
   save(queue){
     try{ localStorage.setItem(this._key, JSON.stringify(queue)); }catch(e){ console.warn('push queue save failed', e); }
@@ -2468,7 +2500,9 @@ const PushQueue = {
       queue[existing].attempts = 0;
       queue[existing].created_at = Date.now();
     } else {
-      queue.push(Object.assign({ attempts: 0, created_at: Date.now() }, item));
+      const next=Object.assign({ attempts: 0, created_at: Date.now() }, item);
+      if(queue.some(q=>this.eventKey(q)===this.eventKey(next)))return;
+      queue.push(next);
     }
     this.save(queue);
     this.scheduleRetry();
@@ -2512,12 +2546,15 @@ const PushQueue = {
           // حفظ الإشعار في notices بعد النجاح
           if(item.kind!=='achievement'){
             try{
-              const notice = {
-                id: uuid(), date: today(), kind: item.kind || 'general', target_id: item.user_id,
-                title: item.title, body: item.body || '', items: [], by: 'النظام', ts: Date.now(), done: false
-              };
-              await adapter.saveSimple('notices', notice);
-              if(store && store.notices) store.notices.unshift(notice);
+              if(!hasPushNotice(item.user_id,item.kind,item.ref_id,item.title,item.body)){
+                const notice = {
+                  id: uuid(), date: today(), kind: item.kind || 'general', target_id: item.user_id,
+                  source_ref_id:item.ref_id==null?null:String(item.ref_id),
+                  title: item.title, body: item.body || '', items: [], by: 'النظام', ts: Date.now(), done: false
+                };
+                await adapter.saveSimple('notices', notice);
+                if(store && store.notices&&!hasPushNotice(item.user_id,item.kind,item.ref_id,item.title,item.body)) store.notices.unshift(notice);
+              }
             }catch(e){ console.warn('save notice after retry failed', e); }
           }
         } else {
@@ -2890,11 +2927,26 @@ async function getPushAuthToken(){
     return null; 
   }
 }
+const _sentPushEventKeys=new Set();
+function hasPushNotice(userId,kind,refId,title,body){
+  return (store&&store.notices||[]).some(n=>{
+    if(n.kind!==(kind||'general')||String(n.target_id)!==String(userId))return false;
+    if(refId!=null&&refId!==''){
+      if(String(n.source_ref_id||'')===String(refId))return true;
+      if(n.source_ref_id)return false;
+    }
+    return n.date===today()&&n.title===title&&(n.body||'')===(body||'');
+  });
+}
 async function sendPush(userId, title, body, url, kind, refId){
   if(adapter.mode !== 'cloud') return;
-    const authToken = await getPushAuthToken();
+  const notificationKind=kind||'general';
+  const eventKey=refId==null||refId===''?null:[String(userId),notificationKind,String(refId)].join('\u001f');
+  if(eventKey&&(_sentPushEventKeys.has(eventKey)||hasPushNotice(userId,notificationKind,refId,title,body)))return;
+  if(eventKey)_sentPushEventKeys.add(eventKey);
+  const authToken = await getPushAuthToken();
   if(!authToken){ console.warn('sendPush: no auth token — queueing');
-    PushQueue.add({ uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId, sender_id: (user && user.id) || null });
+    PushQueue.add({ uid: uuid(), user_id: userId, title, body, url, kind:notificationKind, ref_id: refId, sender_id: (user && user.id) || null });
     return;
   }
   if(EDGE_FUNCTION_URL && EDGE_FUNCTION_URL.indexOf('YOUR_PROJECT') < 0){
@@ -2904,7 +2956,7 @@ async function sendPush(userId, title, body, url, kind, refId){
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
         body: JSON.stringify({
           user_id: userId, title: title, body: body || '', url: url || '/',
-          kind: kind || 'general', ref_id: refId || null, sender_id: (user && user.id) || null
+          kind: notificationKind, ref_id: refId || null, sender_id: (user && user.id) || null
         })
       });
       if(!resp.ok){
@@ -2912,7 +2964,7 @@ async function sendPush(userId, title, body, url, kind, refId){
         console.warn('push HTTP error:', resp.status, errText);
         // ✅ أضف للـ Queue للإعادة
         PushQueue.add({
-          uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId,
+          uid: uuid(), user_id: userId, title, body, url, kind:notificationKind, ref_id: refId,
           sender_id: (user && user.id) || null
         });
         return;
@@ -2920,20 +2972,22 @@ async function sendPush(userId, title, body, url, kind, refId){
     }catch(e){
       console.warn('push send failed — queueing:', e);
       PushQueue.add({
-        uid: uuid(), user_id: userId, title, body, url, kind, ref_id: refId,
+        uid: uuid(), user_id: userId, title, body, url, kind:notificationKind, ref_id: refId,
         sender_id: (user && user.id) || null
       });
       return;
     }
   }
-  if(kind!=='achievement'){
+  if(notificationKind!=='achievement'){
     try{
+      if(hasPushNotice(userId,notificationKind,refId,title,body))return;
       const notice = {
-        id: uuid(), date: today(), kind: kind || 'general', target_id: userId,
+        id: uuid(), date: today(), kind: notificationKind, target_id: userId,
+        source_ref_id:refId==null?null:String(refId),
         title: title, body: body || '', items: [], by: 'النظام', ts: Date.now(), done: false
       };
       await adapter.saveSimple('notices', notice);
-      if(store && store.notices){
+      if(store && store.notices&&!hasPushNotice(userId,notificationKind,refId,title,body)){
         store.notices.unshift(notice);
         if(typeof renderBell === 'function') renderBell();
       }
@@ -7317,7 +7371,7 @@ function renderDistOpsTab(tab, data){
 /* =====================================================================
    المسحوبات
    ===================================================================== */
-let wdLB,_wdCustodyDist='all',_wdCustodySearch='';
+let wdLB,_wdCustodyDist='all',_wdCustodySearch='',_wdProductSearch='',_wdMaterialSearch='';
 function mountWithdrawals(){
   const distScanBtn = document.createElement('button');
   distScanBtn.type = 'button';
@@ -7838,8 +7892,10 @@ function renderWithdrawals(){
   else if(_wdCustodyDist!=='all'&&!visibleDists.some(d=>String(d.id)===String(_wdCustodyDist)))_wdCustodyDist='all';
   byId('wd-body').innerHTML=
     '<h2 style="margin:0 0 10px">سجل البضاعة الخارجة</h2><div class="cal" id="cal-wd">'+calHTML('wd',wdCalCfg())+'</div>'+
-    '<h2 style="margin:22px 0 10px">مخزون المنتجات</h2>'+table([{h:'المنتج',f:r=>escHtml(r.p.name)},{h:'المتاح',f:r=>'<b class="'+(r.p.min_stock&&r.q<r.p.min_stock?'warn':'')+'">'+fmt(r.q)+'</b> '+escHtml(r.p.unit||'')}],stock,'stock')+
-    '<h2 style="margin:22px 0 10px">مخزون المواد الخام</h2>'+table([{h:'المادة',f:r=>escHtml(r.m.name)},{h:'المتاح',f:r=>'<b class="'+(r.m.min_stock&&r.q<r.m.min_stock?'warn':'')+'">'+fmt(r.q)+'</b> '+escHtml(r.m.unit||'')}],mats,'mats','لا مواد')+
+    '<h2 style="margin:22px 0 10px">مخزون المنتجات</h2>'+
+    '<div class="card" style="margin-bottom:10px"><label class="fl" for="wd-product-search">بحث عن منتج</label><input class="in" id="wd-product-search" type="search" value="'+escHtml(_wdProductSearch)+'" placeholder="اكتب اسم المنتج"></div><div id="wd-product-results"></div>'+
+    '<h2 style="margin:22px 0 10px">مخزون المواد الخام</h2>'+
+    '<div class="card" style="margin-bottom:10px"><label class="fl" for="wd-material-search">بحث عن مادة خام</label><input class="in" id="wd-material-search" type="search" value="'+escHtml(_wdMaterialSearch)+'" placeholder="اكتب اسم المادة الخام"></div><div id="wd-material-results"></div>'+
     '<h2 style="margin:22px 0 10px">عهدة الموزعين</h2>'+
     '<div class="card" style="margin-bottom:10px"><div class="fgrid">'+
       '<div><label class="fl" for="wd-custody-dist">الموزع</label><select class="in" id="wd-custody-dist"'+(!isA()?' disabled':'')+'>'+
@@ -7848,6 +7904,36 @@ function renderWithdrawals(){
       '</select></div>'+
       '<div><label class="fl" for="wd-custody-search">بحث عن صنف</label><input class="in" id="wd-custody-search" type="search" value="'+escHtml(_wdCustodySearch)+'" placeholder="اكتب اسم المنتج"></div>'+
     '</div></div><div id="wd-custody-results"></div>';
+  const updateStockView=(kind)=>{
+    const isProduct=kind==='product';
+    const input=byId(isProduct?'wd-product-search':'wd-material-search');
+    const body=byId(isProduct?'wd-product-results':'wd-material-results');
+    if(!input||!body)return;
+    const query=input.value.trim().toLocaleLowerCase();
+    if(isProduct)_wdProductSearch=input.value;else _wdMaterialSearch=input.value;
+    const items=isProduct?stock:mats;
+    const rows=items.filter(r=>(isProduct?r.p.name:r.m.name).toLocaleLowerCase().includes(query));
+    const countLabel=isProduct?'المنتجات':'المواد الخام';
+    const unitLabel=isProduct?'الوحدات المتاحة':'الكمية المتاحة';
+    const key=isProduct?'wd_stock_products':'wd_stock_materials';
+    const cols=isProduct?[
+        {h:'المنتج',f:r=>escHtml(r.p.name)},
+        {h:'المتاح',f:r=>'<b class="'+(r.p.min_stock&&r.q<r.p.min_stock?'warn':'')+'">'+fmt(r.q)+'</b> '+escHtml(r.p.unit||''),cls:'nw'},
+        {h:'الحد الأدنى',f:r=>r.p.min_stock?fmt(r.p.min_stock)+' '+escHtml(r.p.unit||''):'—',cls:'nw'}
+    ]:[
+        {h:'المادة الخام',f:r=>escHtml(r.m.name)},
+        {h:'المتاح',f:r=>'<b class="'+(r.m.min_stock&&r.q<r.m.min_stock?'warn':'')+'">'+fmt(r.q)+'</b> '+escHtml(r.m.unit||''),cls:'nw'},
+        {h:'الحد الأدنى',f:r=>r.m.min_stock?fmt(r.m.min_stock)+' '+escHtml(r.m.unit||''):'—',cls:'nw'}
+    ];
+    body.innerHTML='<div class="kgrid">'+
+        '<div class="kpi"><div class="lb">'+countLabel+'</div><div class="val">'+rows.length+'</div></div>'+
+        '<div class="kpi"><div class="lb">'+unitLabel+'</div><div class="val">'+fmt(sum(rows,r=>r.q))+'</div></div></div>'+
+        table(cols,rows,key,isProduct?'لا توجد منتجات مطابقة':'لا توجد مواد خام مطابقة');
+  };
+  const productSearch=byId('wd-product-search'),materialSearch=byId('wd-material-search');
+  if(productSearch)productSearch.oninput=()=>updateStockView('product');
+  if(materialSearch)materialSearch.oninput=()=>updateStockView('material');
+  updateStockView('product');updateStockView('material');
   const updateCustodyView=()=>{
     const selected=byId('wd-custody-dist'),search=byId('wd-custody-search'),body=byId('wd-custody-results');
     if(!selected||!search||!body)return;
@@ -11051,8 +11137,8 @@ function transferSheet(defaultFrom){
       '<div id="xtr-to-wrap"><label class="fl" for="xtr-to">الموزع المستلم</label><select class="in" id="xtr-to"></select></div>'+
       '<label class="fl">الأصناف المنقولة</label>'+
       '<div class="fgrid">'+
-        '<label class="card" style="display:flex;align-items:center;gap:8px;margin:0"><input type="radio" name="xtr-scope" value="all" checked> نقل كامل العهدة المتبقية</label>'+
-        '<label class="card" style="display:flex;align-items:center;gap:8px;margin:0"><input type="radio" name="xtr-scope" value="selected"> اختيار أصناف وكميات</label>'+
+        '<label class="card" style="display:flex;align-items:center;gap:8px;margin:0"><input type="radio" name="xtr-scope" value="all"> نقل كامل العهدة المتبقية</label>'+
+        '<label class="card" style="display:flex;align-items:center;gap:8px;margin:0"><input type="radio" name="xtr-scope" value="selected" checked> اختيار أصناف وكميات</label>'+
       '</div>'+
       '<input class="in" id="xtr-search" type="search" placeholder="🔎 ابحث عن صنف" style="margin-top:10px">'+
       '<div id="xtr-items" style="margin-top:8px"></div>'+
@@ -11109,11 +11195,17 @@ function transferSheet(defaultFrom){
       let invalidProduct=null;
       byId('xtr-items').querySelectorAll('.xtr-check:checked').forEach(check=>{
         const qtyInput=check.closest('.xtr-item').querySelector('.xtr-qty');
-        const qty=Number(qtyInput.value);
-        if(!Number.isFinite(qty)||qty<=0){invalidProduct=check.value;return}
-        lines.push({product_id:check.value,qty:r3(qty)});
+        const qty=Number(qtyInput.value),available=Number(qtyInput.max),rounded=r3(qty);
+        if(!Number.isFinite(qty)||qty<=0||rounded<=0){invalidProduct=check.value;return}
+        if(!Number.isFinite(available)||rounded>available+1e-9){invalidProduct=check.value;return}
+        lines.push({product_id:check.value,qty:rounded});
       });
-      if(invalidProduct){toast('أدخل كمية صحيحة للصنف «'+pn(invalidProduct)+'»','err');return}
+      if(invalidProduct){
+        const qtyInput=Array.from(byId('xtr-items').querySelectorAll('.xtr-qty')).find(input=>input.dataset.product===invalidProduct);
+        const available=qtyInput?Number(qtyInput.max):0;
+        toast(available?'الكمية غير صحيحة أو تتجاوز المتاح للصنف «'+pn(invalidProduct)+'» ('+fmt(available)+')':'أدخل كمية صحيحة للصنف «'+pn(invalidProduct)+'»','err');
+        return;
+      }
     }
     if(!lines.length){toast('اختر أصنافاً بكمية صحيحة','err');return}
     if(lines.some(x=>!Number.isFinite(x.qty)||x.qty<=0)){toast('تحقق من كميات الأصناف المختارة','err');return}
@@ -11147,7 +11239,7 @@ function transferSheet(defaultFrom){
         throw ex;
       }
       try{await adapter.saveSimple('audit',ar)}catch(e){console.warn('audit',e)}
-    },{rerender:['stocktake','warehouse','distributors','overview','withdrawals','dist_ops']});
+    },{rerender:['stocktake','warehouse','distributors','overview','withdrawals','dist_ops'],errorMessage:ex=>'تعذر حفظ تحويل العهدة: '+String(ex&&ex.message||ex).slice(0,180)});
     if(ok){closeSheet();toast('تم تحويل '+rows.length+' صنف بنجاح','ok')}
     else saveBtn.disabled=false;
   };
@@ -11225,14 +11317,23 @@ function renderAll(){
 }
 let _autoNotifyDay=null;
 let _autoNotifyAttempted=false;
+let _autoNotifyRunning=false;
 async function autoNotify(){
-  if(!store||!user)return;
-  
-  const dailyEnabled = localStorage.getItem('muzn_daily_notify') !== '0';
+  if(!store||!user||!isA())return;
+  let dailyEnabled=true;
+  try{dailyEnabled=localStorage.getItem('muzn_daily_notify')!=='0'}catch(e){console.warn('[autoNotify] تعذر قراءة الإعدادات',e)}
   if(!dailyEnabled) return;
   const t=today();
-  if(_autoNotifyDay===t && _autoNotifyAttempted)return;
+  if(_autoNotifyDay===t&&(_autoNotifyAttempted||_autoNotifyRunning))return;
   _autoNotifyDay=t;
+  const pushDayKey='auto_push_v2_'+t;
+  try{
+    if(localStorage.getItem(pushDayKey)===t){_autoNotifyAttempted=true;return}
+    localStorage.setItem(pushDayKey,t);
+  }catch(e){console.warn('[autoNotify] تعذر تسجيل علامة اليوم',e)}
+  _autoNotifyRunning=true;
+  _autoNotifyAttempted=true;
+  const dailyRef=(kind,key)=>['auto',t,kind,key].join(':');
   try{
     // =========================================================
     // 1) عملاء متأخرون — إشعار لكل موزع + للمدراء
@@ -11262,7 +11363,7 @@ async function autoNotify(){
         NotificationCenter.fire('overdue_cust_single', {
           distUserId: d.user_id,
           summary: summary,
-          refId: d.id
+          refId: dailyRef('overdue_cust_single',did)
         }).catch(e=>console.warn(e));
       }
     }
@@ -11273,7 +11374,7 @@ async function autoNotify(){
       NotificationCenter.fire('overdue_cust', {
         distName: 'كل الموزعين',
         summary: summary,
-        refId: 'overdue-'+t
+        refId: dailyRef('overdue_cust','all')
       }).catch(e=>console.warn(e));
 
       // إزالة تنبيهات المتأخرات القديمة المتفرقة لنفس اليوم
@@ -11314,7 +11415,8 @@ async function autoNotify(){
     
     if(lateDist.length>0){
       NotificationCenter.fire('late_dist', {
-        summary: lateDist.map(x=>x.d.name+' ('+fmt(x.s.bal)+')').join('، ')
+        summary: lateDist.map(x=>x.d.name+' ('+fmt(x.s.bal)+')').join('، '),
+        refId: dailyRef('late_dist','all')
       }).catch(e=>console.warn(e));
     }
     
@@ -11327,7 +11429,7 @@ async function autoNotify(){
             distUserId: d.user_id,
             summary: 'التسليم ' + (s.per.left===0?'اليوم':'غداً') + ' — ' + 
                      fmt(s.bal) + ' ' + cur(),
-            refId: d.id
+            refId: dailyRef('collection_due_dist',d.id)
           }).catch(e=>console.warn(e));
         }
       }
@@ -11350,13 +11452,15 @@ async function autoNotify(){
       
       // للمدراء
       NotificationCenter.fire('low_stock', {
-        summary: lines.join(' · ')
+        summary: lines.join(' · '),
+        refId: dailyRef('low_stock','all')
       }).catch(e=>console.warn(e));
       
       // 🆕 للمشتريات
       const buyers = store.users.filter(u => 
         u.active && u.role==='staff' && 
-        u.perms && u.perms.indexOf('purchases') >= 0
+        u.perms && u.perms.indexOf('purchases') >= 0 &&
+        !(store.distributors||[]).some(d=>String(d.user_id)===String(u.id))
       );
       for(const b of buyers){
         sendPush(
@@ -11365,7 +11469,7 @@ async function autoNotify(){
           lines.join(' · '),
           '/#purchases',
           'low_stock_buyer',
-          null
+          dailyRef('low_stock_buyer',b.id)
         ).catch(e=>console.warn(e));
       }
     }
@@ -11393,7 +11497,7 @@ async function autoNotify(){
         NotificationCenter.fire('production_daily', {
           operatorUserId: o.user_id,
           summary: summary,
-          refId: o.id
+          refId: dailyRef('production_daily',o.id)
         }).catch(e=>console.warn(e));
       }
     }
@@ -11409,7 +11513,8 @@ async function autoNotify(){
       
       const buyers = store.users.filter(u => 
         u.active && u.role==='staff' && 
-        u.perms && u.perms.indexOf('purchases') >= 0
+        u.perms && u.perms.indexOf('purchases') >= 0 &&
+        !(store.distributors||[]).some(d=>String(d.user_id)===String(u.id))
       );
       
       for(const b of buyers){
@@ -11419,7 +11524,7 @@ async function autoNotify(){
           summary,
           '/#purchase_requests',
           'pr_pending_buyer',
-          null
+          dailyRef('pr_pending_buyer',b.id)
         ).catch(e=>console.warn(e));
       }
     }
@@ -11441,7 +11546,8 @@ async function autoNotify(){
                 ruleName: rule.name,
                 rewardDescription: describeBonusReward(rule),
                 validTo: rule.valid_to,
-                url: target.url
+                url: target.url,
+                refId:dailyRef('bonus_available',String(rule.id||rule.name)+':'+target.userId)
               }).catch(e => console.warn(e));
             }
           }
@@ -11462,7 +11568,8 @@ async function autoNotify(){
                   ruleName: rule.name,
                   daysLeft: 1,
                   remaining: fmt(progress.remaining),
-                  url: target.url
+                  url: target.url,
+                  refId:dailyRef('bonus_expiring',String(rule.id||rule.name)+':'+target.userId)
                 }).catch(e => console.warn(e));
               }
             }
@@ -11480,7 +11587,8 @@ async function autoNotify(){
                   targetUserId: target.userId,
                   targetName: target.name,
                   ruleName: rule.name,
-                  url: target.url
+                  url: target.url,
+                  refId:dailyRef('bonus_expired',String(rule.id||rule.name)+':'+target.userId)
                 }).catch(e => console.warn(e));
               }
             }
@@ -11492,25 +11600,26 @@ async function autoNotify(){
     }
 
     
-    // =========================================================
-    // حفظ علامة اليوم
-    // =========================================================
-    const pushDayKey = 'auto_push_v2_' + t;
-    if(localStorage.getItem(pushDayKey) !== t){
-      try{ localStorage.setItem(pushDayKey, t); }catch(e){}
-    }
-    
-    _autoNotifyAttempted = true;
     renderBell();
   }catch(ex){
     console.error('[autoNotify] فشل:', ex);
-    _autoNotifyAttempted = false;
+  }finally{
+    _autoNotifyRunning=false;
   }
 }
 
 /* =====================================================================
    applyBrand + التنبيهات
    ===================================================================== */
+const DISTRIBUTOR_HIDDEN_NOTICE_KINDS=new Set([
+  'low_stock','low_stock_dist','low_stock_buyer','low_material_buyer',
+  'stocktake','purchase_request','purchase_request_rejected','pr_assigned','pr_pending_buyer'
+]);
+const AUTO_NOTICE_KINDS=new Set([
+  'overdue_cust_single','overdue_cust','late_dist','collection_due_dist','low_stock',
+  'low_stock_buyer','low_material_buyer','production_daily','pr_pending_buyer',
+  'bonus_available','bonus_expiring','bonus_expired'
+]);
 function applyBrand(){
   const n=store.company.name;
   byId('brandName').textContent=n;
@@ -11526,13 +11635,16 @@ function applyBrand(){
 function alertsList(){
   if(!user) return {lowStock:[],lowMat:[],overdue:[],lateDist:[],notices:[],discounts:[],complaints:[]};
   const S=store;
-  const lowStock=S.products.filter(p=>p.min_stock&&stockWH(S,p.id)<p.min_stock);
-  const lowMat=S.materials.filter(m=>m.min_stock&&materialStock(S,m.id)<m.min_stock);
+  const isDistributorUser=!isA()&&(S.distributors||[]).some(d=>String(d.user_id)===String(user.id));
+  const canSeeInventoryAlerts=isA()||(!isDistributorUser&&(user.perms||[]).some(p=>p==='stocktake'||p==='withdrawals'));
+  const lowStock=canSeeInventoryAlerts?S.products.filter(p=>p.min_stock&&stockWH(S,p.id)<p.min_stock):[];
+  const lowMat=canSeeInventoryAlerts?S.materials.filter(m=>m.min_stock&&materialStock(S,m.id)<m.min_stock):[];
   const overdue=S.customers.map(c=>({c,b:custBal(S,c)})).filter(x=>x.b.bucket==='overdue');
   const lateDist=S.distributors.map(d=>({d,s:dSummary(S,d)})).filter(x=>x.s.per.left<0&&x.s.bal>0.009);
-  const notices=(S.notices||[]).filter(n=>{
+  const visibleNotices=(S.notices||[]).filter(n=>{
     if(n.done)return false;
     if(n.kind==='complaint')return false;
+    if(isDistributorUser&&DISTRIBUTOR_HIDDEN_NOTICE_KINDS.has(n.kind))return false;
     if(n.kind==='achievement')return n.target_id===user.id;
     if(n.target_id){
       if(n.target_id===user.id)return true;
@@ -11545,6 +11657,16 @@ function alertsList(){
     if(n.kind==='collection')return user.perms.indexOf('distributors')>=0||user.perms.indexOf('collections')>=0;
     if(n.kind==='discount')return n.target_id===user.id||n.by===user.name;
     return false;
+  });
+  const seenAutoNotices=new Set();
+  const notices=visibleNotices.filter(n=>{
+    if(!AUTO_NOTICE_KINDS.has(n.kind))return true;
+    const key=n.source_ref_id
+      ?[n.kind,n.target_id||'',n.source_ref_id].join('|')
+      :[n.kind,n.target_id||'',n.date||'',n.title||'',n.body||''].join('|');
+    if(seenAutoNotices.has(key))return false;
+    seenAutoNotices.add(key);
+    return true;
   });
   const discounts=isA()?(S.discounts||[]).filter(d=>!d.cancelled).slice(0,5):[];
   const complaints=isA()?(S.complaints||[]).filter(c=>!c.done&&c.status!=='rejected'):[];
@@ -11566,7 +11688,12 @@ function isImportantNotice(n){
 }
 function notificationTime(n){return Number(n.ts)||Date.parse(n.date||'')||0}
 function notificationMaintenanceScope(){
-  return (store.notices||[]).filter(n=>n.kind!=='achievement_record'&&(isA()||n.target_id===user.id));
+  const isDistributorUser=!isA()&&(store.distributors||[]).some(d=>String(d.user_id)===String(user.id));
+  return (store.notices||[]).filter(n=>
+    n.kind!=='achievement_record'&&
+    !(isDistributorUser&&DISTRIBUTOR_HIDDEN_NOTICE_KINDS.has(n.kind))&&
+    (isA()||n.target_id===user.id)
+  );
 }
 function renderBellNoticeList(notices){
   const box=byId('bell-notice-list');
@@ -13280,6 +13407,12 @@ function safe(fn, fb) { try { var r = fn(); return r == null ? fb : r; } catch(e
 function M() { return window.__muzn || null; }
 function store() { var m = M(); return m && m.store ? m.store : null; }
 function me() { var m = M(); return m && m.user ? m.user : null; }
+function isLinkedDistributor() {
+  var u = me(), s = store();
+  return !!(u && u.role !== 'admin' && s && (s.distributors||[]).some(function(d){
+    return String(d.user_id) === String(u.id);
+  }));
+}
 function cur() { var s = store(); return s && s.company ? (s.company.currency_symbol || '') : ''; }
 /* ═══ Helpers محلية للبومة (بديل عن دوال التطبيق الرئيسي) ═══ */
 function dn(id) {
@@ -15467,6 +15600,7 @@ function boot() {
 }
 
 function updateBadge() {
+  if (isLinkedDistributor()) { badgeEl.hidden = true; return; }
   var n = lowStock().products.length + lowStock().materials.length + overdueCustomers().length + pendingPRs().length;
   if (n > 0) { badgeEl.hidden = false; badgeEl.textContent = n > 9 ? '9+' : String(n); }
   else badgeEl.hidden = true;
