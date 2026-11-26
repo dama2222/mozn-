@@ -3659,15 +3659,20 @@ function deleteTicketConfirm(headerTable,hid){
   if(!requireDelete())return;
   confirmSheet('حذف الفاتورة كاملة؟ (تُحذف معها المكافآت غير المدفوعة المرتبطة بها)','حذف',async()=>{
     const awards=(store.bonus_awards||[]).filter(a=>a.reference_id===hid&&a.status!=='paid');
+    // حركات الخزينة المرتبطة بالفاتورة (بيع نقدي مباشر/بنكي أو شراء نقدي/بنكي) تُحذف معها كي لا يبقى رصيد وهمي
+    const trSource=headerTable==='sales'?'sale':(headerTable==='purchases'?'purchase':null);
+    const trRows=trSource?(store.treasury_transactions||[]).filter(t=>t.source===trSource&&String(t.source_id)===String(hid)):[];
     const ok=await tryCommit(
       draft=>{
         draft[headerTable]=draft[headerTable].filter(x=>x.id!==hid);
+        if(trRows.length)draft.treasury_transactions=(draft.treasury_transactions||[]).filter(t=>!trRows.some(r=>r.id===t.id));
         if(awards.length)draft.bonus_awards=(draft.bonus_awards||[]).filter(a=>!awards.some(x=>x.id===a.id));
         draft.audit.unshift(auditRow('حذف','فاتورة'));
       },
       async()=>{
         for(const a of awards){try{await adapter.deleteSimple('bonus_awards',a.id)}catch(e){console.warn(e)}}
-        await adapter.deleteTicket(headerTable,hid)
+        await adapter.deleteTicket(headerTable,hid);
+        for(const r of trRows){try{await adapter.deleteSimple('treasury_transactions',r.id)}catch(e){console.warn('Treasury row delete failed',e)}}
       }
     );
     if(ok)toast('تم','ok');
@@ -10633,6 +10638,13 @@ async function reconcileLegacyCustomerPayments(){
       dups.push(...ranked.slice(1));
     }
     await removeTreasuryRows(dups);
+    // حركات يتيمة: فاتورة بيع/شراء محذوفة سابقاً بقيت حركتها في الخزينة
+    const purById=new Set((store.purchases||[]).map(x=>String(x.id)));
+    // للمدير فقط وعند اكتمال تحميل السجلات (حد الجلب 1000 صف) كي لا تُحذف حركات سليمة بسبب بيانات ناقصة
+    const orphans=(!isA()||(store.sales||[]).length>=1000||(store.purchases||[]).length>=1000)?[]:(store.treasury_transactions||[]).filter(t=>
+      (t.source==='sale'&&t.source_id!=null&&!saleById.has(String(t.source_id)))||
+      (t.source==='purchase'&&t.source_id!=null&&!purById.has(String(t.source_id))));
+    await removeTreasuryRows(orphans);
     for(const t of (store.treasury_transactions||[])){
       if(t.source!=='customer_payment')continue;
       const pay=paymentById.get(String(t.source_id));
@@ -10667,6 +10679,29 @@ async function reconcileLegacyCustomerPayments(){
       by:payment.by||'مزامنة',
       ts:payment.ts||Date.now()
     });
+  }
+
+  // 2.5) فواتير البيع البنكية القديمة التي لم تُسجَّل في الحساب البنكي (قبل وجود الخزينة): تُضاف مرة واحدة
+  //      حسب القاعدة «البيع البنكي يدخل البنك مباشرة». للمدير فقط، وبمعرّف ثابت فلا يتكرر.
+  if(isA()&&(store.treasury_transactions||[]).length<1000){
+    const hasTx=new Set((store.treasury_transactions||[]).filter(t=>t.source==='sale').map(t=>String(t.source_id)));
+    for(const sale of (store.sales||[])){
+      if(sale.type!=='bank'||hasTx.has(String(sale.id)))continue;
+      const amount=r3(saleTotal(sale));
+      if(!(amount>0))continue;
+      await addTreasuryTransaction({
+        id:'treasury-reconcile-sale-'+sale.id,
+        date:sale.date||today(),
+        account_id:treasuryAccountId('bank'),
+        direction:'in',
+        amount,
+        source:'sale',
+        source_id:sale.id,
+        description:'فاتورة بيع بنكي '+(sale.distributor_id?dn(sale.distributor_id):'مباشر'),
+        by:sale.by||'مزامنة',
+        ts:sale.ts||Date.now()
+      });
+    }
   }
 
   // 3) تنظيف البيانات القديمة (Migration): حذف حركات الدخول النقدية القديمة من الصندوق الناتجة عن
