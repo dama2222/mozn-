@@ -4649,7 +4649,9 @@ function mountSales(){
     );
     if(ok){
       sidClear('sales');
-      if(header.type==='cash'||header.type==='bank'){
+      // 💡 القاعدة: بيع الكاش عن طريق موزع يبقى مستحقاً على الموزع ولا يدخل الخزينة.
+      // البيع البنكي يدخل البنك، والبيع الكاش المباشر (بدون موزع) يدخل الصندوق.
+      if(header.type==='bank'||(header.type==='cash'&&!header.distributor_id)){
         const amount=r3(saleTotal(Object.assign({},header,{items})));
         await addTreasuryTransaction({id:uuid(),date:header.date,account_id:treasuryAccountId(header.type),direction:'in',amount,source:'sale',source_id:header.id,description:'فاتورة بيع '+(header.distributor_id?dn(header.distributor_id):'مباشر'),by:user.name,ts:header.ts});
       }
@@ -8184,8 +8186,11 @@ function mountCollections(){
       {rerender:['collections','overview','distributors']}
     );
     if(ok){
-      const paymentAccountType=row.channel==='bank'?'bank':'cash';
-      await addTreasuryTransaction({id:uuid(),date:row.date,account_id:treasuryAccountId(paymentAccountType),direction:'in',amount:r3(row.amount),source:'customer_payment',source_id:row.id,description:(row.channel==='bank'?'تحويل بنكي':'نقداً')+' - سند قبض من عميل - '+cn(row.customer_id)+(row.distributor_id?' - مندوب '+dn(row.distributor_id):''),by:user.name,ts:row.ts});
+      // 💡 سند القبض النقدي يزيد مستحق الموزع فقط (dSummary) ولا يُنشئ حركة في الصندوق النقدي؛
+      // الصندوق يزيد فقط عند تسليم الموزع (إيصال التسليم). السند البنكي يدخل البنك مباشرة.
+      if(paymentGoesToTreasury(row)){
+        await addTreasuryTransaction({id:uuid(),date:row.date,account_id:treasuryAccountId(row.channel==='bank'?'bank':'cash'),direction:'in',amount:r3(row.amount),source:'customer_payment',source_id:row.id,description:(row.channel==='bank'?'تحويل بنكي':'نقداً')+' - سند قبض من عميل - '+cn(row.customer_id)+(row.distributor_id?' - مندوب '+dn(row.distributor_id):''),by:user.name,ts:row.ts});
+      }
       toast(b.remainingWithTax-v.amount<=0.009?'تم السداد بالكامل':'تم','ok');
     }
     return ok;
@@ -8351,6 +8356,7 @@ function editPaymentSheet(paymentId){
   ],{label:'حفظ التعديل',submit:async v=>{
     if(!v.customer_id)return toast('اختر العميل','err');
     if(r3(v.amount||0)<=0)return toast('المبلغ غير صحيح','err');
+    if(v.channel!=='bank'&&!v.distributor_id)return toast('حدّد الموزع للسند النقدي','err');
     const patch={
       date:v.date||today(),
       customer_id:v.customer_id,
@@ -8368,22 +8374,25 @@ function editPaymentSheet(paymentId){
       async()=>{
         await adapter.updateSimple('payments',paymentId,patch);
         await removeTreasuryTransactions('customer_payment',paymentId);
-        await addTreasuryTransaction({
-          id:uuid(),
-          date:patch.date,
-          account_id:treasuryAccountId(patch.channel==='bank'?'bank':'cash'),
-          direction:'in',
-          amount:patch.amount,
-          source:'customer_payment',
-          source_id:paymentId,
-          description:(patch.channel==='bank'?'تحويل بنكي':'نقداً')+' - سند قبض معدل من عميل - '+cn(patch.customer_id)+(patch.distributor_id?' - مندوب '+dn(patch.distributor_id):''),
-          by:user.name,
-          ts:Date.now()
-        });
+        // السند النقدي لا يدخل الصندوق أبداً (يزيد مستحق الموزع فقط)، والبنكي يدخل البنك مباشرة
+        if(paymentGoesToTreasury(patch)){
+          await addTreasuryTransaction({
+            id:uuid(),
+            date:patch.date,
+            account_id:treasuryAccountId(patch.channel==='bank'?'bank':'cash'),
+            direction:'in',
+            amount:patch.amount,
+            source:'customer_payment',
+            source_id:paymentId,
+            description:(patch.channel==='bank'?'تحويل بنكي':'نقداً')+' - سند قبض معدل من عميل - '+cn(patch.customer_id)+(patch.distributor_id?' - مندوب '+dn(patch.distributor_id):''),
+            by:user.name,
+            ts:Date.now()
+          });
+        }
       },
       {rerender:['collections','overview','distributors','finance']}
     );
-    if(ok){closeSheet();toast('تم تعديل سند القبض وتحديث الخزينة','ok')}
+    if(ok){closeSheet();toast('تم تعديل سند القبض','ok')}
     return ok;
   }});
 }
@@ -9117,7 +9126,7 @@ function renderOverview(){
     '<div id="overview-dashboard">' + 
     '<div class="kgrid">'+k('صافي الربح',fmt(profit)+' '+cur(),'هامش '+margin.toFixed(1)+'% (سعر البيع − التكلفة)',profit>=0?'up':'dn',true)+
       k('الربح بعد المصروفات',fmt(r2(profit-expOv-payOv))+' '+cur(),'مصروفات '+fmt(expOv)+' · رواتب '+fmt(payOv),(profit-expOv-payOv)>=0?'up':'dn',true)+k('المبيعات',fmt(rev)+' '+cur(),invCount+' فاتورة (بسعر العميل)')+k('إيراد الشركة',fmt(coRev)+' '+cur(),'صافي مبيعات العملاء')+k('الإنتاج',fmt(prodU)+' <small>وحدة</small>','المجموع')+
-      k('المشتريات',fmt(purch)+' '+cur(),'مواد')+k('المقبوض',fmt(cashIn)+' '+cur(),'نقد + بنك')+k('💵 نقد بالصندوق',fmt(cashBox)+' '+cur(),'كاش + سندات نقدية')+k('🏦 بنك / تحويل',fmt(bankIn)+' '+cur(),'بيع بنكي + تحويلات')+
+      k('المشتريات',fmt(purch)+' '+cur(),'مواد')+k('المقبوض',fmt(cashIn)+' '+cur(),'نقد + بنك')+k('💵 نقد بالصندوق',fmt(cashBox)+' '+cur(),'كاش مباشر + تسليمات الموزعين')+k('🏦 بنك / تحويل',fmt(bankIn)+' '+cur(),'بيع بنكي + تحويلات')+
       k('ذمم العملاء',fmt(outstanding)+' '+cur(),overdue.length?overdue.length+' متأخر':'لا متأخرات',overdue.length?'dn':'up')+
       (totalTax>0?k('غرامة تأخير','<span class="warn">'+fmt(totalTax)+'</span>',cur()+' مستحقة','warn'):'')+
       k('مستحق على الموزعين',fmt(dueTotal)+' '+cur(),'لم يُسلَّم',dueTotal>0?'warn':'up')+
@@ -10562,41 +10571,75 @@ async function removeTreasuryTransactions(source,sourceId){
   const remove=new Set(rows.map(r=>r.id));
   store.treasury_transactions=(store.treasury_transactions||[]).filter(t=>!remove.has(t.id));
 }
+function isCashTreasuryAccount(accountId){return ((store.treasury_accounts||[]).find(a=>a.id===accountId)||{}).type==='cash'}
+async function removeTreasuryRows(rows){
+  const list=(rows||[]).slice();
+  if(!list.length)return;
+  for(const row of list){
+    try{await adapter.deleteSimple('treasury_transactions',row.id)}catch(e){console.warn('Treasury transaction delete failed',e)}
+  }
+  const ids=new Set(list.map(x=>x.id));
+  store.treasury_transactions=(store.treasury_transactions||[]).filter(t=>!ids.has(t.id));
+}
+/* 💡 القاعدة المالية: النقد المحصّل عبر الموزع (سند قبض نقدي أو بيع كاش عبر موزع) يبقى في ذمته (dSummary)
+   ولا يدخل الصندوق إلا عند إيصال التسليم. البيع الكاش المباشر (بدون موزع) يدخل الصندوق،
+   وكل بيع أو سند بنكي يدخل البنك مباشرة. */
+function paymentGoesToTreasury(p){
+  // سندات القبض: البنكي فقط يدخل الخزينة (البنك). النقدي لا يُنشئ أي حركة في الصندوق.
+  return !!p&&p.channel==='bank';
+}
 async function reconcileLegacyCustomerPayments(){
   ensureTreasuryAccounts();
-  const transactions=store.treasury_transactions||[];
   const payments=store.payments||[];
+  const paymentById=new Map(payments.map(p=>[String(p.id),p]));
+  const saleById=new Map((store.sales||[]).map(s=>[String(s.id),s]));
+
+  // 1) سندات نقاط البيع القديمة كانت تُحسب نقداً
   for(const payment of payments){
-    if(payment.channel==='pos'){
-      const legacyAccountId=treasuryAccountId('cash');
-      const legacyTx=transactions.find(t=>t.source==='customer_payment'&&t.source_id===payment.id);
-      payment.channel='cash';
-      try{await adapter.updateSimple('payments',payment.id,{channel:'cash'})}catch(e){console.warn('Failed to convert legacy POS payment',e)}
-      if(legacyTx){
-        legacyTx.account_id=legacyAccountId;
-        legacyTx.direction='in';
-        legacyTx.description='نقداً - سند قبض محوّل من نقاط البيع - '+cn(payment.customer_id)+(payment.distributor_id?' - مندوب '+dn(payment.distributor_id):'');
-        try{await adapter.updateSimple('treasury_transactions',legacyTx.id,{account_id:legacyAccountId,direction:'in',description:legacyTx.description})}catch(e){console.warn('Failed to migrate legacy POS treasury transaction',e)}
-        continue;
-      }
-    }
-    const already=transactions.some(t=>t.source==='customer_payment'&&t.source_id===payment.id);
-    if(already)continue;
-    const accountType=payment.channel==='bank'?'bank':'cash';
+    if(payment.channel!=='pos')continue;
+    payment.channel='cash';
+    try{await adapter.updateSimple('payments',payment.id,{channel:'cash'})}catch(e){console.warn('Failed to convert legacy POS payment',e)}
+  }
+
+  // 2) سندات القبض: لا تُنشأ أي حركة دخول في الصندوق النقدي لسندات القبض النقدية إطلاقاً.
+  //    تُزامَن السندات البنكية فقط (حركة دخول في الحساب البنكي إن كانت مفقودة).
+  //    حذف الحركات النقدية القديمة للموزعين يتم في الخطوة (3) أدناه.
+  for(const payment of payments){
+    if(!paymentGoesToTreasury(payment))continue;
+    const existing=(store.treasury_transactions||[]).filter(t=>t.source==='customer_payment'&&String(t.source_id)===String(payment.id));
+    if(existing.length)continue;
     await addTreasuryTransaction({
       id:'treasury-reconcile-'+payment.id,
       date:payment.date||today(),
-      account_id:treasuryAccountId(accountType),
+      account_id:treasuryAccountId('bank'),
       direction:'in',
       amount:r3(payment.amount||0),
       source:'customer_payment',
       source_id:payment.id,
-      description:(payment.channel==='bank'?'تحويل بنكي':'سند قبض نقدي')+
+      description:'تحويل بنكي'+
         ' من عميل - '+cn(payment.customer_id)+(payment.distributor_id?' - مندوب '+dn(payment.distributor_id):''),
       by:payment.by||'مزامنة',
       ts:payment.ts||Date.now()
     });
   }
+
+  // 3) تنظيف البيانات القديمة (Migration): حذف حركات الدخول النقدية القديمة من الصندوق الناتجة عن
+  //    بيع كاش عبر موزع أو سند قبض نقدي لموزع فقط. لا تُمس سجلات القبض/المبيعات/الفواتير،
+  //    ولا الحركات البنكية، ولا حركات التسليم (source:'remittance')؛ الحذف من treasury_transactions فقط.
+  //    العملية آمنة ومتكررة (idempotent) وتعمل عند كل تهيئة فتبقى الأجهزة القديمة متسقة.
+  const stale=(store.treasury_transactions||[]).filter(t=>{
+    if(!isCashTreasuryAccount(t.account_id))return false;
+    if(t.source==='sale'){
+      const sale=saleById.get(String(t.source_id));
+      return !!(sale&&sale.distributor_id);
+    }
+    if(t.source==='customer_payment'){
+      const payment=paymentById.get(String(t.source_id));
+      return !!(payment&&payment.distributor_id&&payment.channel!=='bank');
+    }
+    return false;
+  });
+  await removeTreasuryRows(stale);
 }
 
 /* ── المالية ── */
