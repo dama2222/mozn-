@@ -8364,30 +8364,40 @@ function editPaymentSheet(paymentId){
       channel:v.channel==='bank'?'bank':'cash',
       distributor_id:v.distributor_id||null
     };
+    // حركة الخزينة الوحيدة المرتبطة بهذا السند (تُحدَّث في مكانها بدل حذف/إعادة إنشاء لمنع التكرار)
+    const oldTx=(store.treasury_transactions||[]).filter(t=>t.source==='customer_payment'&&String(t.source_id)===String(paymentId));
+    const keepTx=oldTx[0]||null;
+    const txRow=paymentGoesToTreasury(patch)?{
+      id:keepTx?keepTx.id:'treasury-payment-'+paymentId,
+      date:patch.date,
+      account_id:treasuryAccountId('bank'),
+      direction:'in',
+      amount:patch.amount,
+      source:'customer_payment',
+      source_id:paymentId,
+      description:'تحويل بنكي - سند قبض معدل من عميل - '+cn(patch.customer_id)+(patch.distributor_id?' - مندوب '+dn(patch.distributor_id):''),
+      by:keepTx?keepTx.by:user.name,
+      ts:keepTx?keepTx.ts:Date.now()
+    }:null;
     const ok=await tryCommit(
       draft=>{
         const p=draft.payments.find(x=>x.id===paymentId);
         if(p)Object.assign(p,patch);
-        draft.treasury_transactions=(draft.treasury_transactions||[]).filter(t=>!(t.source==='customer_payment'&&t.source_id===paymentId));
+        draft.treasury_transactions=(draft.treasury_transactions||[]).filter(t=>!(t.source==='customer_payment'&&String(t.source_id)===String(paymentId)));
+        if(txRow)draft.treasury_transactions.unshift(Object.assign({},txRow));
         finAudit(draft,auditRow('تعديل','سند قبض '+fmt(patch.amount)));
       },
       async()=>{
         await adapter.updateSimple('payments',paymentId,patch);
-        await removeTreasuryTransactions('customer_payment',paymentId);
-        // السند النقدي لا يدخل الصندوق أبداً (يزيد مستحق الموزع فقط)، والبنكي يدخل البنك مباشرة
-        if(paymentGoesToTreasury(patch)){
-          await addTreasuryTransaction({
-            id:uuid(),
-            date:patch.date,
-            account_id:treasuryAccountId(patch.channel==='bank'?'bank':'cash'),
-            direction:'in',
-            amount:patch.amount,
-            source:'customer_payment',
-            source_id:paymentId,
-            description:(patch.channel==='bank'?'تحويل بنكي':'نقداً')+' - سند قبض معدل من عميل - '+cn(patch.customer_id)+(patch.distributor_id?' - مندوب '+dn(patch.distributor_id):''),
-            by:user.name,
-            ts:Date.now()
-          });
+        // السند النقدي لا يدخل الصندوق أبداً (يزيد مستحق الموزع فقط)، والبنكي يدخل البنك مباشرة بحركة واحدة
+        const extra=txRow?oldTx.filter(t=>t.id!==txRow.id):oldTx;
+        for(const t of extra){await adapter.deleteSimple('treasury_transactions',t.id)}
+        if(txRow){
+          if(keepTx){
+            await adapter.updateSimple('treasury_transactions',txRow.id,{date:txRow.date,account_id:txRow.account_id,direction:'in',amount:txRow.amount,description:txRow.description});
+          }else{
+            await adapter.saveSimple('treasury_transactions',Object.assign({},txRow));
+          }
         }
       },
       {rerender:['collections','overview','distributors','finance']}
@@ -10564,7 +10574,7 @@ async function addTreasuryTransaction(row){
   return row.id;
 }
 async function removeTreasuryTransactions(source,sourceId){
-  const rows=(store.treasury_transactions||[]).filter(t=>t.source===source&&t.source_id===sourceId);
+  const rows=(store.treasury_transactions||[]).filter(t=>t.source===source&&String(t.source_id)===String(sourceId));
   for(const row of rows){
     try{await adapter.deleteSimple('treasury_transactions',row.id)}catch(e){console.warn('Treasury transaction delete failed',e)}
   }
@@ -10599,6 +10609,42 @@ async function reconcileLegacyCustomerPayments(){
     if(payment.channel!=='pos')continue;
     payment.channel='cash';
     try{await adapter.updateSimple('payments',payment.id,{channel:'cash'})}catch(e){console.warn('Failed to convert legacy POS payment',e)}
+  }
+
+  // 1.5) تنظيف التكرار: حركة خزينة واحدة فقط لكل (سند قبض / بيع / إيصال تسليم).
+  //      نُبقي الحركة الأحدث (المطابقة لمبلغ السند إن وُجدت) ونحذف الباقي، ثم نُصحّح الباقية لتطابق السند.
+  {
+    const groups=new Map();
+    for(const t of (store.treasury_transactions||[])){
+      if(!['customer_payment','sale','remittance'].includes(t.source)||t.source_id==null)continue;
+      const k=t.source+'|'+String(t.source_id);
+      if(!groups.has(k))groups.set(k,[]);
+      groups.get(k).push(t);
+    }
+    const dups=[];
+    for(const [k,rows] of groups){
+      if(rows.length<2)continue;
+      const pay=k.startsWith('customer_payment|')?paymentById.get(k.slice(17)):null;
+      const ranked=rows.slice().sort((a,b)=>{
+        const ma=pay&&Math.abs(Number(a.amount)-Number(pay.amount))<0.0005?1:0;
+        const mb=pay&&Math.abs(Number(b.amount)-Number(pay.amount))<0.0005?1:0;
+        return (mb-ma)||((b.ts||0)-(a.ts||0));
+      });
+      dups.push(...ranked.slice(1));
+    }
+    await removeTreasuryRows(dups);
+    for(const t of (store.treasury_transactions||[])){
+      if(t.source!=='customer_payment')continue;
+      const pay=paymentById.get(String(t.source_id));
+      if(!pay||pay.channel!=='bank')continue;
+      const patch={};
+      if(Math.abs(Number(t.amount)-Number(pay.amount))>=0.0005)patch.amount=r3(pay.amount||0);
+      if(pay.date&&t.date!==pay.date)patch.date=pay.date;
+      if(Object.keys(patch).length){
+        Object.assign(t,patch);
+        try{await adapter.updateSimple('treasury_transactions',t.id,patch)}catch(e){console.warn('Treasury row fix failed',e)}
+      }
+    }
   }
 
   // 2) سندات القبض: لا تُنشأ أي حركة دخول في الصندوق النقدي لسندات القبض النقدية إطلاقاً.
