@@ -1704,6 +1704,7 @@ function renderAdminBonusOverview(entityType){
 const MODS=[
   {id:'overview',t:'لوحة الإدارة',s:'الرئيسية',admin:true},
   {id:'sales',t:'المبيعات',s:'المبيعات'},
+  {id:'customers_map',t:'خريطة العملاء',s:'العملاء'},
   {id:'production',t:'الإنتاج',s:'الإنتاج'},
   {id:'withdrawals',t:'المسحوبات والمخزون',s:'المسحوبات'},
   {id:'warehouse',t:'مخزون الشركة',s:'المخزون'},
@@ -1790,6 +1791,11 @@ const allowed=()=>{
     }
     if(m.id === 'prices'){
       return isA() || (store.distributors||[]).some(d=>d.user_id===user.id) || user.perms.indexOf('prices')>=0;
+    }
+    // 🗺️ خريطة العملاء: كل موزع مرتبط يرى عملاءه، ومن لديه صلاحية المبيعات/الموزعين/القسم نفسه
+    if(m.id === 'customers_map'){
+      if((store.distributors||[]).some(d => d.user_id === user.id)) return true;
+      return user.perms.indexOf('customers_map') >= 0 || user.perms.indexOf('sales') >= 0 || user.perms.indexOf('distributors') >= 0;
     }
     // ✅ الأقسام العادية — حسب الصلاحيات
     return user.perms.indexOf(m.id) >= 0;
@@ -4148,6 +4154,7 @@ const SKEL={
   purchase_requests:'<h1>طلبات النواقص</h1><div id="pr-warn"></div><div class="card form-card"><h2>إنشاء طلب نواقص جديد</h2><div id="pr-head"></div><div id="pr-lines"></div><button class="btn-primary btn-block" id="pr-save">إرسال الطلب للمشتريات</button></div><div class="pills" id="pr-pills"></div><div id="pr-body"></div>',
   collections:'<h1>التحصيل والذمم</h1><div class="btnrow" style="margin-bottom:12px"><button class="btn-primary" id="recBtn">+ تسجيل سند قبض</button><button class="btn-ghost" id="col-add-prod">+ طلب إنتاج</button></div><div id="col-profit"></div><div class="pills" id="col-pills"></div><div class="kb" id="kanban"></div><div class="sec-head"><h2>سجل العملاء والذمم المدينة</h2></div><div id="ledger"></div><div class="card form-card" id="settle"><h2>تحصيل دفعة فورية</h2><div id="col-form"></div></div><div id="col-body"></div>',
   distributors:'<h1>الموزعون والتسليم</h1><div id="di-warn"></div><div id="di-stats"></div><div id="di-cards" style="margin-top:14px"></div><div class="card form-card" id="rcform"><h2>استلام مبلغ من موزع (إيصال)</h2><div id="di-form"></div></div><div id="di-body"></div>',
+  customers_map:'<h1>🗺️ خريطة العملاء</h1><div id="cm-stats"></div><div class="pills" id="cm-pills-d"></div><div class="pills" id="cm-pills-s" style="margin-top:0"></div><div id="cm-map" style="height:58vh;min-height:320px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--card)"></div><div id="cm-legend" class="muted" style="font-size:12.5px;margin:8px 0"></div><div id="cm-list"></div>',
   attendance_log:'<h1>سجل الحضور والغياب</h1><div class="pills" id="att-pills"></div><div id="att-body"></div>',
   prices:'<h1>أسعار المنتجات</h1><div id="prices-search-wrap"></div><div id="prices-body"></div>',
   management:'<h1>الإدارة</h1><div id="mg-warn"></div><div class="card"><h2 style="margin-bottom:4px">بيانات الشركة والعملة والضريبة</h2><div id="mg-company"></div></div><div id="mg-body"></div><div class="card" style="margin-top:14px"><h2>🏆 جوائز وإنجازات الموظفين</h2><p class="muted">يرشّح النظام أصحاب أعلى النتائج، ويعتمد المدير منح الجائزة. تُعلن للموظفين وتظهر في الملف الشخصي.</p><div id="mg-achievements"></div></div><div class="card" style="margin-top:14px"><h2>الخصومات</h2><div id="mg-disc"></div></div><div class="card" style="margin-top:14px"><h2>🎁 قواعد البونص</h2><div id="mg-bonus-rules"></div></div><div class="card" style="margin-top:14px"><h2>🎁 المكافآت المحققة</h2><div id="mg-bonus-awards"></div></div>'
@@ -9197,7 +9204,8 @@ const ENT={
     {k:'phone',label:'الهاتف (واتساب)',placeholder:'+218xxxxxxxx'},
     {k:'region',label:'المنطقة'},
     {k:'distributor_id',label:'الموزع',type:'select',options:opt.distributors},
-    {k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}
+    {k:'terms',label:'مدة السداد (أيام)',type:'number',value:14},
+    {k:'has_stand',label:'🪧 لديه ستاند من الشركة؟',type:'toggle',value:false}
   ]},
   distributors:{title:'موزع',fields:[
     {k:'name',label:'الاسم'},
@@ -9253,15 +9261,18 @@ function entUsedCount(ent,id){
 function quickAddCustomerSheet(prefillDistId){
   if(!requirePerm('sales','لإضافة عميل'))return;
   openSheet('<h3>+ إضافة عميل جديد</h3><div id="qac-form"></div>');
+  let qacLoc=null;
   mountForm(byId('qac-form'),'qac',[
     {k:'name',label:'اسم العميل',type:'text'},
     {k:'phone',label:'الهاتف (واتساب)',type:'text',placeholder:'+218xxxxxxxx'},
     {k:'region',label:'المنطقة',type:'text'},
     {k:'distributor_id',label:'الموزع',type:'select',nophd:true,options:()=>[['','بدون موزع']].concat(opt.distributors()),value:prefillDistId||''},
-    {k:'terms',label:'مدة السداد (أيام)',type:'number',value:14}
+    {k:'terms',label:'مدة السداد (أيام)',type:'number',value:14},
+    {k:'has_stand',label:'🪧 لديه ستاند من الشركة؟ (فعّله إن كان لديه، واتركه مطفأً إن لم يكن)',type:'toggle',value:false}
   ],{label:'حفظ العميل',submit:async v=>{
     if(!v.name){toast('أدخل اسم العميل','err');return false}
-    const row={name:v.name,phone:v.phone||'',region:v.region||'',distributor_id:v.distributor_id||null,terms:v.terms||14,barcode:''};
+    if(!isA()&&(!qacLoc||qacLoc.lat==null)){toast('ضع دبوس موقع العميل على الخريطة أو استخدم موقعك الحالي','err');return false}
+    const row={name:v.name,phone:v.phone||'',region:v.region||'',distributor_id:v.distributor_id||null,terms:v.terms||14,barcode:'',has_stand:!!v.has_stand,lat:qacLoc&&qacLoc.lat!=null?qacLoc.lat:null,lng:qacLoc&&qacLoc.lng!=null?qacLoc.lng:null};
     const ok=await tryCommit(
       draft=>{
         draft.customers.push(Object.assign({id:'__new__'},row));
@@ -9282,6 +9293,7 @@ function quickAddCustomerSheet(prefillDistId){
     }
     return false;
   }});
+  qacLoc=mountLocPicker(byId('qac-form'),null);
 }
 function entSheet(ent,id){
   // 🆕 التحقق من الصلاحيات حسب النوع
@@ -9304,6 +9316,7 @@ function entSheet(ent,id){
   const cfg=ENT[ent],rec=id?store[ent].find(x=>x.id===id):null;
   const fields=cfg.fields.map(f=>Object.assign({},f,{value:rec?(f.k==='password'?'':rec[f.k]):f.value}));
   openSheet('<h3>'+(rec?'تعديل':'إضافة')+' '+cfg.title+'</h3><div id="ent-form"></div>'+(rec?'<button class="btn-danger btn-block" id="ent-del">حذف</button>':''));
+  let entLoc=null;
   mountForm(byId('ent-form'),'ent',fields,{label:'حفظ',submit:async v=>{
     if(!v.name){toast('أدخل الاسم','err');return false}
     if(ent==='products'&&v.price<=0){toast('أدخل سعر البيع','err');return false}
@@ -9334,6 +9347,7 @@ function entSheet(ent,id){
       return false;
     }
     cfg.fields.forEach(f=>{if(f.type==='select'&&v[f.k]==='')v[f.k]=null});
+    if(ent==='customers'&&entLoc){v.lat=entLoc.lat;v.lng=entLoc.lng;v.has_stand=!!v.has_stand}
     if(ent==='products'){
       v.price=Number(v.price)||0;
       v.dist_price=v.price;
@@ -9383,6 +9397,7 @@ function entSheet(ent,id){
     if(ok){closeSheet();toast('تم','ok')}
     return false;
   }});
+  if(ent==='customers')entLoc=mountLocPicker(byId('ent-form'),rec);
   const del=byId('ent-del');
   if(del)del.onclick=()=>{
     if(ent==='users'){
@@ -9637,7 +9652,8 @@ function mountManagement(){
     {k:'tax_monthly_rate',label:'نسبة الغرامة الشهرية % (تُحتسب يومياً = النسبة ÷ 30)',type:'number',step:'0.01',value:()=>store.company.tax_monthly_rate!=null?store.company.tax_monthly_rate:2},
     {k:'tax_max_pct',label:'الحد الأقصى للغرامة (% من أصل الفواتير الآجلة)',type:'number',step:'0.01',value:()=>store.company.tax_max_pct!=null?store.company.tax_max_pct:30},
     {k:'shift_early_threshold',label:'حد التنبيه المبكر (الساعة)',type:'number',value:()=>store.company.shift_early_threshold||5},
-    {k:'shift_late_threshold',label:'حد تنبيه التأخير (الساعة)',type:'number',value:()=>store.company.shift_late_threshold||10}
+    {k:'shift_late_threshold',label:'حد تنبيه التأخير (الساعة)',type:'number',value:()=>store.company.shift_late_threshold||10},
+    {k:'gmaps_key',label:'🗺️ مفتاح Google Maps API (لخريطة العملاء — اتركه فارغاً لاستخدام خريطة OpenStreetMap المجانية)',type:'text',value:()=>store.company.gmaps_key||''}
   ],{label:'حفظ',submit:async v=>{
     if(!v.name){toast('أدخل اسم الشركة','err');return false}
     const patch={
@@ -9650,7 +9666,8 @@ function mountManagement(){
       tax_monthly_rate:Number(v.tax_monthly_rate)||0,
       tax_max_pct:(v.tax_max_pct===''||isNaN(Number(v.tax_max_pct)))?30:Math.max(Number(v.tax_max_pct),0),
       shift_early_threshold:Number(v.shift_early_threshold)||5,
-      shift_late_threshold:Number(v.shift_late_threshold)||10
+      shift_late_threshold:Number(v.shift_late_threshold)||10,
+      gmaps_key:(v.gmaps_key||'').trim()||null
     };
     const ok=await tryCommit(
       draft=>{Object.assign(draft.company,patch)},
@@ -11383,6 +11400,216 @@ document.addEventListener('click',e=>{
     if(ok)toast('تم الحذف','ok')});
 });
 
+/* ═════════ 🗺️ خريطة العملاء (Google Maps عند وجود مفتاح، وإلا OpenStreetMap) ═════════ */
+const MAP_DEFAULT=[32.1167,20.0667];
+let _mapLibP=null;
+function loadMapLib(){
+  if(_mapLibP)return _mapLibP;
+  const key=(store&&store.company&&store.company.gmaps_key)||'';
+  _mapLibP=new Promise((res,rej)=>{
+    if(key){
+      window.__gmReady=()=>res('google');
+      window.gm_authFailure=()=>toast('مفتاح Google Maps غير صالح أو غير مصرّح لهذا الموقع','err');
+      const sc=document.createElement('script');
+      sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&callback=__gmReady&language=ar';
+      sc.async=true;sc.onerror=()=>rej(new Error('gmaps'));
+      document.head.appendChild(sc);
+    }else{
+      const css=document.createElement('link');css.rel='stylesheet';css.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(css);
+      const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      sc.onload=()=>res('leaflet');sc.onerror=()=>rej(new Error('leaflet'));
+      document.head.appendChild(sc);
+    }
+  }).catch(e=>{_mapLibP=null;throw e});
+  return _mapLibP;
+}
+const gmapsDir=(lat,lng)=>'https://www.google.com/maps/dir/?api=1&destination='+lat+','+lng;
+const gmapsPin=(lat,lng)=>'https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+function getGps(){
+  return new Promise((res,rej)=>{
+    if(!navigator.geolocation)return rej(new Error('no gps'));
+    navigator.geolocation.getCurrentPosition(p=>res([p.coords.latitude,p.coords.longitude]),e=>rej(e),{enableHighAccuracy:true,timeout:12000});
+  });
+}
+async function createMapView(el,opts){
+  opts=opts||{};
+  const kind=await loadMapLib();
+  const c=opts.center||MAP_DEFAULT,z=opts.zoom||12;
+  const api={kind,pins:[]};
+  if(kind==='google'){
+    const map=new google.maps.Map(el,{center:{lat:c[0],lng:c[1]},zoom:z,mapTypeControl:false,streetViewControl:false,gestureHandling:'greedy'});
+    const iw=new google.maps.InfoWindow();
+    api.addPin=(lat,lng,o)=>{
+      o=o||{};
+      const m=new google.maps.Marker({position:{lat,lng},map,draggable:!!o.draggable,title:o.title||'',icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:o.color||'#e53935',fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}});
+      if(o.html)m.addListener('click',()=>{iw.setContent(o.html);iw.open({map,anchor:m})});
+      if(o.onDrag)m.addListener('dragend',e=>o.onDrag(e.latLng.lat(),e.latLng.lng()));
+      api.pins.push(m);
+      return {move:(a,b)=>m.setPosition({lat:a,lng:b}),remove:()=>m.setMap(null)};
+    };
+    api.clear=()=>{api.pins.forEach(m=>m.setMap(null));api.pins=[]};
+    api.setView=(lat,lng,zoom)=>{map.setCenter({lat,lng});if(zoom)map.setZoom(zoom)};
+    api.fit=pts=>{
+      if(!pts.length)return;
+      if(pts.length===1){api.setView(pts[0][0],pts[0][1],15);return}
+      const b=new google.maps.LatLngBounds();pts.forEach(q=>b.extend({lat:q[0],lng:q[1]}));map.fitBounds(b,40);
+    };
+    api.onClick=cb=>map.addListener('click',e=>cb(e.latLng.lat(),e.latLng.lng()));
+    api.resize=()=>google.maps.event.trigger(map,'resize');
+  }else{
+    const map=L.map(el).setView(c,z);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+    api.addPin=(lat,lng,o)=>{
+      o=o||{};
+      const icon=L.divIcon({className:'',html:'<div style="width:18px;height:18px;border-radius:50%;background:'+(o.color||'#e53935')+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+      const m=L.marker([lat,lng],{icon,draggable:!!o.draggable,title:o.title||''}).addTo(map);
+      if(o.html)m.bindPopup(o.html);
+      if(o.onDrag)m.on('dragend',()=>{const q=m.getLatLng();o.onDrag(q.lat,q.lng)});
+      api.pins.push(m);
+      return {move:(a,b)=>m.setLatLng([a,b]),remove:()=>map.removeLayer(m)};
+    };
+    api.clear=()=>{api.pins.forEach(m=>map.removeLayer(m));api.pins=[]};
+    api.setView=(lat,lng,zoom)=>map.setView([lat,lng],zoom||map.getZoom());
+    api.fit=pts=>{
+      if(!pts.length)return;
+      if(pts.length===1){api.setView(pts[0][0],pts[0][1],15);return}
+      map.fitBounds(pts,{padding:[40,40],maxZoom:16});
+    };
+    api.onClick=cb=>map.on('click',e=>cb(e.latlng.lat,e.latlng.lng));
+    api.resize=()=>map.invalidateSize();
+  }
+  return api;
+}
+/* محدّد الموقع داخل نموذج العميل: موقعي الحالي أو دبوس على الخريطة. يعيد كائناً فيه lat/lng. */
+function mountLocPicker(host,init){
+  const st={lat:null,lng:null};
+  if(init&&init.lat!=null&&init.lng!=null&&isFinite(init.lat)&&isFinite(init.lng)){st.lat=Number(init.lat);st.lng=Number(init.lng)}
+  const box=document.createElement('div');
+  box.className='card';box.style.margin='12px 0';
+  box.innerHTML='<span class="fl">📍 موقع العميل (دبوس الخريطة)</span>'+
+    '<div class="muted" data-loc-st style="font-size:13px;margin:4px 0"></div>'+
+    '<div class="btnrow" style="margin-top:8px"><button type="button" class="btn-ghost" data-loc-gps>📍 موقعي الحالي</button><button type="button" class="btn-ghost" data-loc-map>🗺️ ضع دبوساً على الخريطة</button></div>'+
+    '<div data-loc-wrap style="display:none;margin-top:10px"><div class="hint">اضغط على الخريطة أو اسحب الدبوس لضبط الموقع</div><div data-loc-el style="height:260px;border-radius:12px;overflow:hidden;margin-top:6px"></div></div>';
+  const sb=host.querySelector('[data-submit]');
+  if(sb)sb.insertAdjacentElement('beforebegin',box);else host.appendChild(box);
+  const q=sel=>box.querySelector(sel);
+  let mv=null,pin=null;
+  const paint=()=>{
+    q('[data-loc-st]').innerHTML=st.lat==null?'لم يُحدَّد الموقع بعد':'✅ تم تحديد الموقع — <a target="_blank" rel="noopener" href="'+gmapsPin(st.lat,st.lng)+'">عرض في Google Maps</a>';
+  };
+  const setLoc=(lat,lng,fromMap)=>{
+    st.lat=Math.round(lat*1e6)/1e6;st.lng=Math.round(lng*1e6)/1e6;paint();
+    if(mv){
+      if(pin)pin.move(st.lat,st.lng);
+      else pin=mv.addPin(st.lat,st.lng,{draggable:true,color:'#e53935',onDrag:(a,b)=>setLoc(a,b,true)});
+      if(!fromMap)mv.setView(st.lat,st.lng,16);
+    }
+  };
+  paint();
+  q('[data-loc-gps]').onclick=async()=>{
+    try{const g=await getGps();setLoc(g[0],g[1],false);toast('تم أخذ موقعك الحالي','ok')}
+    catch(e){toast('تعذر تحديد موقعك — فعّل الموقع (GPS) أو اختر من الخريطة','err')}
+  };
+  q('[data-loc-map]').onclick=async()=>{
+    const wrap=q('[data-loc-wrap]');
+    wrap.style.display='block';
+    if(mv){mv.resize();return}
+    try{
+      const start=st.lat!=null?[st.lat,st.lng]:MAP_DEFAULT;
+      mv=await createMapView(q('[data-loc-el]'),{center:start,zoom:st.lat!=null?16:12});
+      if(st.lat!=null)pin=mv.addPin(st.lat,st.lng,{draggable:true,color:'#e53935',onDrag:(a,b)=>setLoc(a,b,true)});
+      mv.onClick((a,b)=>setLoc(a,b,true));
+      if(st.lat==null){try{const g=await getGps();mv.setView(g[0],g[1],15)}catch(e){}}
+    }catch(e){wrap.style.display='none';toast('تعذر تحميل الخريطة — تحقق من الاتصال','err')}
+  };
+  return st;
+}
+function custPinHtml(c){
+  const e=escHtml,d=c.distributor_id?dn(c.distributor_id):'بدون موزع';
+  return '<div style="direction:rtl;min-width:180px;color:#111;font-family:inherit"><b>'+e(c.name)+'</b><br><small>'+e(d)+(c.region?' · '+e(c.region):'')+'</small><br>'+
+    (c.has_stand?'🟢 لديه ستاند من الشركة':'⚪ بدون ستاند')+
+    (c.phone?'<br><a href="tel:'+e(c.phone)+'">📞 '+e(c.phone)+'</a>':'')+
+    '<br><a target="_blank" rel="noopener" href="'+gmapsDir(c.lat,c.lng)+'">🧭 الاتجاهات في Google Maps</a>'+
+    '<br><a href="#" onclick="customerLocSheet(\''+e(c.id)+'\');return false">✏️ تعديل الموقع / الستاند</a></div>';
+}
+function customerLocSheet(cid){
+  const c=(store.customers||[]).find(x=>String(x.id)===String(cid));
+  if(!c)return;
+  if(!canViewCustomer(c))return toast('غير مصرّح','err');
+  openSheet('<h3>📍 موقع «'+escHtml(c.name)+'»</h3><div id="cl-form"></div>');
+  let loc=null;
+  mountForm(byId('cl-form'),'cl',[
+    {k:'has_stand',label:'🪧 لديه ستاند من الشركة؟',type:'toggle',value:!!c.has_stand}
+  ],{label:'حفظ',submit:async v=>{
+    if(!loc||loc.lat==null){toast('ضع الدبوس أو استخدم موقعك الحالي أولاً','err');return false}
+    const patch={lat:loc.lat,lng:loc.lng,has_stand:!!v.has_stand};
+    const ok=await tryCommit(
+      draft=>{
+        const x=draft.customers.find(y=>String(y.id)===String(cid));
+        if(x)Object.assign(x,patch);
+        draft.audit.unshift(auditRow('تعديل','موقع/ستاند عميل: '+c.name));
+      },
+      async()=>{await adapter.saveEntity('customers',Object.assign({id:cid},patch))},
+      {rerender:['customers_map','sales']}
+    );
+    if(ok){toast('تم الحفظ','ok');closeSheet()}
+    return false;
+  }});
+  loc=mountLocPicker(byId('cl-form'),c);
+}
+const cmState={dist:'',stand:'',refit:true,fitDone:false};
+let cmMap=null,cmBusy=false;
+function mountCustomersMap(){
+  const v=byId('v-customers_map');if(!v)return;
+  v.addEventListener('click',ev=>{
+    const t=ev.target.closest('[data-cm-d],[data-cm-s],[data-cm-loc]');if(!t)return;
+    if(t.hasAttribute('data-cm-d')){cmState.dist=t.getAttribute('data-cm-d');cmState.refit=true}
+    else if(t.hasAttribute('data-cm-s')){cmState.stand=t.getAttribute('data-cm-s');cmState.refit=true}
+    else if(t.hasAttribute('data-cm-loc')){customerLocSheet(t.getAttribute('data-cm-loc'));return}
+    renderCustomersMap();
+  });
+}
+function renderCustomersMap(){
+  const host=byId('cm-map');if(!host)return;
+  const all=visibleCustomers();
+  const dists=isA()?(store.distributors||[]):[];
+  const pd=byId('cm-pills-d'),ps=byId('cm-pills-s');
+  if(pd){
+    pd.style.display=isA()?'':'none';
+    pd.innerHTML=isA()?('<button class="pill'+(!cmState.dist?' on':'')+'" data-cm-d="">كل الموزعين</button>'+dists.map(d=>'<button class="pill'+(String(cmState.dist)===String(d.id)?' on':'')+'" data-cm-d="'+escHtml(d.id)+'">'+escHtml(d.name)+'</button>').join('')):'';
+  }
+  if(ps)ps.innerHTML=[['','الكل'],['yes','🟢 لديه ستاند'],['no','⚪ بدون ستاند']].map(x=>'<button class="pill'+(cmState.stand===x[0]?' on':'')+'" data-cm-s="'+x[0]+'">'+x[1]+'</button>').join('');
+  const rows=all.filter(c=>(!cmState.dist||String(c.distributor_id)===String(cmState.dist))&&(!cmState.stand||(cmState.stand==='yes')===!!c.has_stand));
+  const hasLoc=c=>c.lat!=null&&c.lng!=null&&isFinite(c.lat)&&isFinite(c.lng);
+  const withLoc=rows.filter(hasLoc),noLoc=rows.filter(c=>!hasLoc(c));
+  const st=byId('cm-stats');
+  if(st)st.innerHTML='<div class="stats" style="margin-bottom:10px"><div class="stat"><span>العملاء</span><b>'+rows.length+'</b></div><div class="stat"><span>على الخريطة</span><b>'+withLoc.length+'</b></div><div class="stat"><span>لديهم ستاند</span><b>'+rows.filter(c=>c.has_stand).length+'</b></div></div>';
+  const lg=byId('cm-legend');
+  if(lg)lg.innerHTML='🟢 لديه ستاند &nbsp; 🟠 بدون ستاند'+(store.company&&store.company.gmaps_key?'':' &nbsp;·&nbsp; الخريطة: OpenStreetMap'+(isA()?' (أضف مفتاح Google Maps من الإدارة لعرض خرائط قوقل)':''));
+  const ls=byId('cm-list');
+  if(ls)ls.innerHTML=noLoc.length?('<div class="card"><h2 style="margin-bottom:6px">عملاء بدون موقع ('+noLoc.length+')</h2>'+noLoc.map(c=>'<div class="kv"><span>'+escHtml(c.name)+(isA()&&c.distributor_id?' · '+escHtml(dn(c.distributor_id)):'')+'</span><button class="btn-ghost sm" data-cm-loc="'+escHtml(c.id)+'">📍 تحديد الموقع</button></div>').join('')+'</div>'):'';
+  if(ui.tab!=='customers_map')return;
+  if(cmBusy)return;
+  cmBusy=true;
+  (async()=>{
+    try{
+      if(!cmMap||!host.firstChild){host.innerHTML='';cmMap=await createMapView(host,{center:MAP_DEFAULT,zoom:11});cmState.fitDone=false}
+      cmMap.resize();
+      cmMap.clear();
+      const pts=[];
+      withLoc.forEach(c=>{
+        const lat=Number(c.lat),lng=Number(c.lng);pts.push([lat,lng]);
+        cmMap.addPin(lat,lng,{title:c.name,color:c.has_stand?'#16a34a':'#f59e0b',html:custPinHtml(c)});
+      });
+      if(cmState.refit||!cmState.fitDone){cmMap.fit(pts);cmState.refit=false;cmState.fitDone=true}
+    }catch(e){
+      console.error(e);cmMap=null;
+      host.innerHTML='<div class="notice" style="margin:12px">تعذر تحميل الخريطة — تحقق من الاتصال بالإنترنت ثم أعد فتح التبويب</div>';
+    }finally{cmBusy=false}
+  })();
+}
+
 const MOUNT={
   sales:mountSales,
   production:mountProduction,
@@ -11398,6 +11625,7 @@ const MOUNT={
   collections:mountCollections,
   distributors:mountDistributors,
   attendance_log:mountAttendanceLog,
+  customers_map:mountCustomersMap,
   prices:mountPrices,
   management:mountManagement
 };
@@ -11417,6 +11645,7 @@ const RENDER={
   collections:renderCollections,
   distributors:renderDistributors,
   attendance_log:renderAttendanceLog,
+  customers_map:renderCustomersMap,
   prices:renderPrices,
   management:renderManagement
 };
@@ -11984,6 +12213,7 @@ const ICONS={
   attendance_log:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01"/>',
   analytics:'<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/><path d="M4 7l5-3 5 6 6-5"/>',
   management:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  customers_map:'<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
   more:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'
 };
 const svg=k=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+ICONS[k]+'</svg>';
@@ -12005,6 +12235,7 @@ function go(tab){
     b.classList.toggle('on',on);
   });
   window.scrollTo(0,0);
+  if(tab==='customers_map'&&RENDER.customers_map){setTimeout(()=>{try{RENDER.customers_map()}catch(e){console.error(e)}},0)}
 }
 function moreSheet(){
   const al=allowed().slice(4);
