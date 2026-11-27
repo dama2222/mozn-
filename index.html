@@ -9348,6 +9348,8 @@ function entSheet(ent,id){
     }
     cfg.fields.forEach(f=>{if(f.type==='select'&&v[f.k]==='')v[f.k]=null});
     if(ent==='customers'&&entLoc){v.lat=entLoc.lat;v.lng=entLoc.lng;v.has_stand=!!v.has_stand}
+    // الباركود الفارغ يُحفظ NULL لا نصاً فارغاً (حتى لا يتعارض مع فهرس الباركود الفريد)
+    if('barcode' in v&&!String(v.barcode||'').trim())v.barcode=null;
     if(ent==='products'){
       v.price=Number(v.price)||0;
       v.dist_price=v.price;
@@ -9386,7 +9388,8 @@ function entSheet(ent,id){
             x.id=newId;
             index(draft);
           }
-        }
+        },
+        {errorMessage:ex=>(ex&&(ex.code==='23505'||/duplicate key|unique/i.test(ex.message||'')))?'هذا الباركود مستخدم لمنتج آخر — غيّره أو اتركه فارغاً':null}
       );
     };
     if(changes.length){
