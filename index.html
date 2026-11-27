@@ -9447,11 +9447,11 @@ function monthPriceSheet(){
   const now=new Date(),mN=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
   const chk=(id,txt)=>'<label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="'+id+'" checked> '+txt+'</label>';
   openSheet('<h3>📈 تغيير سعر منتج لشهر</h3>'+
-    '<p class="muted" style="font-size:12.5px;margin:0 0 8px">يطبّق الزيادة على سعر المنتج في فواتير الشهر المختار (سعر الزبون)، وعلى سعر المنتج نفسه ومسحوباته. للتخفيض أو التراجع أدخل قيمة سالبة.</p>'+
+    '<p class="muted" style="font-size:12.5px;margin:0 0 8px">يحسب السعر الجديد من سعر المنتج الحالي (± التعديل) ويثبّته في كل فواتير الشهر المختار ومسحوباته، فلا يرتفع أي سطر فوق السعر المطلوب. للتخفيض أدخل قيمة سالبة، أو اختر «تثبيت سعر محدد» لإدخال السعر النهائي مباشرة.</p>'+
     '<label class="fl">المنتج</label><select class="in" id="mp-prod">'+prods.map(p=>'<option value="'+escHtml(p.id)+'">'+escHtml(p.name)+'</option>').join('')+'</select>'+
     '<label class="fl">الشهر</label><select class="in" id="mp-m">'+mN.map((x,i)=>'<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+(i+1)+' — '+x+'</option>').join('')+'</select>'+
     '<label class="fl">السنة</label><input class="in" id="mp-y" type="number" inputmode="numeric" value="'+now.getFullYear()+'">'+
-    '<label class="fl">نوع التعديل</label><select class="in" id="mp-mode"><option value="amt">مبلغ ثابت على سعر الوحدة</option><option value="pct">نسبة مئوية %</option></select>'+
+    '<label class="fl">نوع التعديل</label><select class="in" id="mp-mode"><option value="amt">مبلغ ثابت على سعر الوحدة</option><option value="pct">نسبة مئوية %</option><option value="set">تثبيت سعر محدد (السعر النهائي)</option></select>'+
     '<label class="fl">القيمة (سالب = تخفيض)</label><input class="in" id="mp-v" type="number" inputmode="decimal" step="any" placeholder="مثال: 0.5">'+
     chk('mp-setprod','تحديث سعر المنتج نفسه (للفواتير القادمة)')+
     chk('mp-setwd','تحديث سعر المسحوبات في نفس الشهر')+
@@ -9462,7 +9462,9 @@ function monthPriceSheet(){
     const pid=g('mp-prod').value,m=+g('mp-m').value,y=parseInt(g('mp-y').value,10),mode=g('mp-mode').value,v=parseFloat(g('mp-v').value);
     const out={rows:[],wd:[],inv:0,qty:0,before:0,after:0,credit:0,bad:false,ready:false,setprod:g('mp-setprod').checked,setwd:g('mp-setwd').checked,curP:0,newP:0};
     if(!pid||!(y>=2000&&y<=2100)||!isFinite(v)||v===0)return out;
-    const nv=old=>mode==='pct'?r3(old*(1+v/100)):r3(old+v);
+    // 💡 السعر الجديد = «السعر المطلوب» للمنتج (سعره الحالي ± التعديل) ويُثبَّت في كل سطور الشهر،
+    //    وليس إضافة التعديل فوق سعر كل فاتورة (حتى لا يرتفع سعر فاتورة باعها الموزع بسعر أعلى فوق المطلوب).
+    const nv=()=>mode==='set'?r3(v):mode==='pct'?r3(out.curP*(1+v/100)):r3(out.curP+v);
     const p=store.products.find(x=>x.id===pid);
     out.curP=Number(p&&p.price)||0;out.newP=nv(out.curP);
     if(out.setprod&&!(out.newP>0))out.bad=true;
@@ -9508,7 +9510,7 @@ function monthPriceSheet(){
   g('mp-go').onclick=()=>{
     const c=calc();if(!c.ready)return;
     const pid=g('mp-prod').value,pname=(store.products.find(p=>p.id===pid)||{}).name||'',m=g('mp-m').value,y=g('mp-y').value;
-    const modeTxt=g('mp-mode').value==='pct'?(g('mp-v').value+'%'):(g('mp-v').value+' '+cur());
+    const modeTxt=g('mp-mode').value==='pct'?(g('mp-v').value+'%'):g('mp-mode').value==='set'?('تثبيت على '+g('mp-v').value+' '+cur()):(g('mp-v').value+' '+cur());
     confirmSheet('تغيير سعر «'+pname+'» بمقدار '+modeTxt+' — '+c.rows.length+' سطر في '+c.inv+' فاتورة (شهر '+m+'/'+y+')'+(c.setprod?'، وسعر المنتج نفسه '+fmt(c.curP)+' ← '+fmt(c.newP):'')+(c.wd.length?'، و'+c.wd.length+' سجل مسحوبات':'')+'. هل أنت متأكد؟','نعم، طبّق',async()=>{
       if(c.setprod&&adapter.mode==='cloud'){
         try{const r=await adapter.sb.from('price_history').select('id').limit(1);if(r.error)throw r.error}
