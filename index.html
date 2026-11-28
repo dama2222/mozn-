@@ -3536,7 +3536,15 @@ async function saveEditTicket(kind,hid,origItems){
   const mk=(v,pre)=>{
     const o=origById[v.id];
     const it=Object.assign({},o||{},v);
-    if(!o){it.id=uuid()}
+    if(!o){
+      it.id=uuid();
+      // السطر الجديد يجب أن يحمل كل الحقول الإلزامية (الإرسال الجماعي يحوّل الحقل الناقص إلى NULL فيرفضه الجدول)
+      it.log=[];
+      if(kind==='sales'&&it.cost==null){const pp=pOf(store,v.product_id);it.cost=pp?(Number(pp.cost)||0):0}
+      if(kind==='sales'&&it.discount==null)it.discount=0;
+      if(kind==='purchases'&&it.unit_cost==null)it.unit_cost=0;
+      if(kind==='shifts'){['actual','waste','down'].forEach(k=>{if(it[k]==null)it[k]=0});if(it.reason==null)it.reason=''}
+    }
     if(o&&Number(o[qk])!==Number(v[qk]))it.log=(o.log||[]).concat([{ts:now,by:user.name,from:o[qk],to:v[qk],edit:true}]);
     return it;
   };
