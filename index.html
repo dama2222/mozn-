@@ -4952,6 +4952,34 @@ function renderAttendanceCard(){
    الإنتاج
    ===================================================================== */
 let prodLB;
+/* 🔓 إظهار قسيمة «تسجيل وردية إنتاج»: تظهر عند تسجيل حضور مشغّل اليوم (حضور شخصي) أو تأكيد حضور الفريق.
+   كانت القسيمة مخفية دائماً لأن بطاقة تأكيد الحضور القديمة لم تعد موجودة في الصفحة فلا شيء كان يُظهرها. */
+function renderProdFormGate(){
+  const wrap=byId('prod-formwrap');
+  if(!wrap)return;
+  const t=today();
+  const ok=(store.operator_shifts||[]).some(s=>s.date===t)||!!(store.attendance||[]).find(a=>a.date===t);
+  wrap.hidden=!ok;
+  let hint=byId('prod-gate-hint');
+  if(!hint){
+    hint=document.createElement('div');hint.id='prod-gate-hint';hint.className='notice';
+    hint.textContent='⚠️ سجّل حضور المشغّل أولاً (من شريحة الحضور أعلاه) لتظهر قسيمة تسجيل الإنتاج';
+    wrap.parentNode.insertBefore(hint,wrap);
+  }
+  hint.hidden=ok;
+  // اختيار المشغّل الحاضر تلقائياً (المشغّل المرتبط بحسابي، وإلا أول مشغّل حاضر اليوم) ما لم يُغيَّر يدوياً
+  if(ok){
+    const hf=forms.find(f=>f.id==='ph');
+    const sel=byId('ph__operator_id');
+    if(hf&&sel&&!sel.dataset.touched){
+      const mine=(typeof linkedOperators==='function'?linkedOperators():[]).map(o=>o.id);
+      const present=(store.operator_shifts||[]).filter(s=>s.date===t).map(s=>s.operator_id);
+      const pick=mine.find(id=>present.indexOf(id)>=0)||present[0];
+      if(pick&&String(sel.value)!==String(pick)&&[].some.call(sel.options,o=>String(o.value)===String(pick)))sel.value=pick;
+      sel.addEventListener('change',()=>{sel.dataset.touched='1'},{once:true});
+    }
+  }
+}
 function mountProduction(){
   renderProdShiftChip();
   renderOpShiftChip();
@@ -4993,6 +5021,7 @@ function mountProduction(){
     {k:'shift',label:'الوردية',type:'select',options:[['Morning','صباحي'],['Evening','مسائي'],['Night','ليلي']]}
   ],{noSubmit:true,main:true});
   prodLB=lineBuilder(byId('prod-lines'),'production');
+  renderProdFormGate();
   byId('prod-save').onclick=guardSave('prod-save','prod',async()=>{
     if(!requirePerm('production'))return;
     const hf=forms.find(f=>f.id==='ph'),v=hf.vals(),lines=prodLB.values().filter(l=>l.product_id&&l.planned>0);
@@ -5130,6 +5159,7 @@ function renderProduction(){
   if(!byId('prod-body'))return;
   renderProdShiftChip();
   renderOpShiftChip();
+  renderProdFormGate();
     // 🆕 عدّاد المكافآت
   const myOp = store.operators.find(o => o.user_id === user.id);
   const bonusEl = byId('prod-bonus-countdown');
